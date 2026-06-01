@@ -175,7 +175,7 @@
 
     scatter(points) { // points:[{name,x,y,quad}] x=volume y=conversion
       const quadColor = (t) => ({ hh: t.good, hl: t.warn, lh: t.info, ll: t.bad });
-      const maxX = Math.max.apply(null, points.map((p) => p.x));
+      const maxX = Math.max(1, ...points.map((p) => p.x || 0));
       return (t) => {
         const qc = quadColor(t);
         return {
