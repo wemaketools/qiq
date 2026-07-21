@@ -1,0 +1,145 @@
+{
+  "id": "T-025",
+  "title": "Lead workflow engine: legality matrix, all lead operations, status history, pricing approvals, follow-ups, availableOperations",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-024"
+  ],
+  "objective": "Port the lead workflow: a pure legality-matrix module (operation x status by reporting category + canonical key), the full lead operation set executed via POST /leads/{id}/operations/{op} with append-only status history (actor/inputs), pricing-approval sub-state with optional high-value gate, follow-up logging, the single Assign/Reassign dialog contract over fixed slots, and server-computed availableOperations (P-07).",
+  "scope": [
+    "Pure module domains/leads/workflow/legality.ts: legal operations per status evaluated by reporting category + canonical key; unit-tested against the full ported matrix",
+    "Operations: assign (slots; accountable owner = rm), start-information-gathering, send-to-underwriting, start-pricing, request-pricing-approval, approve-pricing, reject-pricing, log-follow-up, start-negotiation, mark-lost (structured reason + comment-when-Other + open-quote cascade), withdraw, reopen (to last open status)",
+    "Append-only lead_status_history with actor + jsonb inputs per operation; audit rows per P-13",
+    "Pricing approval as a Pricing sub-state with the tenant-toggled high-value send gate (business rule)",
+    "follow_ups records via log-follow-up (next-follow-up requirements enforced where the matrix requires)",
+    "availableOperations computed server-side and returned on lead detail per contract; 409 with legal-operation hint on illegal transitions",
+    "Only jobs make automatic status changes (expiry paths live in T-032)"
+  ],
+  "out_of_scope": [
+    "Quote operations (T-026 — including won->lead Closed Won cascade from the quote side)",
+    "Alert re-evaluation enqueue hook (T-034 wires it into these executors)",
+    "Timeline endpoint (T-029)"
+  ],
+  "implementation_details": [
+    "Port LeadOperationExecutor semantics: each operation validates legality (matrix), validates inputs (zod per-operation schemas — assignee eligibility, lost reason from reference list active values, follow-up dates future while open, etc.), mutates state, appends history, writes audit, stamps last_activity_at — all in one transaction.",
+    "Reopen: returns to the last open status from history (port exact resolution rule).",
+    "Mark-lost cascade: open quotes of the lead transition per reference cascade rules with their own history entries.",
+    "Assign/Reassign: single dialog contract — slot-based payload (rm/underwriter), validates role-holders per T-020 slots.",
+    "availableOperations: same legality module + per-user permission filtering as the reference (illegal ops hidden in UI, but server also rejects).",
+    "Executor emits an in-process domain event/callback seam so T-034 can enqueue targeted alert re-evaluation without modifying operation logic."
+  ],
+  "files": [
+    "src/server/domains/leads/workflow/legality.ts",
+    "src/server/domains/leads/workflow/operations.ts",
+    "src/server/domains/leads/workflow/routes.ts",
+    "src/server/domains/leads/workflow/schemas.ts",
+    "src/server/domains/leads/workflow/history.ts",
+    "src/server/tests/unit/lead-legality-matrix.test.ts",
+    "src/server/tests/integration/lead-workflow.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Full legality matrix: every operation x status combination matches the ported .NET matrix (table-driven); reporting-category + canonical-key evaluation; reopen target resolution"
+    ],
+    "integration": [
+      "Each operation: state change + history row (actor, inputs jsonb) + audit + last_activity_at, atomically; illegal op -> 409 with legal-operation hint",
+      "Pricing approval flow incl. high-value gate on/off via business rule; approve/reject transitions",
+      "Mark-lost with reason/comment rules + quote cascade; withdraw; reopen to last open status",
+      "availableOperations reflects status + permissions for different fixture users",
+      "Tenant isolation on operation endpoints"
+    ],
+    "e2e": [
+      "Lead workflow specs (dialogs, operations) adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-021",
+    "AC-022",
+    "AC-024",
+    "AC-047",
+    "AC-048",
+    "AC-049",
+    "AC-050",
+    "AC-051",
+    "AC-096"
+  ],
+  "verification_ids": [
+    "V-026",
+    "V-027",
+    "V-031",
+    "V-060",
+    "V-061",
+    "V-062",
+    "V-063",
+    "V-064",
+    "V-065",
+    "V-066",
+    "V-124"
+  ],
+  "findings": [
+    {
+      "id": "T-025-N1",
+      "severity": "minor",
+      "summary": "AC-049's high-value pricing gate does not exist on any LEAD operation in the reference - it is a QUOTE-send rule owned by T-026",
+      "detail": "AC-049 and this task's scope state that 'when the tenant's pricing-approval gate is enabled and the lead is high-value, send-path progress requires an approved pricing state (attempt without it -> 409)'. MEASURED: the only implementation of that rule in the reference is SendQuoteCommandHandler.cs:85-91 - it reads settings.RequirePricingApprovalForHighValue, settings.HighValueThreshold and the CURRENT QUOTE VERSION's QuotedPremium, and returns QuoteWorkflowErrors.PricingApprovalRequired ('PRICING_APPROVAL_REQUIRED', 422 - NOT 409). No lead operation consults RequirePricingApprovalForHighValue at all (grep over src/api: the only non-settings, non-dashboard reference is SendQuoteCommandHandler). There is no lead-side 'send path'. The gate is therefore NOT implementable in T-025 and belongs to T-026, which this task's own out_of_scope already assigns quote operations to. Two further contradictions with AC-049 for the record: the status is 422 not 409, and the threshold is compared against the QUOTE's premium, not the lead's estimated premium. IMPLEMENTED HERE: the pricing-approval SUB-STATE machine in full (request/approve/reject, none->pending->approved|rejected, approver eligibility, approver and reason recorded, audited, and the re-request-after-rejection rework loop) - everything in AC-049 except the send gate. FLAGGED rather than filled: a lead-side high-value gate would invent behaviour the reference does not have. EVALUATOR RULING (2026-07-19T17:10:00-04:00): VERIFIED FIRST-HAND against the reference: the only high-value pricing gate is SendQuoteCommandHandler.cs:85-91 - QUOTE-side, inside the quote Send operation, returns 422 PRICING_APPROVAL_REQUIRED (QuoteWorkflowErrors.cs:26-29, whose own doc comment says '422, nothing persists'), and compares the CURRENT QUOTE VERSION's QuotedPremium against the threshold. A repo-wide grep confirms no lead operation consults RequirePricingApprovalForHighValue. AC-049's send-gate clause is a false premise on the lead side: wrong entity, wrong status code, wrong premium field, and no lead-side send path exists. ESCALATED TO THE HUMAN, left open. RECOMMENDATION: amend AC-049 to the measured contract - keep the pricing sub-state clauses (implemented and verified here) in T-025's scope, and re-scope the gate clause to T-026 as 'quote Send with the tenant gate enabled and the current version's premium above threshold requires pricing_approval_state=approved; attempt without it -> 422 PRICING_APPROVAL_REQUIRED, nothing persists', with V-063's second bullet re-pointed at the quote-send path. This is the same class the human just ruled on for T-024-F4, in favour of amending to the measured contract.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T16:05:00-04:00"
+    },
+    {
+      "id": "T-025-N2",
+      "severity": "minor",
+      "summary": "409 legal-operation hint is named `availableOperations`, not the reference's `legalOperations`",
+      "detail": "LeadWorkflowErrors.IllegalTransition puts the hint in an extension called `legalOperations`. T-009 had already shipped lib/errors/index.ts and lib/errors/problem.ts with the extension named `availableOperations`, pinned by tests/unit/problem.test.ts and tests/integration/http.skeleton.test.ts. This port reuses T-009's IllegalOperationError rather than renaming a shipped, pinned contract in another task's files. Verified no consumer is affected: grep over src/ui finds zero occurrences of `legalOperations`; the SPA reads `availableOperations` off the LEAD DTO and never parses the 409 body's hint. Recorded, not silently chosen - if byte-for-byte parity with the reference is wanted, it is a one-line change in lib/errors/problem.ts plus its two pins, and that is a T-009 decision. EVALUATOR RULING (2026-07-19T17:10:00-04:00): ACCEPTED. Verified: the reference names the hint legalOperations (LeadWorkflowErrors.cs:16); T-009's shipped problem writer names it availableOperations, pinned by two suites; the only 'legalOperations' hit under src/ui is the substring inside a test NAME (LeadDetailPage.test.tsx:177 'IllegalOperationsNotInAvailableOperations') - the SPA never parses the 409 hint field. No shipped consumer is affected, and renaming a pinned T-009 contract from inside T-025 would be worse than the divergence. Should be transcribed into AC-095's documented-deviation ledger when T-044 evaluates contract parity.",
+      "status": "wont_fix",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T16:05:00-04:00"
+    },
+    {
+      "id": "T-025-N3",
+      "severity": "minor",
+      "summary": "The executor's own LEAD_OPERATION_FORBIDDEN is unreachable over HTTP; the route guard answers first with no domain code",
+      "detail": "MEASURED: requirePermission (lib/auth/require-permission.ts:141) throws a bare ForbiddenError with NO `code` extension. Because the route guard and the executor consult the SAME per-operation permission map, an HTTP caller lacking the permission is always rejected by the guard, so the executor's LEAD_OPERATION_FORBIDDEN never appears on the wire. That matches the reference's double-gating (LeadWorkflowEndpoints.cs:27-28 calls it 'defense in depth') and is correct - the executor's check exists for NON-HTTP callers (the T-032 expiry job, queue handlers, cascades) that pass no route guard. Covered accordingly: the HTTP test asserts the guard's 403 and that the body leaks nothing about the lead, and a separate test calls withdrawLead() directly with a real EffectiveAccess built over an empty permission set to reach the executor's own 403 and prove nothing was written. EVALUATOR RULING (2026-07-19T17:10:00-04:00): RULED SOUND, not a hidden gap. Verified requirePermission throws a bare ForbiddenError with no code (require-permission.ts:141) and shares the executor's per-operation permission map (routes.ts literal permissions match LEAD_OPERATION_PERMISSIONS and the reference's LeadOperationPermissions.cs exactly), so the executor's LEAD_OPERATION_FORBIDDEN is genuinely unreachable over HTTP. The suite asserts the true wire contract (guard 403, no lead disclosure) AND reaches the executor's own check by calling withdrawLead() directly with an access object that denies everything, proving 403 + no writes. Strengthening the HTTP test to expect the domain code would have been asserting a fiction. Evaluator-side correction applied: the test comment at lead-workflow.test.ts:1393 claimed the access object was 'not a hand-rolled stub' when it is one; reworded to describe reality (behaviour unchanged, suites re-run green).",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T16:05:00-04:00"
+    },
+    {
+      "id": "T-025-N4",
+      "severity": "minor",
+      "summary": "Quote-side statuses (Quote Sent, Negotiation) are constructed by direct SQL in the test fixture, because T-026 does not exist yet",
+      "detail": "start-negotiation is legal only from canonical `quote_sent`, and the log-follow-up 'future next date required past Quote Sent' rule only applies to reporting category `quoted`. Neither status is reachable by any LEAD operation - they are entered from the quote side (T-026). Rather than declaring those rules untestable, the discriminating state is constructed directly by SQL (forceStatus(), which also appends a truthful history row so reopen's history walk has something real to find). This converts three otherwise unfalsifiable rules into covered ones: start-negotiation, the log-follow-up quoted-category gate, and lostBeforeQuote=false. Once T-026 lands, forceStatus() should be replaced by a real quote-send call. EVALUATOR RULING (2026-07-19T17:10:00-04:00): ACCEPTED as the only honest way to test quote-side-entered statuses before T-026 exists; forceStatus() appends a truthful history row so reopen's walk sees real data. KEPT OPEN as a tracked follow-up: once T-026 lands, replace forceStatus() with a real quote-send call. T-026's evaluator should check this.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T16:05:00-04:00"
+    },
+    {
+      "id": "T-025-N5",
+      "severity": "minor",
+      "summary": "Alert re-evaluation seam is an optional post-commit callback for T-034 to wire",
+      "detail": "LeadOperationExecutor called IAlertReevaluationQueue.EnqueueLeadReevaluationAsync inside its transaction. Here it is LeadWorkflowDeps.onLeadChanged, an OPTIONAL callback invoked AFTER commit - enqueuing re-evaluation for a state that may still roll back is how duplicate and phantom alerts get created. Nothing wires it yet; T-034 supplies it without modifying any operation logic. EVALUATOR RULING (2026-07-19T17:10:00-04:00): Informational design record, no action for T-025. Moving the alert re-evaluation enqueue from inside the transaction to a post-commit callback is an improvement over the reference (no phantom/duplicate alerts from rolled-back state); T-034 wires it.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T16:05:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-07 lead side, section 12 lead operations, section 14 rules."
+    },
+    {
+      "timestamp": "2026-07-19T16:05:00-04:00",
+      "event": "implemented",
+      "message": "Implementor: lead workflow engine ported. TEST-FIRST: the anchor RED run was observed first - GET /leads/{id} returned availableOperations [] against an expected ['assign','log-follow-up','mark-lost','withdraw'] (T-024-F8 confirmed), then made green. FILES: domains/leads/workflow/{legality,operations,history,schemas,routes,errors}.ts (new); domains/leads/service.ts (projectLeadDetail now takes EffectiveAccess and computes availableOperations; LeadCreationActor gains an optional `access`); lib/router/app.ts (workflow routes mounted on the EXISTING `leads` deps slot - no new composition-root slot, therefore no change to either composition root or auth-wiring.test.ts). TESTS: tests/unit/lead-legality-matrix.test.ts (959 assertions, exhaustive over 13 operations x 12 canonical keys x 6 reporting categories, with expectations hand-transcribed from LeadWorkflow.cs rather than read from the module, plus exhaustiveness guards); tests/integration/lead-workflow.test.ts (37 tests). GATES: unit 959 pass; integration 37 pass; leads-core + leads-list 117 pass (no regression); typecheck 0; eslint repo-wide 0. No schema change, so db:types:check is not applicable. Row residue verified zero by direct query (no t025- tenants; zero orphan rows in lead_status_history, follow_ups, pricing_approvals, quote_status_history, quotes, lead_assignments, leads). MUTATION TESTING: 6 mutants, each proven applied (sha256 delta for same-line edits, line-count delta 896->891 for the deletion). M1 illegal-transition status 409->422 with the code intact: KILLED. M2 code LEAD_ILLEGAL_TRANSITION->LEAD_WORKFLOW_VALIDATION_FAILED with the status intact: KILLED. Together these prove the suite discriminates status and code independently. M3 'any open status' narrowed to the literal open category: KILLED by both suites (59 unit + 2 integration). M4 reopen walk start index length-2 -> length-1: SURVIVED, ruled EQUIVALENT - reopen is legal only from closed_lost/expired/withdrawn, all non-open categories, so the last timeline entry can never satisfy the open/quoted predicate and the offset is defensive rather than load-bearing. Mutated the load-bearing part instead: M4b walk direction reversed (oldest open status instead of most recent): KILLED (reopened to 'new' instead of 'underwriting'). M5 availableOperations permission filter removed: KILLED. M6 mark-lost quote cascade deleted: KILLED. All files restored byte-identical, sha256 re-verified, suites re-run green."
+    },
+    {
+      "timestamp": "2026-07-19T17:10:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator: PASS (iteration 0), conditional on the human's AC-049 ruling per T-025-N1. VERIFIED FIRST-HAND: (1) unit+integration suites green in isolation (996 = 959 matrix + 37 integration); full serial gate re-run after evaluation: db:validate 0, ci:test 74 files / 2504 passed / 0 skipped exit 0, typecheck 0, lint 0. (2) THE MATRIX IS A GENUINE ORACLE: EXPECTED_RULES in lead-legality-matrix.test.ts is an independent literal transcription - the module's matrix is imported only for the key-coverage exhaustiveness guard, never for expectations. All 13 rows checked against LeadWorkflow.cs:82-172 literal by literal; canonical status keys against LeadStatusKeys.cs; wire codes against LeadOperationCodes; the permission map against LeadOperationPermissions.cs - all match exactly, including the two flagged PRD ambiguity resolutions (any-open = open|quoted; custom statuses inherit only category-wide ops) and the expire_automatic exclusion from hints. (3) MUTANTS REPRODUCED with sha256 application proof: M4 (reopen walk start length-2 -> length-1) applied and SURVIVED 996/996, and the equivalence argument was verified analytically - reopen is legal only from closed_lost/expired/withdrawn, so the timeline's last entry (the terminal status itself) can never satisfy the open/quoted predicate; the -2 offset is defensive. M4b (walk direction reversed to oldest-first) applied and KILLED by exactly 'reopens to the LAST OPEN status, not to New'. The port of ResolveReopenTargetStatusIdAsync (:181-208) is line-for-line faithful. Files restored byte-identical (sha256 fa7c5562 re-verified) and green. (4) N3's two-sided 403 coverage ruled sound (see finding). (5) AC-047 no-status-set endpoint, AC-048 append-only history + audit inventory, AC-050 three-status + permission-profile availableOperations with server-side refusal, AC-051 cascade/withdraw/follow-up rules, AC-021/022 isolation, AC-096 semantics - all covered by named tests reviewed in source. AC-049 satisfied in full EXCEPT the send-gate clause, which is escalated as a false premise (T-025-N1, recommendation recorded). E2E clauses of AC-050/V-065 remain with T-043 per the AC's own task mapping. TAKEN ON TRUST: the implementor's M1/M2/M3/M5/M6 mutant runs and the RED-first anchor observation (consistent with test structure; not re-run). Findings normalized to task.schema.json (severity info -> minor, title -> summary)."
+    }
+  ]
+}

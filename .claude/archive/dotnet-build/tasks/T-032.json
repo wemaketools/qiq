@@ -1,0 +1,201 @@
+{
+  "id": "T-032",
+  "title": "Executive Overview dashboard (API + UI)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-031",
+    "T-024"
+  ],
+  "objective": "The Overview screen per spec FR-55 / PRD 13: nine KPI cards, three charts, High-Value Opportunities table, Requires Attention panel — all filterable, drillable, and lead/quote-labeled.",
+  "scope": [
+    "GET /api/v1/dashboards/executive returning the full widget payload",
+    "Route /overview page composing the framework components",
+    "Pipeline by Stage as CURRENT OPEN items per stage (prototype deviation honored)",
+    "Requires Attention panel fed by alert summary categories"
+  ],
+  "out_of_scope": [
+    "Alert queue behavior (T-037)",
+    "Exports (T-039)"
+  ],
+  "implementation_details": [
+    "Features/Dashboards/Executive/GetExecutiveOverviewQuery: KPIs — TotalQuotes, OpenPipelinePremium, WonPremium (MTD/YTD per filter), ConversionRate, AverageTurnaround (good direction: down), QuotesAtRisk (amber styling), TotalLeads, LeadToQuoteRate, LeadsAtRisk — each as KpiValue with prior-period delta; PipelineByStage: open leads/quotes count per open stage with share of open total; OpenAgingDonut: buckets 0-3/4-7/8-14/15+ days with center total; WonVsLostTrend: weekly/monthly series of won premium (solid) vs lost premium (dashed); HighValueOpportunities: top open items above tenant high_value_threshold with columns client(+party-type icon), broker, product, premium, stage, next action + due date, owner, risk flag; RequiresAttention: alert summary categories (stalled quotes, overdue follow-ups, expiring quotes, SLA breaches, executive escalations, awaiting assignment, awaiting UW/pricing approval) with counts from T-024 summary",
+    "All aggregations implement MetricDefinitions semantics; every widget payload includes drill widget keys",
+    "features/dashboards/OverviewPage.tsx: KPI row (wraps 9 cards), chart row (PipelineByStage horizontal bars with count + % labels and 'View full pipeline →', AgingDonut with legend and 'View aging report →', WonLostTrendChart with Weekly/Monthly selector and 'View trend analysis →'), bottom row (HighValueTable with row drill to Lead Detail; RequiresAttentionPanel rows with icon/title/definition/count color-coded, chevron -> /alerts pre-filtered)",
+    "Lead vs quote labels explicit on every card/chart title (FR-54)",
+    "T-043 amendment (docs/ui-remediation/plan.md, AC-082): build every screen part of this task on the shared design-system layer from T-043 — src/ui/src/theme/components.css classes (.qiq-card, .qiq-btn, .qiq-chip, .qiq-table-wrap, .qiq-kpi-*, .qiq-menu) and components/common/Icon.tsx — never ad-hoc inline styling or new CSS files. Before marking IMPLEMENTED, do a side-by-side check against docs/prototype/screenshots/QuoteIQ - Overview.png at ~1670px: layout regions, card composition, chart types, chip/color semantics must match the prototype (subject to the PRD's documented deviations for this screen, e.g. lead-vs-quote labeling, excluded prototype-only widgets). Record the comparison result in this task's history."
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Dashboards/Executive/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/DashboardEndpoints.cs",
+    "src/ui/src/features/dashboards/OverviewPage.tsx",
+    "src/ui/src/features/dashboards/overview/*.tsx",
+    "src/api/tests/QuoteIQ.Api.Tests/Dashboards/ExecutiveOverviewTests.cs",
+    "e2e_tests/tests/dashboard-overview.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "ExecutiveOverview_AgainstSeededFixture_ShouldComputeExpectedKpiValues",
+      "PipelineByStage_ShouldCountCurrentOpenItemsNotCumulative",
+      "WonVsLostTrend_ShouldBucketByWeekAndMonth",
+      "Filters_ShouldNarrowAllWidgetsConsistently",
+      "HighValueTable_ShouldRespectTenantThreshold"
+    ],
+    "e2e": [
+      "dashboard-overview.spec.ts: page renders all widgets with seeded data; KPI drill and chart segment drill open matching lead lists; Requires Attention chevron lands on pre-filtered Alerts center; turnaround KPI shows green delta when falling"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-054",
+    "AC-071"
+  ],
+  "verification_ids": [
+    "V-054",
+    "V-071"
+  ],
+  "findings": [
+    {
+      "id": "T-032-FLAG-1",
+      "severity": "minor",
+      "summary": "High-Value Opportunities 'Next Action' free-text has no domain-backed field",
+      "detail": "The prototype's High-Value table shows a free-text 'Next Action' (e.g. 'Provide revised terms') per row. No such field exists on Lead/Quote in the domain. The implementation surfaces the lead's NextFollowUpDate as the due date and adds an Owner column instead; the free-text action is not synthesized. Flagged per CLAUDE.md rather than inventing a field.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T00:05:00-04:00"
+    },
+    {
+      "id": "T-032-FLAG-2",
+      "severity": "minor",
+      "summary": "Requires Attention renders all five T-024 alert-summary categories (superset of the prototype's three rows)",
+      "detail": "The prototype shows three attention rows (Stalled Quotes, Overdue Follow-ups, Expiring Quotes). The panel is fed by the full T-024 alert summary (AlertDefinitions.Categories: escalated, stalled, overdue, expiring, sla) per the task's 'fed by alert summary categories' instruction, so it renders all five. Intentional superset; each row's chevron pre-filters the Alerts center by that category's tab.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T00:05:00-04:00"
+    },
+    {
+      "id": "T-032-FLAG-3",
+      "severity": "minor",
+      "summary": "Executive aggregation is tenant-wide; only drill-through is breadth-limited",
+      "detail": "GetExecutiveOverviewQueryHandler computes tenant-wide KPI/widget aggregates gated solely by dashboards.view_executive (a privileged grant), matching an 'executive overview'. The drill-through rows (ExecutiveDashboardStore.ListDrillRowsAsync) still enforce the same Q-6/A-17 breadth rule (leads.view_all) the Leads list uses. Documented decision: aggregate counts are not narrowed to the caller's own assignments.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T00:05:00-04:00"
+    },
+    {
+      "id": "T-032-FLAG-4",
+      "severity": "minor",
+      "summary": "Widget drill-through scopes are reporting-category grained, not per-individual-stage",
+      "detail": "The T-031 DrillWidgetRegistry maps fixed widget keys to row queries. T-032 registers exec.leads/quotes/open_pipeline/won/lost/high_value/at_risk scopes. Pipeline-by-stage bars and the aging donut both drill to exec.open_pipeline (all currently-open leads under the active filter) rather than to a single tenant-configured status/bucket, since threading a per-stage status id would extend the shared DashboardFilter/registry contract owned by the PASS'd T-031 framework. Drill lists still respect all shared filter dimensions and tenant/breadth isolation.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T00:05:00-04:00"
+    },
+    {
+      "id": "T-032-FLAG-5",
+      "severity": "minor",
+      "summary": "V-054 Playwright spec is describe.fixme pending T-041 seed data + a live stack",
+      "detail": "e2e_tests/tests/dashboard-overview.spec.ts contains real, ready-to-run bodies but is guarded as test.describe.fixme: the only existing e2e seed (seed-shell-e2e.sh) provisions the personas (e2e-rm holds dashboards.view_executive) but no leads/quotes/alerts, so every widget would render its empty state. This matches the established convention (leads-list.spec.ts, dashboard-framework.spec.ts). Every V-054 behavior is proven meanwhile by ExecutiveOverviewTests (backend, real Postgres/Keycloak) and OverviewPage.test.tsx (frontend). Un-fixme once T-041 seeds the fixture and the compose stack is running.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T00:05:00-04:00"
+    },
+    {
+      "id": "F-001",
+      "severity": "minor",
+      "summary": "Evaluator ruling on T-032-FLAG-1 (no domain 'Next Action' field): ACCEPT, non-blocking.",
+      "detail": "AC-054 requires a High-Value Opportunities table with correct values and drill-through; it does not mandate a free-text next-action column. Surfacing NextFollowUpDate as the due date plus an Owner column, and flagging the missing domain field rather than synthesizing one, is correct per CLAUDE.md 'do not silently fill gaps'. Confirmed HighValueTable renders and rows drill to Lead Detail (OverviewPage.test.tsx click_WhenHighValueRowClicked_ShouldNavigateToLeadDetail). No requirement gap.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "severity": "minor",
+      "summary": "Evaluator ruling on T-032-FLAG-2 (Requires Attention renders all alert-summary categories): ACCEPT, non-blocking.",
+      "detail": "The task scope explicitly states the panel is 'fed by alert summary categories' (the full T-024 GetAlertSummaryQuery). Rendering the complete category set (a superset of the prototype's three rows) is per-spec, not a deviation from AC-054, which only requires the panel to render with counts and pre-filtered drill-through. Each row's chevron pre-filters the Alerts center by tab (verified click_WhenAttentionRowChevronClicked_ShouldNavigateToPreFilteredAlerts). Defensible against PRD 13.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    },
+    {
+      "id": "F-003",
+      "severity": "minor",
+      "summary": "Evaluator ruling on T-032-FLAG-3 (tenant-wide aggregation gated only by dashboards.view_executive; drill breadth-limited): ACCEPT, no security finding.",
+      "detail": "Reviewed for authorization/tenant isolation. GET /dashboards/executive is gated by dashboards.view_executive (a privileged grant); an executive overview showing tenant-wide aggregates to holders of that permission matches PRD 13 intent and AC-053 (aggregate metrics; drills constrained by breadth). ExecutiveDashboardStore.BuildSnapshotAsync applies an explicit TenantId predicate to every read (leads, quotes, quote_versions, alerts, owners) — no cross-tenant leakage. Drill-through (ListDrillRowsAsync) enforces the Q-6/A-17 breadth rule (leads.view_all resolved server-side in GetDrillQueryHandler via IEffectivePermissionResolver; without it, rows are narrowed to the caller's own lead_assignments) and the same TenantId predicate. The 403 gate is proven by Executive_WhenCallerLacksViewExecutivePermission_ShouldReturn403. Defensible; non-blocking.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    },
+    {
+      "id": "F-004",
+      "severity": "minor",
+      "summary": "Evaluator ruling on T-032-FLAG-4 (widget drills are reporting-category grained, not per-individual-stage/bucket): ACCEPT, non-blocking.",
+      "detail": "Pipeline-by-stage bars and the aging donut both drill to exec.open_pipeline (all currently-open leads under the active filter) rather than to the specific clicked stage/bucket. AC-054/AC-053 require that charts drill to underlying items respecting filter + breadth isolation, which holds; neither AC nor PRD 13 mandates per-stage drill granularity, and threading a per-stage status id would extend the PASS'd T-031 DashboardFilter/registry contract. This is the weakest of the five flags (a clicked 'Pricing' bar shows all open leads, not just Pricing), so it is recorded as a candidate UX refinement for a future task, but it is not an acceptance-criteria violation and is not blocking.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    },
+    {
+      "id": "F-005",
+      "severity": "minor",
+      "summary": "Evaluator ruling on T-032-FLAG-5 (V-054 Playwright spec is describe.fixme pending T-041 seed + live stack): ACCEPT deferral, non-blocking.",
+      "detail": "e2e_tests/tests/dashboard-overview.spec.ts contains five real, ready-to-run bodies guarded as test.describe.fixme because the only existing e2e seed provisions personas but no leads/quotes/alerts (T-041 scope, FR-67), so every widget would render its empty state. This matches the established harness convention (leads-list.spec.ts, dashboard-framework.spec.ts). Every V-054 behavior is meanwhile proven by ExecutiveOverviewTests (real Postgres/Keycloak, 7/7) and OverviewPage.test.tsx (8/8). Deferral is acceptable; must be un-fixme'd once T-041 lands.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    },
+    {
+      "id": "F-006",
+      "severity": "minor",
+      "summary": "AC-071 (dashboard < 2s at seed volume) has no executable timed assertion in T-032; deferred with T-041. Non-blocking.",
+      "detail": "AC-071 (priority 'should') and V-071 (timed integration against the seeded DB) are jointly owned by T-032 and T-041. No timing test exists in ExecutiveOverviewTests, and a meaningful one cannot run until T-041 seeds the fixture. The implementation is performance-conscious (bounded prefetch-then-compute over tenant-scoped, TenantId-predicated queries; the same shape as AlertStore), so this is a legitimate deferral to the T-041 seed milestone rather than a defect. Recorded so V-071 is not lost; not blocking this task.",
+      "status": "open",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T00:40:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-55, PRD 13)"
+    },
+    {
+      "timestamp": "2026-07-13T21:45:00-04:00",
+      "event": "amended",
+      "message": "Amended by T-043 (approved plan docs/ui-remediation/plan.md): must use the shared design-system layer and pass a per-screen prototype side-by-side fidelity check before IMPLEMENTED."
+    },
+    {
+      "timestamp": "2026-07-14T04:30:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1/10). Test-first full-stack build on the T-031 dashboard framework + T-043 design-system layer. Critical-path dashboard unblocking T-040."
+    },
+    {
+      "timestamp": "2026-07-14T00:02:00-04:00",
+      "event": "tests_written",
+      "message": "Backend integration tests: src/api/tests/QuoteIQ.Api.Tests/Dashboards/ExecutiveOverviewTests.cs (6 cases against a hand-computed real-Postgres/Keycloak fixture: the 5 test_plan.integration cases + a ViewExecutive 403 gate). Frontend component tests: src/ui/src/features/dashboards/__tests__/OverviewPage.test.tsx (8 cases). Playwright e2e: e2e_tests/tests/dashboard-overview.spec.ts (5 real bodies, describe.fixme per T-032-FLAG-5)."
+    },
+    {
+      "timestamp": "2026-07-14T00:03:00-04:00",
+      "event": "implementation_written",
+      "message": "Backend: Features/Dashboards/Executive/{ExecutiveOverviewDto,ExecutiveWidgetKeys,ExecutiveDrillRowQuery,GetExecutiveOverviewQuery,GetExecutiveOverviewQueryHandler}.cs; Abstractions/IExecutiveDashboardStore.cs; Infrastructure/Dashboards/{ExecutiveDashboardStore,DashboardsServiceCollectionExtensions}.cs; registered exec.* drill keys in DrillWidgetRegistry.cs; wired GET /api/v1/dashboards/executive (RequirePermission dashboards.view_executive) in DashboardEndpoints.cs; AddDashboards() in Infrastructure DI. All aggregations delegate formulas to MetricDefinitions (AC-080); Requires Attention consumes the T-024 GetAlertSummaryQuery. Frontend: features/dashboards/OverviewPage.tsx + overview/{KpiRow,PipelineByStage,AgingDonut,WonLostTrend,HighValueTable,RequiresAttentionPanel,kpiFormat}.tsx/ts + executiveApi.ts; route /overview un-stubbed (router.tsx); additive dashed-series support on the shared LineChartWidget. Built entirely on T-031 framework components + T-043 .qiq-* design-system classes/Icon."
+    },
+    {
+      "timestamp": "2026-07-14T00:20:00-04:00",
+      "event": "gates_run",
+      "message": "Backend dotnet test (full suite, real Testcontainers): QuoteIQ.Domain.Tests 347/347, QuoteIQ.Application.Tests 32/32, QuoteIQ.Infrastructure.Tests 91/91, QuoteIQ.Api.Tests 283/283 at the full-suite checkpoint. After that run the drill query was hardened (ExecutiveDashboardStore.ListDrillRowsAsync refactored from a correlated-subquery projection to the safe prefetch-then-merge shape) and a 7th ExecutiveOverviewTests case added (HighValueDrill_ShouldReturnOpenHighValueLeadRows) — the changed drill path is re-verified green by ExecutiveOverviewTests 7/7 and DrillEndpointTests 4/4 (the only tests exercising it), giving Api.Tests 284 total. Frontend: npm run typecheck clean; npm run build clean; vitest 356/356 (incl. OverviewPage 8/8); eslint clean on all new/changed files (1 pre-existing error in tenantManager/TenantFormPage.tsx unrelated to this task, plus 3 pre-existing warnings). Playwright: npx playwright test dashboard-overview.spec.ts --list discovers all 5 tests (tsc compiles); not executed against a live stack (no compose stack/T-041 seed in this environment — see T-032-FLAG-5)."
+    },
+    {
+      "timestamp": "2026-07-14T00:22:00-04:00",
+      "event": "prototype_fidelity_check",
+      "message": "Side-by-side vs docs/prototype/screenshots/QuoteIQ - Overview.png: layout regions match (filter bar; KPI row; three-chart row Pipeline-by-Stage/Aging-donut/Won-vs-Lost-trend; bottom High-Value table + Requires-Attention). Honored PRD deviations: 9 KPI cards (prototype 6 + the lead-vs-quote Total Leads/Lead-to-Quote Rate/Leads at Risk) with explicit lead/quote labels; Pipeline by Stage = CURRENT OPEN items per stage (not the prototype's cumulative-looking bars). Chart types match (horizontal stage bars with count+% labels + 'View full pipeline →'; donut with center total + count/% legend + 'View aging report →'; won solid / lost dashed line with Weekly/Monthly selector + 'View trend analysis →'). Chip/color semantics use the shared .qiq-chip--{reporting_category} palette; all premiums in tenant currency. Documented divergences captured as T-032-FLAG-1 (no domain 'Next Action' field) and T-032-FLAG-2 (Requires Attention renders all five alert categories)."
+    },
+    {
+      "timestamp": "2026-07-14T05:35:00-04:00",
+      "event": "task_passed",
+      "message": "T-032 PASS (iteration 1/10). Evaluator independently re-ran dotnet test QuoteIQ.slnx (Domain 347, Application 32, Infrastructure 91, Api 284, real Testcontainers, 0 failures) + frontend (typecheck clean, vitest 356/356 incl. OverviewPage 8/8 non-tautological, lint pre-existing baseline only). Confirmed MetricDefinitions fidelity (ConversionRate/LeadToQuoteRate/AverageTurnaround/OpenPipelinePremium all delegate to the shared class; every widget carries a DrillWidgetKey), tenant isolation + leads.view_all drill breadth (no cross-tenant path, no high/critical security findings). All 5 Implementor flags ruled non-blocking (F-001..F-005) + new F-006 (AC-071 <2s timed assertion deferred with T-041 seed). e2e describe.fixme deferral accepted. 35 PASS, 0 FAIL."
+    }
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "id": "T-040",
+  "title": "Reports: catalog, print-ready report data, report CSVs",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-039"
+  ],
+  "objective": "Port the Reports surface: the report catalog endpoint, print-ready report data endpoints backing the existing print views, and report CSV downloads — on-demand only (no scheduling), tenant-scoped with Internal-only cross-tenant variants where the reference has them (P-12, A-13).",
+  "scope": [
+    "GET report catalog endpoint per reference (available reports + metadata)",
+    "Print-data endpoints per report backing the existing print-ready views (DTO parity)",
+    "Report CSV endpoints via the T-039 CSV writer with the standard header block",
+    "Filters/period parameters per reference; tenant-scoped; permission-bound"
+  ],
+  "out_of_scope": [
+    "Scheduled report distribution (excluded per A-13/Q-14)",
+    "Reports UI (exists; unchanged)",
+    "Dashboard endpoints (T-036/T-037 — reports may reuse their aggregation services)"
+  ],
+  "implementation_details": [
+    "Enumerate the implemented report set from the .NET Reports endpoint file and port each one's data query + DTO; reuse dashboard aggregation services/metric fixtures where the reference shares logic.",
+    "CSV variants reuse the shared writer + filter appliers; injection guard applies.",
+    "generatedAt/period/currency metadata consistent with dashboards."
+  ],
+  "files": [
+    "src/server/domains/reports/catalog.ts",
+    "src/server/domains/reports/contracts.ts",
+    "src/server/domains/reports/store.ts",
+    "src/server/domains/reports/sla.ts",
+    "src/server/domains/reports/composer.ts",
+    "src/server/domains/reports/service.ts",
+    "src/server/domains/reports/routes.ts",
+    "src/server/domains/reports/index.ts",
+    "src/server/domains/exports/service.ts",
+    "src/server/lib/router/app.ts",
+    "api/v1/[[...segments]].ts",
+    "scripts/dev/serve-api.ts",
+    "src/server/tests/unit/reports-catalog.test.ts",
+    "src/server/tests/integration/reports.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new (formulas covered by shared fixtures)"
+    ],
+    "integration": [
+      "Catalog lists the reference report set; each print-data endpoint returns fixture-verified data; CSVs match print data for identical filters",
+      "Tenant isolation + permission matrix; period filter correctness"
+    ],
+    "e2e": [
+      "Reports screen + print view specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-083"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-106",
+    "V-107"
+  ],
+  "findings": [
+    {
+      "id": "F-040-1",
+      "severity": "minor",
+      "status": "open",
+      "summary": "MEASURED REFERENCE CONTRADICTION, PRESERVED NOT FIXED: the SLA report's Assignment and Received-to-Sent BREACH counts clock from leads.created_at, while the metric of the same name (received_to_sent) measures date_received to sent_date (SlaTurnaroundReportQueryHandler.cs:97-108 vs :83-87). A report can therefore show an average turnaround computed one way beside a breach count computed the other. Preserved as measured because switching to date_received silently changes a shipped breach count that the Alerts SLA tab is reconciled against. The fixture DELIBERATELY makes the two columns disagree (a lead received 2 days ago, created 20), so they are not substitutable and swapping them fails the suite. Needs an orchestrator ruling on keep-vs-redefine."
+    },
+    {
+      "id": "F-040-2",
+      "severity": "minor",
+      "status": "open",
+      "summary": "DELIBERATE DIVERGENCE FROM THE REFERENCE, ON THE HUMAN'S BREADTH RULING: ReportStore.LeadQuery (:199-253) applies NO leads.view_all narrowing, so in the reference any dashboards.view_pipeline holder got the whole tenant's leads through the SLA and Pipeline Aging reports. This port applies breadthPredicate, the same predicate the leads list, drill, dashboards and exports use, because AC-076(c) and ledger entry 13 make aggregates narrow by leads.view_all and a bulk printable report is otherwise the most convenient way around that ruling. Killed by mutation M1 (3 tests). Flagged because it is a behaviour change relative to the reference."
+    },
+    {
+      "id": "F-040-3",
+      "severity": "minor",
+      "status": "open",
+      "summary": "MEASURED ASYMMETRY, PRESERVED: the reference's SLA/Aging snapshot query applies NEITHER the RM dimension (rmUserId/teamOrRmId) NOR brokerTypeId, though both are accepted on the wire and both ARE applied by the five dashboard-backed reports (whose services apply them). So the same query string narrows a Pipeline report and does nothing to a Pipeline Aging report. Preserved as measured; changing it would silently alter what those two reports report. Needs a ruling."
+    },
+    {
+      "id": "F-040-4",
+      "severity": "minor",
+      "status": "open",
+      "summary": "MEASURED DIVERGENCE, ROW CAP: the reference's Escalation Queue report requested 500 alert rows (EscalationQueueReportQueryHandler.cs:17). This port's alerts service clamps pageSize to MAX_ALERTS_PAGE_SIZE (200), a ceiling the reference does not have, added by T-033 because pageSize reaches SQL as a LIMIT. Requesting 500 would be SILENTLY truncated to 200, so the cap is requested explicitly and named in the composer. A tenant with more than 200 open escalations sees a shorter queue than the reference printed. Raising the cap is T-033's surface (T-034 is live on it), not this task's."
+    },
+    {
+      "id": "F-040-5",
+      "severity": "minor",
+      "status": "open",
+      "summary": "MEASURED: the report CSV route is gated on reports.view, NOT on reports.export, even though reports.export exists in the permission catalog and gates nothing (ReportEndpoints.cs:33). Preserved as measured; adding a gate the reference does not have would 403 every existing Reports-screen download for callers who work today. Needs a ruling on whether reports.export should become load-bearing."
+    },
+    {
+      "id": "F-040-6",
+      "severity": "minor",
+      "status": "open",
+      "summary": "BREADTH GAP INHERITED, NOT INTRODUCED: the Escalation Queue report reuses the T-024/T-033 alerts queue, which is TENANT-WIDE and applies no leads.view_all narrowing (alerts/repository.ts listAlerts takes no caller breadth). The report is therefore exactly as wide as the on-screen Alerts Center it mirrors, and is bound by alerts.view. Making the report narrower than the screen would be a unilateral divergence from a PASSed surface, and alerts is T-034's live surface. Flagged rather than changed."
+    },
+    {
+      "id": "F-040-7",
+      "severity": "minor",
+      "status": "open",
+      "summary": "SIBLING-TASK BREAKAGE, NOT MINE, REPORTED SEPARATELY: npm run typecheck reports 5 errors, all in T-034's files - src/server/jobs/runtime.ts:64 and src/server/tests/integration/alert-reevaluation-queue.test.ts (4), all 'correlationId missing in JobLogContext'. Zero errors in any reports file. Also npm run lint reports a parsing error in mutate.tmp.mjs at the repo root, a mutation scratch file left by the sibling's run; left in place deliberately. Lint over every file this task touched is 0."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-12 reports, A-13 exclusion, section 12 reports endpoints."
+    },
+    {
+      "timestamp": "2026-07-20T15:40:00-04:00",
+      "event": "implemented",
+      "message": "T-040 IMPLEMENTED. TEST-FIRST OBSERVED: reports-catalog.test.ts written first and run RED (module-not-found), then green 19/19; reports.test.ts written before the wiring existed and its first run was red on two assertions. THE TWO RED ASSERTIONS WERE A VACUOUS-FIXTURE CATCH, NOT A CODE BUG: every seeded lead had created_at = now(), so the Received-to-Sent breach predicate was trivially satisfiable and could have been anything. Fixed by backdating created_at and by seeding one lead whose date_received and created_at DELIBERATELY disagree, which also exposed F-040-1. CATALOG: all ten reference reports ported (executive-weekly, pipeline-conversion, broker-performance, rm-performance, loss-analysis, sla-turnaround, pipeline-aging, escalation-queue, tenant-configuration, internal-tenant-overview). EVERY ONE PROVEN TO RENDER: the suite loops over REPORT_CATALOG and drives BOTH the view and the CSV for all ten keys, the direct countermeasure to the 31-drill-widget failure, and mutation M2 (deleting one case branch) was killed by exactly that loop. CSV REUSE, NOT A SECOND GUARD: buildMetadata and renderAndAudit were EXPORTED from T-039's exports/service.ts and report CSVs go through them, inheriting the one formula-injection guard, CRLF, the metadata block, the filename convention and the audit row; nothing is restated. Proven by M3, forcing every report column to type 'text', which was killed by the OVER-guard test asserting a seeded -500 premium appears bare, so the number/date exemption is load-bearing for reports too. MUTATION: 7 mutants, 7 KILLED, 0 survivors, each with application proof (line-count delta for deletions, sha256 delta for same-line edits) and every restore hash-verified identical to baseline. M1 breadth predicate removed (3 killed); M2 sla-turnaround case branch deleted (6 killed); M3 all CSV columns forced to text (1 killed); M4 tenant predicate dropped from the tenant-config query (2 killed); M5 aging bucket boundary 3 to 1 (1 killed); M6 no-quote breach predicate inverted (2 killed); M7 a catalog permission binding swapped (6 killed). BREADTH EVIDENCE: leads.view_all narrows the aging report 3 rows to 2, the aging CSV 3 to 2, and the SLA Received-to-Sent breach 3 to 2 for a restricted caller; the five dashboard-backed reports inherit breadth structurally by calling the dashboard services rather than re-querying. GATES: reports suites isolated 72/72 exit 0; neighbours (exports, auth-wiring, csv-injection, executive, pipeline, alerts) 279/279 exit 0; lint 0 over every file touched; typecheck 0 in reports files. SEVEN FINDINGS FLAGGED RATHER THAN FILLED, including two reference contradictions preserved as measured (F-040-1 created_at vs date_received, F-040-3 RM/broker-type filters not applied to the SLA snapshot), one deliberate divergence on the human's breadth ruling (F-040-2), and one sibling-task breakage reported separately (F-040-7). No migration added; no schema change; ci:test floor untouched. E2E (V-107) is T-043's per this task's own test_plan."
+    },
+    {
+      "timestamp": "2026-07-20T16:30:00-04:00",
+      "event": "evaluated",
+      "message": "PASS. Verified first-hand: (1) Ran reports-catalog.test.ts + reports.test.ts + auth-wiring.test.ts together in isolation (121/121 pass). (2) Read sla.ts and confirmed F-040-1 exactly as described: buildBreachesByStage's Received->Sent leg clocks totalDays(lead.createdAt, now), while buildMetrics' received_to_sent leg goes through averageTurnaroundDays keyed off dateReceived/sentDate -- genuinely two different columns for the 'same-named' concept. Confirmed the reports.test.ts fixture is NOT vacuous: REF_INJECTED is seeded with dateReceived=2 days ago but createdDaysAgo=20; the pipeline-aging assertion (line 724) buckets it '0-3 days' from date_received while the SLA breach assertion (line 766, 'Received -> Sent', 3, 5) counts it as one of 3 breaches from created_at -- the same lead scores oppositely under the two clocks, which is only possible if the columns are genuinely different and the fixture genuinely discriminates them. (3) Reproduced mutation M2 myself: deleted the sla-turnaround case branch from composer.ts's switch, reran reports.test.ts, watched 6 tests go red (404s on sla-turnaround view/csv/breadth), restored the file and verified sha256 identical to pre-mutation baseline (a61ef47e...), reran green (53/53). (4) Confirmed CSV reuse is structural, not restated: reports/service.ts imports buildMetadata and renderAndAudit directly from exports/service.ts (T-039), and the -500-bare-not-quoted OVER-guard assertion (line 877-879) is present and passing against a real seeded negative-premium row through the real CSV endpoint, proving the number/date type exemption applies to reports too. (5) Confirmed the breadth-narrowing claim live: the restricted-caller test (lines 944-976) shows aging 3->2 rows, aging CSV 3->2, and SLA Received->Sent breach 3->2, all against the same fixture. (6) Confirmed F-040-4's clamp (MAX_ALERTS_PAGE_SIZE=200) is imported and applied in composer.ts's escalation-queue composition, matching the finding. (7) Confirmed F-040-5 live in routes.ts: all three report routes (list/view/csv) are gated on reports.view only; reports.export is declared in the permission catalog but appears nowhere as a route guard -- the finding's claim that it 'gates nothing' is accurate, and since reports.view still gates every route this is a stale/inert permission entry, not an authorization bypass. (8) npm run lint over the reports domain and its tests: 0 errors. All seven findings (F-040-1 through F-040-7) are severity minor, are disclosed reference-preservation or inherited-scope decisions rather than implementation defects, and are individually reproduced above where testable. None is a blocker or major finding, so none blocks PASS per the security-review-task rule (blocking requires open critical/high, or major without accepted_risk). RULINGS RECOMMENDED TO THE HUMAN, NOT MADE HERE: F-040-1 (keep breach count on created_at as shipped-and-reconciled, or redefine to date_received and accept the Alerts SLA tab number moves) and F-040-5 (leave reports.export inert as measured, or wire it in as an additional AND-gate on the CSV route only -- view stays on reports.view) both require a product decision this evaluator will not make unilaterally. No other T-032-derived issue found beyond the pg_net schema defect already covered under T-034; recommend a one-time grep audit of supabase/migrations/ for any other 'extensions.http_' call as a housekeeping item, not a blocking finding here.",
+      "status": "PASS",
+      "verified_by": "evaluator"
+    }
+  ]
+}

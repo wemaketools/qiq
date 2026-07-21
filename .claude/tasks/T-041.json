@@ -1,0 +1,230 @@
+{
+  "id": "T-041",
+  "title": "Demo seed parity: full demo dataset regenerated for the new stack (idempotent, local + deployed runnable)",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-034",
+    "T-036",
+    "T-037"
+  ],
+  "objective": "Regenerate the demo seed (M-11 layer 2) for the Supabase stack: pilot + second tenant, 15+ users across roles with local Supabase Auth identities, 18 brokers, 200 parties, 300 leads, 500 quotes, 400 follow-ups, 40 pricing approvals, alert-triggering records, plausible history, sample job runs/queued messages — idempotent, runnable locally and against deployed environments, never automatic in production (M-11, Q-8, A-1).",
+  "scope": [
+    "scripts/db/seed.ts demo mode (and/or supabase/seed.sql composition): full demo dataset at the specified volumes with plausible dates/statuses/history driving all dashboards, alerts, and reports",
+    "Auth pairing: demo users provisioned in local Supabase Auth (Admin API) with known passwords for e2e (Q-21a) and linked auth_user_id",
+    "Alert-triggering records: fixtures that light up every alert type after an evaluation run; sample job_run rows and queued messages",
+    "Idempotency: re-run converges (reset twice -> identical state, volume assertions)",
+    "Post-seed verification step: counts + key invariants (every quote has a lead, one current version, status/category consistency) asserted by the script",
+    "Runnable against a deployed environment via DIRECT_DATABASE_URL with explicit confirmation gating"
+  ],
+  "out_of_scope": [
+    "Baseline seed (T-006 — demo layers on top)",
+    "Metric parity check vs the old stack (T-044)",
+    "Production data (none exists, A-1)"
+  ],
+  "implementation_details": [
+    "Port the .NET demo seed generator's distributions/scenarios (behavioral reference) so dashboard shapes remain comparable; deterministic seed (fixed RNG seed) for reproducibility (N-06).",
+    "Status history generated append-only and consistent with the legality matrix; last_activity_at coherent with inactivity thresholds so expiry jobs have targets.",
+    "Demo Auth users: create-if-absent via Admin API; passwords documented for local/e2e only.",
+    "Volumes are minimums per M-11; keep runtimes reasonable (bulk inserts).",
+    "Never auto-run in production: same --env guard as T-006."
+  ],
+  "files": [
+    "scripts/db/seed.ts (demo mode)",
+    "scripts/db/demo-data/*.ts (generators)",
+    "supabase/seed.sql (composition hook)",
+    "package.json (db:seed:demo)",
+    "docs/local-development.md (seed docs)"
+  ],
+  "test_plan": {
+    "unit": [
+      "Generator invariants as pure checks where extracted (e.g., history sequences legal per matrix)"
+    ],
+    "integration": [
+      "Reset + demo seed twice -> identical state (idempotency); volume assertions (>=15 users, 18 brokers, 200 parties, 300 leads, 500 quotes, 400 follow-ups, 40 pricing approvals)",
+      "Post-seed verification passes; alert evaluation over the seed creates every alert type; dashboards return non-degenerate data for both tenants",
+      "Demo users can sign in via local Supabase Auth"
+    ],
+    "e2e": [
+      "The adapted suite (T-043) runs entirely on this seed"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-079",
+    "AC-085",
+    "AC-086"
+  ],
+  "verification_ids": [
+    "V-100",
+    "V-109",
+    "V-110"
+  ],
+  "findings": [
+    {
+      "id": "T-041-N1",
+      "severity": "minor",
+      "summary": "The existing e2e persona helper (e2e_tests/helpers/personas.ts) still targets the .NET-era demo seed: tenant 'The Brittany', PRD 20.4 persona emails, and the Keycloak authorization-code login flow. This TypeScript demo seed provisions different personas (emails at @quoteiq.local, tenants 'Kalahari Insurance (Pilot)' / 'Okavango Risk Partners') via Supabase Auth with the shared local/e2e password 'DemoPass!2026'. Realigning the e2e helpers to these personas is T-043's scope (adapt the e2e suite), but the mismatch is recorded here so it is not discovered late.",
+      "status": "open"
+    },
+    {
+      "id": "T-041-N2",
+      "severity": "minor",
+      "summary": "Test-first disclosure: the demo plan's alert-trigger fixtures were derived by MEASURING the eleven live alert-rule predicates and the shipped tenant_settings default thresholds before the assertions were written, rather than red-first. Substitute mutation evidence was produced instead: two seed mutants (pending_pricing_approval fixture set to state 'none'; a revised quote's versions both marked is_current) each turned a green test red and were reverted to a byte-identical file (sha256 a97ddf47...b5c82 before and after both).",
+      "status": "resolved"
+    },
+    {
+      "id": "F-041-2",
+      "source": "orchestrator",
+      "severity": "blocker",
+      "category": "test-residue",
+      "status": "resolved",
+      "summary": "demo-seed.test.ts leaves the entire demo dataset in the shared DB, making the suite order-dependent and failing ci:test",
+      "detail": "The demo-seed integration test (demo-seed.test.ts) seeds the full demo dataset (318 leads, 2 tenants, 559 quotes, plus job_run rows with explicit ids above 900000000) and NEVER removes it. This violates the briefed rule that the TEST for the seed must not leave residue even though the seed's own rows are meant to persist. Concrete failure: the demo seed writes a job_run row (id 900004001, trigger=cron) for quote-expiry and lead-inactivity-expiry; cron-scripts.test.ts line 89 runs the cron:run script, then queries latestJobRun ORDER BY id DESC and picks up the demo cron row instead of the manual row it just created, asserting trigger 'manual' but getting 'cron'. The failure is ORDER-DEPENDENT: a full npm test passed once by file-ordering luck, then ci:test failed the same two tests on identical code because demo-seed.test.ts happened to run before cron-scripts.test.ts. Confirmed live: after ci:test, 318 demo leads, 2 demo tenants and 4 high-id job_run rows remained in the shared DB. The demo tenants (900000001 and 900000002) are also processed by every forEachActiveTenant sweep in other suites. FIX: demo-seed.test.ts afterAll must delete everything it seeded (data deletion BEFORE auth.cleanup, per the standing hygiene rule, since auth.cleanup ends the pg pool), leaving zero residue - verify by a direct post-run query, and confirm ci:test is green across repeated runs, not just one. SEPARATELY CONSIDER whether the demo seed's job_run rows should use explicit ids that OUTRANK live rows at all: the byte-identical convergence proof needs deterministic ids, but any id above every live row shadows real rows in a latest-by-id lookup. Either keep the high ids but guarantee the TEST cleans them, or use a deterministic scheme that does not outrank live sequence values.",
+      "resolution": "demo-seed.test.ts afterAll now removes the ENTIRE demo footprint before returning. Reused the seed's own idempotency-delete as an exported helper: apply.ts exports purgeDemoLayer(client, tenantIds), which deletes every partitioned demo row by tenant_id (children before parents: alerts, user_alert_views, quote_status_history, quote_assignments, quote_versions, quotes, lead_status_history, lead_notes, follow_ups, pricing_approvals, lead_assignments, leads, broker_contacts, brokers, parties, business_assignments, reference_sequences, reference_items, tenant_settings, user_tenants) and every global demo row id>=DEMO_ID_BASE (group_permissions, group_roles, group_members, user_permissions, user_roles, role_permissions, user_groups, roles, job_run, users). afterAll then deletes audit_log by tenant_id (defensive), then the demo tenants rows themselves, then calls the new deprovisionDemoAuthUsers() (auth-users.ts) to delete the 16 provisioned Supabase Auth identities. ORDER: all data deletion runs first on a fresh pg.Client (removing the app users rows that the auth identities are ON DELETE RESTRICT from), auth deprovision second, db.destroy() last - respecting the standing hygiene rule. Cleanup targets deterministic catalog ids (TENANTS.map(t=>t.id)) so it works even if the seed half-failed. JOB_RUN ID DECISION: chose option (a) - keep the seed's high deterministic ids (needed for the byte-identical convergence proof AC-086) and guarantee the test removes them. Rejected (b) because no production code does an unscoped or same-job_name latest-by-id lookup on job_run (job-run-repository.ts never orders by id desc); the only latest-by-id consumer is cron-scripts.test.ts against a clean DB, so the shadowing has no live production consumer, and re-numbering the seed would force regenerating the verified convergence digests for marginal benefit. PROOF: demo-seed suite in isolation then direct DB query -> leads=0, tenants>9e8=0, job_run>9e8=0, demo persona auth identities=0. Forced interleaving demo-seed BEFORE cron-scripts (the exact failing order) -> 11/11 pass. Full npm test 106 files / 3672 tests pass; ci:test green twice (3672 both runs, floor 3672 untouched). typecheck 0, lint 0.",
+      "resolved_by": "implementor",
+      "resolved_at": "2026-07-20T17:30:00-04:00"
+    },
+    {
+      "id": "F-041-3",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "status": "open",
+      "summary": "AC-086 'byte-identical convergence' is only proven within a single fixed `now`; the digest is not guaranteed stable across two real, wall-clock-separated invocations of `db:seed:demo` that straddle a UTC calendar day boundary.",
+      "detail": "plan.ts computes date-bearing fields (e.g. leads.date_received, quotes.valid_until/sent_date) as `addDays(now, -daysAgo)` where `now` is the real invocation time, not a fixed epoch. demo-seed.test.ts's convergence test calls `seedOnce()` twice using ONE module-level `now` captured in beforeAll, so it can never observe drift from a real day-boundary crossing between two separate operator invocations (e.g. `npm run db:seed:demo` run once today and again tomorrow). Reproduced empirically: ran `supabase db reset` + `npm run db:seed:demo` twice, several minutes apart, same UTC day -> leads/quotes content digests matched exactly (2752a330..., 8e191e9d...), confirming same-day idempotency of the delete-then-reinsert-with-explicit-ids design. But those digests differ from the implementor's cited session digests (149c23b0..., 9db99a1b...) simply because that session ran on a different real day -- i.e., the 'identical logical state' claim in AC-086 is date-relative, not truly invocation-independent. Practically low-impact (row counts, invariants, alert coverage and dashboard/report non-degeneracy all remain stable regardless of day; only exact content digests would differ), so not a blocker, but the claim as worded overstates what is proven and the test cannot catch a real regression in date-relative determinism.",
+      "evidence": "Manual reproduction: two db:seed:demo runs ~10 minutes apart, same UTC day, identical leads digest 2752a33085d64daffdc3ef8e6744efa5 and quotes digest 8e191e9d6c64975f7753cb068320dbf6 both times; differs from implementor's cited 149c23b0.../9db99a1b... from an earlier real day. plan.ts:330-341 (iso/dateOnly/addDays helpers use real `now`, not a fixed epoch); demo-seed.test.ts:116-123 (beforeAll captures one `now` reused by both seedOnce() calls in the convergence test).",
+      "suggested_fix": "Either (a) reword AC-086/the seed's own claims to scope 'byte-identical' to same-session/same-day re-runs, which is what is actually guaranteed and is the realistic operational pattern, or (b) make date generation deterministic relative to a fixed reference point (e.g. floor `now` to the start of its UTC day before deriving offsets) so cross-day digests genuinely match. Non-blocking; recommend a documentation/wording fix at minimum."
+    },
+    {
+      "id": "F-041-4",
+      "source": "evaluator",
+      "severity": "major",
+      "status": "resolved",
+      "summary": "Demo admin role is granted the ENTIRE permission catalog including Internal/global-only codes, so a tenant-level admin sees Internal-only nav whose endpoint 403s",
+      "detail": "Found via the T-043 e2e evaluation (findings F-043-2 and F-043-6). The demo `admin` role in scripts/db/demo-data/catalog.ts carries the whole catalog, including Internal/global-only codes (tenants.view, global.*). So the TENANT-level pilot.admin persona renders the Internal-only Tenant Manager nav, and GET /api/v1/tenants correctly 403s - a nav<->endpoint mismatch of the class AC-083 forbids (nav must hide for users who cannot use it; backend enforcement is correct). Blast radius is larger than first documented: settings.spec.ts also fails from the same over-grant (F-043-6). FIX: pilot.admin (and any non-Internal tenant admin persona) must be seeded with a TENANT-SCOPED admin permission set that EXCLUDES the Internal/global codes; only the Internal persona (internal.admin) keeps the global codes. Re-verify the demo still lights up dashboards/alerts/reports afterward, keep the byte-identical convergence and zero-residue properties, and confirm the T-043 role-403 sweep and settings/user-manager specs no longer show a non-Internal admin the Internal-only nav.",
+      "resolution": "BOUNDARY MEASURED (not guessed): the Internal/global-only domains are the `tenants.*` and `global.*` permission categories. Source: CLAUDE.md 'Global/Internal domains include: Tenants... Internal/global permissions... Cross-tenant oversight'; PermissionCatalog.cs groups exactly these two categories (`Tenants`, `Global`) apart from the tenant-scoped ones; and tenants/routes.ts guards GET /api/v1/tenants with requirePermission('tenants.view') which require-permission.ts resolves in the GLOBAL scope, so a tenant-scoped grant of tenants.view can never authorize the endpoint yet does light the nav (navConfig.ts gates Tenant Manager on TenantsView) - the precise nav<->endpoint mismatch. Everything else (users/roles/groups/reference_data/brokers/business_rules/business_assignments/leads/quotes/dashboards/reports/alerts/audit/api_access/parties/pricing) is legitimately grantable to a tenant administrator; no tenant-admin nav item or Settings subsection is gated on a tenants.*/global.* code (verified in navConfig.ts + permissions.ts). CHANGE: (1) catalog.ts adds INTERNAL_ONLY_PERMISSION_PREFIXES=['tenants.','global.'] + isInternalOnlyPermission(), a new 'tenant_all' RoleDef.permissions mode, and switches the tenant `admin` role from 'all' to 'tenant_all'; (2) plan.ts resolves 'tenant_all' to allPermissionCodes.filter(!isInternalOnlyPermission). The global INTERNAL_ROLE (tenant_id NULL) is unchanged, so internal.admin still holds tenants.*/global.* in the global scope. Persona keys/emails unchanged (T-043 personas.ts stable). EFFECTIVE-PERMISSION PROOF against a fresh `npm run db:seed:demo`, direct SQL over the real grant graph: pilot.admin -> tenants.view(any scope)=false, global.*(any scope)=false, tenants.*(any scope)=false, users.view=true; internal.admin -> tenants.view(global scope)=true, global.view_any_tenant(global scope)=true, users.view=true. Same proof also asserted by the new integration test through loadGrantGraph + computeEffectivePermissions (the production resolver). MUTATION: reverting the admin role to 'all' made pilot.admin hold tenant-scoped tenants.view and the new test failed ('pilot.admin must not hold tenants.view'); restored to 'tenant_all' and it passes - the assertion discriminates. NO REGRESSION: db:seed:demo reports 2 tenants/16 users/18 brokers/200 parties/318 leads/559 quotes/400 follow-ups/42 pricing approvals and all 11 alert types firing for BOTH tenants; the integration suite's dashboard-non-degenerate, all-11-alerts, and digest-equal convergence sub-tests all pass (data rows unchanged; only role_permissions rows differ, and those are excluded from the convergence digest, deterministic, and idempotent via delete-then-reinsert). Zero-residue afterAll unchanged and full suite green. GATES: demo-seed unit 8/8; demo-seed integration 6/6 (was 5, +1 boundary proof); full npm test 113 files / 3746 tests exit 0 (floor 3745); typecheck 0; lint 0.",
+      "resolved_by": "implementor",
+      "resolved_at": "2026-07-21T13:00:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to M-11 demo layer, Q-8, A-1, Q-21 seeded e2e users."
+    },
+    {
+      "timestamp": "2026-07-20T17:00:00-04:00",
+      "event": "implemented",
+      "message": "Implemented the demo seed (M-11 layer 2). New files: scripts/db/seed-demo.ts (runner, --env gated), scripts/db/demo-data/{rng,catalog,plan,apply,auth-users,verify}.ts, package.json db:seed:demo, docs/local-development.md demo-seed section. Tests: src/server/tests/unit/demo-seed-plan.test.ts (8 tests: volumes, invariants, determinism, and the load-bearing alert-coverage check running the REAL rules over the plan for both tenants) and src/server/tests/integration/demo-seed.test.ts (5 tests: volumes+verification, all 11 alert types firing, all 5 dashboards non-degenerate for BOTH tenants, digest-equal convergence on re-run, and a demo persona authenticating while the deactivated one is refused). Deterministic explicit-id design gives byte-identical idempotency. No schema change: supabase/seed.sql and supabase/migrations/ untouched, so no snapshot refresh needed.",
+      "results": {
+        "achieved_volumes": "2 tenants, 16 users, 18 brokers, 200 parties, 318 leads, 559 quotes, 400 follow-ups, 42 pricing approvals, 701 quote_versions (all >= AC-085 minimums)",
+        "alert_coverage": "all 11 alert types fire for both tenants after an evaluation run (610 open alerts across the two tenants); verified by the seed's own post-seed check and by the unit test running the real rule predicates over the plan",
+        "dashboards_non_empty": "executive/pipeline/broker/rm/loss all render non-degenerate data for both tenants (e.g. pilot: openPipelinePremium 98,887,000, wonPremium 7,528,000, 7 pipeline stages, 10 high-value rows, 394 requires-attention; second tenant analogous)",
+        "idempotency": "reset -> demo seed twice from clean produced byte-identical content digests (leads 149c23b0..., quotes 9db99a1b...); three consecutive re-runs on a non-reset DB also digest-identical",
+        "auth_pairing": "16 auth identities provisioned via the Admin API with password DemoPass!2026 and linked to users.auth_user_id; an active persona signs in and the deactivated persona is banned and refused",
+        "gates": "npm run typecheck 0; npm run lint 0; unit demo-seed-plan 8/8; integration demo-seed 5/5; representative existing suites alert-evaluation + dashboard-executive 70/70 unaffected by demo data presence",
+        "mutation": "2 mutants applied+killed+reverted with matching restore hashes (see finding T-041-N2)",
+        "db_end_state": "SEEDED demo state: full supabase db reset (migrations + baseline seed) followed by the demo seed; coherent and left in place",
+        "schema_changed": false
+      }
+    },
+    {
+      "timestamp": "2026-07-20T17:30:00-04:00",
+      "event": "fixes_applied",
+      "message": "Resolved blocker F-041-2 (test residue / order-dependence). demo-seed.test.ts afterAll now leaves ZERO residue: exported apply.ts::purgeDemoLayer (partitioned demo rows by tenant_id + global demo rows id>=DEMO_ID_BASE, children before parents), then delete audit_log by tenant, then delete the demo tenant rows, then new auth-users.ts::deprovisionDemoAuthUsers to remove the 16 Supabase Auth identities. Order: data deletion (fresh pg.Client, removes app users rows the auth identities RESTRICT from) -> auth deprovision -> db.destroy(). Cleanup targets deterministic catalog ids so it is robust to a half-failed seed. job_run id decision: kept the high deterministic ids (option a) and made the test remove them; no production code does a latest-by-id job_run lookup, so the shadowing has no live consumer and re-numbering would invalidate the AC-086 convergence digests. Only test/scripts changed; seed data output unchanged (no schema change).",
+      "results": {
+        "residue_proof": "demo-seed suite in isolation then direct DB query: leads=0, tenants>9e8=0, job_run>9e8=0, demo persona auth identities=0",
+        "interleaving": "forced demo-seed BEFORE cron-scripts (the exact failing order) -> 2 files / 11 tests pass, cron-scripts latestJobRun no longer shadowed",
+        "gates": "typecheck 0; lint 0; full npm test 106 files / 3672 tests pass; npm run ci:test green on two consecutive runs (3672/3672 each), floor 3672 untouched",
+        "files_changed": [
+          "src/server/tests/integration/demo-seed.test.ts",
+          "scripts/db/demo-data/apply.ts (export purgeDemoLayer + empty-guard)",
+          "scripts/db/demo-data/auth-users.ts (add deprovisionDemoAuthUsers)"
+        ],
+        "db_end_state": "clean baseline: 0 demo leads, 0 demo tenants, 0 high-id job_run, 0 demo auth identities",
+        "schema_changed": false
+      }
+    },
+    {
+      "timestamp": "2026-07-20T18:15:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator PASS at iteration 1/10. All evidence in F-041-2's resolution reproduced first-hand; residue and order-dependence fix confirmed genuine and deterministic; central 'lights up every dashboard/alert/report' claim independently re-verified beyond the seed's own tests; one new minor, non-blocking finding recorded (F-041-3). Verdict: PASS.",
+      "results": {
+        "verified_first_hand": [
+          "Ran demo-seed.test.ts in isolation -> 5/5 pass; direct SQL query immediately after confirms leads=0, tenants>9e8=0, job_run>9e8=0, users>9e8=0 in the shared DB (zero residue). The four remaining @quoteiq.local auth identities are quoteiq-test-um-admin-* fixtures from the User Manager suite (not demo personas -- confirmed against catalog.ts's persona email list, none of which match).",
+          "Forced the exact failing interleaving (demo-seed.test.ts then cron-scripts.test.ts, fileParallelism:false, --reporter=verbose) -> 11/11 pass, including the two specific assertions F-041-2 named (quote-expiry and lead-inactivity-expiry job_run trigger checks); confirmed vitest.config.ts sets fileParallelism:false for the integration project so file order was genuinely deterministic, not incidental.",
+          "Ran ci:test independently end-to-end (not reusing the orchestrator's run): 106 files / 3672 tests / 0 failed, exit 0 (piped through PIPESTATUS). Immediately re-ran the direct residue query after -> still zero demo residue.",
+          "Read purgeDemoLayer (apply.ts) and deprovisionDemoAuthUsers (auth-users.ts) in full: both target the catalog's deterministic ids/emails (DEMO_ID_BASE, TENANTS, PERSONAS), not any runtime output of the seed run, confirming the claim that cleanup is deterministic and robust to a half-failed seed.",
+          "Grepped every job_run consumer in src/server and scripts/: only cron-scripts.test.ts orders by id desc; job-run-repository.ts never does, and scripts/jobs/job-status.ts orders by started_at/failures, not id. Confirms the 'no production code does a latest-by-id job_run lookup' claim underlying the option-(a) decision to keep the high ids.",
+          "Verified the cover-type contradiction against src/api/.../DefaultReferenceData.cs directly: the .NET reference documents zero cover_type rows in the global default template (matches the disclosure), and plan.ts's coverTypesByProductLine confirms the demo tenants supply their own per-product-line cover types, resolving it as claimed.",
+          "Ran a full db reset + db:seed:demo locally (after restoring real local Supabase keys into the gitignored .env.local, then reverting that file back to its original placeholder content afterward -- no tracked-file change). Independently queried alerts grouped by (tenant_id, type) directly via SQL: all 11 alert types present for BOTH demo tenants, not derived from verify.ts's own output.",
+          "Independently drove all 8 tenant-scoped reports in REPORT_CATALOG (executive-weekly, pipeline-conversion, broker-performance, rm-performance, loss-analysis, sla-turnaround, pipeline-aging, escalation-queue) through getReportView() directly for both tenants via a standalone script -- all returned non-degenerate sections/rows. This exercises the 'reports render' claim, which demo-seed.test.ts itself does not directly assert (it asserts the 5 dashboard services, not the reports layer).",
+          "Confirmed DEMO_PASSWORD 'DemoPass!2026' is 13 ASCII bytes (under the 72-byte bcrypt cap) and that decideSeedTarget/nonLocalRefusalHint (seed-target.ts) is the same shared, unit-tested --env= confirmation gate used by the baseline seed (T-006), satisfying A-1.",
+          "Reproduced AC-086 digest convergence myself: two separate real db:seed:demo invocations (not the test's single-`now` convergence check) minutes apart, same UTC day -> identical leads/quotes content digests both times. This also surfaced F-041-3 (see findings): the digest is date-relative (plan.ts derives dates from the real invocation `now`, not a fixed epoch), so the 'byte-identical' claim, while true within a session/day as tested, is not proven -- and in principle is not exactly true -- across a UTC day boundary between two separate operator invocations. Non-blocking; recorded as a minor finding with a suggested wording or determinism fix."
+        ],
+        "taken_on_trust": [
+          "The exact historical digest values cited in the implementor's history entries (149c23b0.../9db99a1b...) were not reproduced byte-for-byte (expected, per F-041-3 -- they are from a different real day); same-day convergence with the identical query was reproduced instead.",
+          "Did not independently re-run the mutation-testing evidence for T-041-N2 (already resolved with matching restore hashes); reviewed the recorded claim only."
+        ],
+        "forwarded": "T-041-N1 (e2e personas.ts realignment: the .NET-era helper still targets Keycloak/old personas; this seed's personas are Supabase-Auth-based, @quoteiq.local, tenants 'Kalahari Insurance (Pilot)'/'Okavango Risk Partners', password DemoPass!2026) is explicitly in scope for T-043 (adapt the e2e suite) and is flagged forward, not re-litigated here.",
+        "db_end_state": "Left at clean baseline (supabase db reset: migrations + baseline seed.sql only, no demo layer) after my manual db:seed:demo verification run. .env.local restored to its original placeholder content (gitignored; no tracked-file diff). No .tmp_eval or other scratch artifacts left in the repo.",
+        "new_findings": [
+          "F-041-3 (minor, open, non-blocking)"
+        ],
+        "verdict": "PASS"
+      }
+    },
+    {
+      "timestamp": "2026-07-21T10:00:00-04:00",
+      "event": "evaluated_needs_fixes",
+      "message": "REOPENED (PASS -> NEEDS_FIXES, iteration 2) on evaluator findings F-043-2/F-043-6 from the T-043 e2e run: the demo admin role over-grants Internal/global permissions to a tenant-level admin, producing the AC-083-forbidden nav-shows-but-endpoint-403s mismatch, with blast radius across the role-403 sweep and settings spec. The seed's CORE correctness (volumes, all 11 alert types, dashboards non-empty, convergence) was independently verified and stands; this is a permission-assignment defect, not a data defect. Recorded as F-041-4."
+    },
+    {
+      "timestamp": "2026-07-21T13:00:00-04:00",
+      "event": "fixes_applied",
+      "message": "Resolved F-041-4 (permission over-grant). Measured the Internal-vs-tenant boundary against CLAUDE.md/PermissionCatalog.cs/tenants routes: the Internal/global-only domains are exactly the `tenants.*` and `global.*` categories, and GET /api/v1/tenants resolves tenants.view in the GLOBAL scope, so a tenant-scoped grant lights the Tenant Manager nav but 403s. Fix: catalog.ts introduces INTERNAL_ONLY_PERMISSION_PREFIXES=['tenants.','global.'] + isInternalOnlyPermission() and a 'tenant_all' role mode, and the tenant `admin` role changes from 'all' to 'tenant_all' (every catalog code except the Internal/global ones); plan.ts resolves 'tenant_all' via allPermissionCodes.filter(!isInternalOnlyPermission). The global INTERNAL_ROLE is unchanged so internal.admin keeps the Internal codes in the global scope. Added an integration boundary proof (loadGrantGraph + computeEffectivePermissions) and confirmed it discriminates via an over-grant mutation. Direct SQL after a fresh db:seed:demo: pilot.admin holds no tenants.*/global.* in any scope (keeps users.view); internal.admin holds tenants.view/global.view_any_tenant in the global scope. No data change: all volumes met and all 11 alert types fire for both tenants; convergence/zero-residue preserved. Only scripts/db/demo-data/{catalog.ts,plan.ts} and src/server/tests/integration/demo-seed.test.ts changed; no schema/migration change.",
+      "results": {
+        "boundary_source": "CLAUDE.md Global/Internal domains (Tenants + Internal/global permissions + cross-tenant oversight); PermissionCatalog.cs Tenants/Global categories; tenants/routes.ts requirePermission('tenants.view') resolved in GLOBAL scope (require-permission.ts)",
+        "effective_permission_proof": "fresh db:seed:demo then direct grant-graph SQL: pilot.admin tenants_view(any)=false global(any)=false tenants(any)=false users.view=true; internal.admin tenants_view(global)=true global.view_any_tenant(global)=true users.view=true",
+        "mutation": "admin role 'all' -> new integration test fails ('pilot.admin must not hold tenants.view'); restored to 'tenant_all' -> passes; assertion discriminates",
+        "seed_still_lights_up": "db:seed:demo OK: 2 tenants, 16 users, 18 brokers, 200 parties, 318 leads, 559 quotes, 400 follow-ups, 42 pricing approvals; all 11 alert types firing for BOTH tenants (405+205 alerts); integration dashboards/alerts/convergence sub-tests pass",
+        "gates": "demo-seed unit 8/8; demo-seed integration 6/6; full npm test 113 files / 3746 tests exit 0 (floor 3745); typecheck 0; lint 0",
+        "files_changed": [
+          "scripts/db/demo-data/catalog.ts",
+          "scripts/db/demo-data/plan.ts",
+          "src/server/tests/integration/demo-seed.test.ts"
+        ],
+        "final_file_sha256": {
+          "scripts/db/demo-data/catalog.ts": "999c04c25ea3e33c43667d9444574e99e9aa0697507ffcef39a476b96792caac",
+          "scripts/db/demo-data/plan.ts": "5411f6d5f5b7909d96e486e2409e0d8349b2ec9a97961d6c4ce2296c2f7fd83f",
+          "src/server/tests/integration/demo-seed.test.ts": "82ef379dc50464f19d073435b86faf6da0d2ce8b518c139bc2ca99f0bbcd00dd"
+        },
+        "db_end_state": "demo-seeded (db:seed:demo applied and verified; coherent), matching the state the evaluator left it in",
+        "schema_changed": false
+      }
+    },
+    {
+      "timestamp": "2026-07-21T14:00:00-04:00",
+      "event": "evaluated",
+      "message": "BATCH EVALUATION PASS (evaluated together with T-052 and T-043 as one interlocked pass). F-041-4's boundary fix independently reproduced and confirmed correct.",
+      "results": {
+        "verified_first_hand": [
+          "Fresh supabase:reset + db:seed:demo, then a direct SQL query over user_roles/role_permissions/permissions (not the seed's own verify.ts output): pilot.admin holds 68 distinct permission codes, ZERO of which start with 'tenants.' or 'global.'; internal.admin holds those same codes PLUS 11 tenants.*/global.* codes granted in the GLOBAL scope (grant_scope IS NULL), confirming both halves of the boundary claim directly against the grant graph.",
+          "MUTATION: edited catalog.ts's admin RoleDef from permissions:'tenant_all' back to 'all', re-ran db:seed:demo, re-queried -> pilot.admin immediately picked up all 11 tenants.*/global.* codes at tenant scope (grant_scope=900000001), reproducing the exact pre-fix over-grant. Reverted the edit; sha256 of catalog.ts after revert (999c04c2...) matches the implementor's recorded final hash exactly -- no residual diff.",
+          "Ran the demo-seed integration suite in isolation (5 files / 17 tests incl. the new boundary-proof sub-test) -- all pass.",
+          "Reseeded and independently confirmed the data properties are unaffected by the permission change: 2 tenants, 16 users, 18 brokers, 200 parties, 318 leads, 559 quotes, 400 follow-ups, 42 pricing approvals, all 11 alert types firing for BOTH tenants (405 + 205 alerts) -- matches every prior run exactly, confirming the permission fix did not touch data volumes.",
+          "Full backend suite (ci:test): 113 files / 3746 tests / 0 failed, exit 0, matches floor exactly. Full SPA suite (ci:test:ui): 104/565, matches floor exactly. typecheck, typecheck:ui, lint, lint:ui (0 errors, only the same 6 pre-existing warnings), db:validate (two clean resets, identical schema, matches checked-in snapshot), ci:security (1197 tracked files scanned, 0 secrets; bundle scan 5 assets 0 leaks) all independently re-run and green.",
+          "Confirmed F-041-3 (date-relative digest wording) remains open and unaffected by this round; not re-litigated."
+        ],
+        "taken_on_trust": [
+          "Did not re-derive the historical digest values from the F-041-4 resolution notes byte-for-byte (expected -- different real day); volumes/alert-coverage/convergence properties were reproduced directly instead."
+        ],
+        "f_043_7_disposition": "F-043-7 (demo-seed fixture extensions: non-BWP tenant, falling-trend deltas, competitor rows, pre/post-quote losses, zero-membership Internal persona + 3rd tenant) is genuinely acceptable MVP debt, not a blocker for this task's own acceptance criteria (AC-079/AC-085/AC-086, all of which are satisfied). It is scoped entirely to scripts/db/demo-data/* (T-041's file surface) so a natural home would be a T-041 follow-up task rather than folding it into this evaluation round -- recommend the orchestrator open a small dedicated follow-up task for it rather than silently reopening T-041 again, since none of the 6 fixme specs it unblocks are required for AC-090/AC-092 (the nav/RBAC journeys) to be honestly green.",
+        "db_end_state": "Left demo-seeded (db:seed:demo re-applied after db:validate's internal resets; 2 tenants/16 users/18 brokers/200 parties/318 leads/559 quotes/400 follow-ups/42 pricing approvals, 11/11 alert types firing both tenants) -- coherent and matches what T-043's own e2e run and T-052's e2e regression guard require.",
+        "verdict": "PASS"
+      }
+    }
+  ]
+}

@@ -1,0 +1,198 @@
+{
+  "id": "T-001",
+  "title": "Repo restructure: npm workspaces, TypeScript strict scaffold, root scripts, Vercel project skeleton",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [],
+  "objective": "Restructure the repository into the target Vercel-deployable monorepo layout (spec section 8): npm workspaces root, api/ Vercel function entrypoint directory, src/server backend tree, scripts/ tree, docs stubs, and strict TypeScript + Vitest tooling for the backend, without touching the existing .NET tree (which remains the behavioral reference until T-044).",
+  "scope": [
+    "Root package.json with npm workspaces (root + src/ui + e2e_tests) on Node 22 LTS and the M-19 script names stubbed (dev, dev:vercel, supabase:start|stop|reset, db:migrate, db:seed, db:types, typecheck, lint, test, test:integration, cron:list, cron:run, cron:run:all, queue:worker, queue:enqueue:test, jobs:status) — stubs may exit with a not-yet-implemented message where the target does not exist yet",
+    "Directory scaffold: api/ (v1/, cron/, queue/), src/server/{lib/{config,db,auth,tenancy,validation,errors,logging,storage,supabase,router},domains,jobs/{cron,queue},tests}, scripts/{jobs,db}, docs/ stubs (local-development.md, deployment.md, background-jobs.md, environment-variables.md as placeholders)",
+    "TypeScript strict-mode tsconfig for the backend (no any, server code excluded from client bundles); shared base config if useful",
+    "vercel.json skeleton: Vite framework preset compatibility, functions config placeholder (runtime/maxDuration), explicitly NO cron registrations (scheduling is pg_cron in migrations)",
+    ".gitignore updates (.env*, .vercel, logs, transient artifacts); .env.example and .env.local.example skeletons with placeholder entries only",
+    "Vitest configuration for backend unit and integration test projects under src/server/tests",
+    "ESLint (or the existing lint tooling) wired for the new backend tree"
+  ],
+  "out_of_scope": [
+    "Any Supabase stack configuration (T-002)",
+    "Any migration, seed, or runtime code",
+    "Deleting or modifying the .NET tree, docker-compose, or e2e suite",
+    "Final .env.example variable catalog (finalized in T-042)"
+  ],
+  "implementation_details": [
+    "Root package.json: \"workspaces\": [\"src/ui\", \"e2e_tests\"], engines.node >=22, private true. Dependencies added at root for the backend per approved set only: zod, kysely, pg, hono, @supabase/supabase-js, exceljs (may defer to consuming tasks), devDependencies: typescript, tsx, vitest, @types/pg, @types/node.",
+    "api/ entrypoint files are created as placeholders only where needed to validate the Vercel layout (real Hono app lands in T-009); do not create one function per route — the target is api/v1/[[...segments]].ts catch-all plus dedicated api/cron/* and api/queue/drain.ts.",
+    "tsconfig: strict true, noUncheckedIndexedAccess recommended, module/target suitable for Node 22 Vercel functions; separate tsconfig for src/ui remains untouched.",
+    "vercel.json: keep minimal — no crons key ever; document in a comment-adjacent README note that schedules live in supabase/migrations pg_cron entries (M-22).",
+    "npm scripts that cannot run yet must fail loudly with a clear message rather than silently succeed, so CI wiring in T-010 stays honest.",
+    "Existing src/ui and e2e_tests packages must still install and build unchanged (npm install from clean checkout, npm run build -w src/ui)."
+  ],
+  "files": [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "tsconfig.server.json",
+    "vercel.json",
+    ".gitignore",
+    ".env.example",
+    ".env.local.example",
+    "vitest.config.ts",
+    "api/v1/[[...segments]].ts",
+    "src/server/ (directory scaffold)",
+    "scripts/ (directory scaffold)",
+    "docs/local-development.md",
+    "docs/deployment.md",
+    "docs/background-jobs.md",
+    "docs/environment-variables.md",
+    "eslint.config.js",
+    "scripts/not-implemented.mjs",
+    "src/server/tests/unit/smoke.test.ts",
+    "src/server/tests/integration/helpers/repo.ts",
+    "src/server/tests/integration/repo-layout.test.ts",
+    "src/server/tests/integration/root-scripts.test.ts",
+    "src/server/tests/integration/tsconfig-strict.test.ts",
+    "src/server/tests/integration/lint-no-any.test.ts",
+    "src/server/tests/integration/vercel-config.test.ts",
+    "src/server/tests/integration/env-examples.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "No pure-logic units introduced; placeholder Vitest smoke test proving the backend test project runs (vitest executes and passes from root script)"
+    ],
+    "integration": [
+      "npm install from clean checkout succeeds on Node 22",
+      "npm run typecheck passes for the scaffold; npm run build -w src/ui still builds the SPA unchanged",
+      "Stubbed scripts exit non-zero with a clear not-implemented message"
+    ],
+    "e2e": [
+      "None at this stage (existing Playwright suite untouched and still points at the .NET stack)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-001",
+    "AC-002",
+    "AC-089"
+  ],
+  "verification_ids": [
+    "V-001",
+    "V-002",
+    "V-115"
+  ],
+  "findings": [
+    {
+      "id": "F-001-1",
+      "severity": "blocker",
+      "summary": "AC-001/V-001 clause `npm run build -w src/ui` exits 0 cannot be met: the SPA build is already red with 18 pre-existing TypeScript errors, independent of this task.",
+      "detail": "`npm run build -w src/ui` (tsc -b && vite build) fails with exit 2 and 18 TS errors in src/ui sources (recharts 3.9.2 typings, @types/react 18.3.31 LegacyRef, noUncheckedIndexedAccess violations, SortableTh generic misuse, a broken test file). Proven pre-existing: src/ui was copied to a temp directory outside the workspace and installed with `npm ci` from its own committed src/ui/package-lock.json (identical versions: recharts 3.9.2, @types/react 18.3.31, typescript 6.0.3, react 18.3.1); the isolated build fails with a byte-identical error-location set (md5 14890d8de9e62539ef23727bee74abdd, 18 errors) to the workspace build. Bundling alone is fine: `npx vite build` in the isolated copy exits 0 - only the tsc type gate fails. The failure was previously masked by a stale src/ui/node_modules/.tmp tsbuildinfo, which `tsc -b` used to skip the type pass; a fresh install removes it. T-001 is forbidden to edit src/ui sources, so this needs an explicit decision: (a) a scoped SPA type-error fix task before AC-001 can pass, or (b) amend AC-001/V-001 to require `npx vite build` (bundle) plus a separately tracked SPA typecheck debt item.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-18T20:20:00-04:00",
+      "resolution": "Resolved via T-045 (human chose option (a): fix the SPA type errors; AC-001/V-001 unchanged). Evaluator independently verified 2026-07-18: `rm -rf src/ui/node_modules/.tmp` then `npm run build -w src/ui` EXIT 0 with both tsbuildinfo files regenerated during the run, proving the tsc type pass executed from a clean (uncached) state.",
+      "resolved_at": "2026-07-18T21:35:00-04:00",
+      "resolved_by": "evaluator"
+    },
+    {
+      "id": "F-001-2",
+      "severity": "minor",
+      "summary": "Root devDependencies include eslint, typescript-eslint, @eslint/js, and globals, which are outside the task's approved dependency list.",
+      "detail": "Task scope requires 'ESLint wired for the new backend tree' and AC-002 gates on a lint rule flagging `any`, but the approved devDependency list names only typescript, tsx, vitest, @types/pg, @types/node. The four lint packages were added at the same versions already committed in src/ui (eslint ^9.39.5, typescript-eslint ^8.63.0, @eslint/js ^9.39.5, globals ^15.15.0) rather than relying on npm workspace hoisting, which would be a phantom dependency. Needs ratification; no new tooling family was introduced.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-18T20:20:00-04:00",
+      "resolution": "Human explicitly ratified eslint, typescript-eslint, @eslint/js, and globals as root devDependencies on 2026-07-18 (recorded in session_state approvals.dependencies); jsdom was later human-approved with the F-045-1 resolution. Evaluator confirmed root devDependencies contain nothing outside the ratified set.",
+      "resolved_at": "2026-07-18T21:35:00-04:00",
+      "resolved_by": "evaluator"
+    },
+    {
+      "id": "F-001-3",
+      "severity": "minor",
+      "summary": "Approved runtime dependencies (zod, kysely, pg, hono, @supabase/supabase-js, exceljs, @types/pg) deliberately deferred to their consuming tasks.",
+      "detail": "T-001 introduces no runtime code, so no runtime dependency is installed at the root yet (the task explicitly permits deferring). T-007 (config/zod), T-008 (kysely/pg/@types/pg), T-009 (hono), T-011/T-017 (@supabase/supabase-js), and the export task (exceljs) each add their own. The api/v1 catch-all placeholder therefore imports nothing.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-18T20:20:00-04:00",
+      "resolution": "Deferral is explicitly permitted by the task's implementation_details ('may defer to consuming tasks'). Evaluator confirmed no runtime dependency exists at the root and api/v1/[[...segments]].ts imports nothing. Consuming tasks (T-007 zod, T-008 kysely/pg/@types/pg, T-009 hono, T-011/T-017 @supabase/supabase-js, exports task exceljs) each add their own; their evaluators must check this.",
+      "resolved_at": "2026-07-18T21:35:00-04:00",
+      "resolved_by": "evaluator"
+    },
+    {
+      "id": "F-001-4",
+      "severity": "minor",
+      "summary": "Local Node is v24.16.0 while the spec targets Node 22 LTS; engines.node is '>=22'.",
+      "detail": "All commands in this task were executed on Node v24.16.0 / npm 11.13.0, not Node 22 LTS. engines.node is '>=22' so local installs are not broken, and vercel.json pins nodejs22.x for functions. T-010 must pin Node 22 deliberately in CI so the AC-001 'clean checkout on Node 22 LTS' clause is actually exercised on the target runtime.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-18T20:20:00-04:00",
+      "resolution": "Not a defect in T-001: engines.node '>=22' is satisfied and vercel.json pins nodejs22.x for functions. The residual obligation — pinning Node 22 LTS in CI so the AC-001 'clean checkout on Node 22 LTS' clause is exercised on the target runtime — is delegated to T-010 (CI pipeline) and MUST be checked by T-010's evaluator. Evaluator's own runs were also on Node v24.16.0 / npm 11.13.0; the Node-22 execution remains unverified until T-010.",
+      "resolved_at": "2026-07-18T21:35:00-04:00",
+      "resolved_by": "evaluator"
+    },
+    {
+      "id": "F-001-5",
+      "severity": "minor",
+      "summary": "src/ui/package-lock.json is now redundant under npm workspaces and can drift from the root lockfile.",
+      "detail": "The root package-lock.json is authoritative for all workspaces; the nested src/ui/package-lock.json is ignored by npm during workspace installs but was still used to prove F-001-1 pre-existence. Left in place because T-001 must not modify src/ui; recommend removing it in the task that next touches the SPA.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-18T20:20:00-04:00",
+      "resolution": "Resolved by T-045: src/ui/package-lock.json deleted (Evaluator confirmed the file no longer exists; the root package-lock.json is the sole authoritative lockfile).",
+      "resolved_at": "2026-07-18T21:35:00-04:00",
+      "resolved_by": "evaluator"
+    },
+    {
+      "id": "F-001-6",
+      "severity": "minor",
+      "summary": "lint-no-any.test.ts writes a fixed-name fixture (src/server/lib/errors/lint-any-fixture.tmp.ts) into the production tree, making the test suite unsafe to run concurrently with itself.",
+      "detail": "The test writes the temp any-fixture into src/server/lib/errors/ and runs npm run lint (repo-wide). A second concurrent vitest invocation (observed during T-003/T-007 parallel execution) sees the fixture via its own lint/scan runs and fails transiently. Within one vitest run this is safe (integration project has fileParallelism:false and unit tests do not lint), but two simultaneous npm test invocations race. config-env-access.test.ts (T-007) also runs npm run lint and is a collision victim, not a cause.",
+      "suggested_fix": "Either (a) name the fixture uniquely per run (e.g. lint-any-fixture.<pid>.tmp.ts) and lint only that file via eslint --stdin --stdin-filename instead of a repo-wide lint, or (b) T-010 CI must guarantee vitest invocations never run in parallel. Remediation delegated to T-010; T-001 status unchanged (recorded by evaluator during T-003/T-007 review at orchestrator direction).",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-18T22:55:00-04:00",
+      "resolution": "Fixed by T-010. Root cause confirmed: ESLint does not honour .gitignore, so `eslint .` linted the transient lint-any-fixture whenever a concurrent vitest run had it on disk. Fix: '**/*.tmp.ts' added to eslint config `ignores` so a repo-wide lint can never observe a transient fixture, PLUS a per-run unique fixture name (${pid}-${Date.now()}) so two concurrent copies cannot delete each other's file. The lint gate is NOT weakened - the failing case now lints its fixture by explicit path with --no-ignore (new lint:path script), still evaluating the real root config. Evidence with the fixture on disk: repo-wide lint exit 0; explicit-path lint exit 1 citing @typescript-eslint/no-explicit-any. A third test permanently encodes the invariant ('keeps a repo-wide lint green while a transient fixture is on disk')."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md (Phase 3 spec-to-tasks). Maps to M-01, M-03 (structure), M-19 (script surface), M-22 (vercel.json skeleton), Q-16."
+    },
+    {
+      "timestamp": "2026-07-18T18:10:00-04:00",
+      "event": "started",
+      "message": "Delegated to Implementor after human approval to begin implementation."
+    },
+    {
+      "timestamp": "2026-07-18T20:15:00-04:00",
+      "event": "tests_written",
+      "message": "Test-first: added Vitest projects (unit, integration) under src/server/tests. Integration checks written before the scaffold they assert - repo-layout.test.ts (spec section 8 layout + preserved .NET/e2e paths), root-scripts.test.ts (all 18 M-19 script names defined; every stub asserted to exit non-zero with 'NOT IMPLEMENTED'), tsconfig-strict.test.ts (asserts strict/noUncheckedIndexedAccess/noEmit compiler options programmatically, not just exit code), lint-no-any.test.ts (lint green on the tree, then writes a temporary `any` fixture, asserts lint fails with @typescript-eslint/no-explicit-any, removes it), vercel-config.test.ts (fails if a `crons` key is ever added), env-examples.test.ts (placeholders only, no JWT/credential patterns). Plus unit/smoke.test.ts proving the backend test project runs."
+    },
+    {
+      "timestamp": "2026-07-18T20:18:00-04:00",
+      "event": "implementation_written",
+      "message": "Scaffold: root package.json (npm workspaces src/ui + e2e_tests, engines.node >=22, all 18 M-19 scripts; 14 stubs route through scripts/not-implemented.mjs which always exits 1). tsconfig.json base (strict, noUncheckedIndexedAccess, exactOptionalPropertyTypes, noEmit) + tsconfig.server.json (api/, src/server/, scripts/, vitest.config.ts; excludes src/ui, e2e_tests, src/api). vitest.config.ts with unit + integration projects. eslint.config.js scoping the backend tree only, @typescript-eslint/no-explicit-any at error. vercel.json (framework vite, outputDirectory src/ui/dist, functions runtime nodejs22.x + maxDuration, NO crons key - documented in docs/deployment.md and docs/background-jobs.md that schedules are pg_cron entries in supabase/migrations per M-22). Full spec section 8 directory skeleton with .gitkeep files, api/v1/[[...segments]].ts placeholder (no imports; Hono app lands in T-009), .env.example / .env.local.example placeholders only, .gitignore updates (.env*, .vercel, logs, tmp), four docs stubs. The .NET tree, docker-compose.yml, infra/, and e2e_tests were not touched."
+    },
+    {
+      "timestamp": "2026-07-18T20:19:00-04:00",
+      "event": "tests_run",
+      "message": "Commands run on Node v24.16.0 / npm 11.13.0 (see finding F-001-4). `npm install` at workspaces root: EXIT 0 (304 packages audited, 0 vulnerabilities; react resolves from src/ui/node_modules, @playwright/test from e2e_tests/node_modules). `npm run typecheck`: EXIT 0. `npm run lint`: EXIT 0. `npm test`: EXIT 0 - 7 files, 101 tests passed (8.79s). `npm run test:integration`: EXIT 0 - 6 files, 100 tests. `npm run test:unit`: EXIT 0 - 1 test. Stub demonstration `npm run supabase:start`: EXIT 1 with 'NOT IMPLEMENTED: \"npm run supabase:start\" is a scaffold stub created by T-001. It is implemented by T-002.' All 14 stubs individually asserted non-zero + message by root-scripts.test.ts. Lint any-fixture demonstration passed inside lint-no-any.test.ts (lint failed on the fixture, fixture removed). NOT PASSING: `npm run build -w src/ui` EXIT 2 - pre-existing SPA type errors, see blocker F-001-1. NOT RUN: V-115 (manual clean-checkout walkthrough) requires the Supabase stack from T-002 and the final docs from T-042; the e2e Playwright suite was not run (still points at the .NET stack, out of scope per the task's e2e plan)."
+    },
+    {
+      "timestamp": "2026-07-18T20:21:00-04:00",
+      "event": "handoff",
+      "message": "Status set to IMPLEMENTED and handed to Evaluator with 1 blocker (F-001-1, pre-existing SPA build failure that blocks one AC-001 clause and needs a scope decision) and 4 minor findings requiring ratification/tracking."
+    },
+    {
+      "timestamp": "2026-07-18T21:40:00-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator PASS (evaluate-task-completeness + evaluate-tests-code + security-review-task). Independently executed on Node v24.16.0/npm 11.13.0: npm install EXIT 0 (0 vulnerabilities), npm run typecheck EXIT 0, npm run lint EXIT 0, npm test EXIT 0 (7 files/101 tests), npm run test:integration EXIT 0 (6 files/100 tests), npm run build -w src/ui EXIT 0 after rm -rf src/ui/node_modules/.tmp (tsbuildinfo regenerated during the run, proving an uncached type pass), npm test -w src/ui EXIT 0 (96 files/492 tests), npm run lint -w src/ui EXIT 0, stubs db:migrate and queue:worker EXIT 1 with explicit NOT IMPLEMENTED messages. Independently confirmed: strict:true + noUncheckedIndexedAccess set in tsconfig.json (inherited by tsconfig.server.json); zero `any` in src/server (only the string literal inside the lint-fixture test); NO crons key in vercel.json; .env.example/.env.local.example placeholders only (also pattern-scanned for JWT-like strings: none); .gitignore covers .env*, .vercel, logs, tmp, and the lint fixture pattern; src/api, docker-compose.yml, infra/, e2e_tests present and untouched; built SPA bundle contains no SUPABASE_SERVICE_ROLE_KEY/DATABASE_URL/CRON_SECRET/INTERNAL_JOB_SECRET/src/server literals. Test-quality review: lint-no-any.test.ts genuinely writes an `any` fixture, asserts lint exit != 0 AND the @typescript-eslint/no-explicit-any rule id, and removes the fixture (not hollow); tsconfig-strict.test.ts asserts compiler options programmatically; root-scripts.test.ts spawns every stub and asserts exit code + message text. All five findings resolved (see findings[]). EVALUATION CAVEATS RECORDED, NOT WAIVED: (1) V-115/AC-089 is MANUAL and remains OUTSTANDING — docs/local-development.md is an explicit placeholder pending T-002/T-042; the clean-checkout walkthrough cannot run until the Supabase stack and final docs exist. T-001's share (docs stub, script surface, honest failing stubs) is delivered. (2) The 'clean checkout on Node 22 LTS' clause was not re-executed by the Evaluator as a true clean install: npm ci failed with EPERM because the human's own running vite dev server (npm run dev in src/ui) locks src/ui/node_modules/@rolldown native bindings; verification fell back to npm install + full gate re-runs. Clean-checkout installs were previously executed by both Implementor and Orchestrator. Node 22 execution itself is deferred to T-010 CI pinning (F-001-4 resolution). (3) V-002's 'both commands run as CI gates' clause lands with T-010/V-018."
+    },
+    {
+      "timestamp": "2026-07-19T10:30:00-04:00",
+      "event": "finding_resolved",
+      "message": "F-001-6 (test suite unsafe to run concurrently with itself) resolved by T-010 with evidence. This flake had appeared transiently in three separate task runs."
+    }
+  ]
+}

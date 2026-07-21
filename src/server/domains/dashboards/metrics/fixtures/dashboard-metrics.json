@@ -1,0 +1,241 @@
+{
+  "$comment": [
+    "THE SHARED METRIC FIXTURE (spec P-10, AC-073/AC-074, T-035).",
+    "",
+    "One dataset, two consumers: tests/unit/metric-definitions.test.ts runs the pure functions over",
+    "it, and tests/integration/dashboard-filters.test.ts LOADS THE SAME FILE into local Postgres and",
+    "runs the canonical SQL fragments over it. Neither suite restates the data, so a fixture edit",
+    "moves both results or the parity test fails -- which is exactly the proof AC-074 asks for.",
+    "",
+    "EVERY EXPECTED VALUE BELOW IS HAND-COMPUTED, and the numbers were chosen so that every rate is",
+    "exactly representable in binary floating point (denominators 2 and 4, never 3 or 6). A rate of",
+    "4/6 would make the 'no tolerance' SQL-vs-pure equality in AC-074 a coin flip on rounding rather",
+    "than a real assertion.",
+    "",
+    "Money is a decimal STRING everywhere, never a JSON number: numeric(18,2) comes back from",
+    "node-postgres as a string deliberately (A-12, T-008 money pins) and the metric module does its",
+    "money arithmetic on exact scaled integers. Writing 1200.00 as a JSON number here would launder",
+    "it through a double before the module ever saw it."
+  ],
+
+  "period": { "from": "2026-03-01", "to": "2026-03-31" },
+  "today": "2026-04-01",
+  "slaTargetDays": 3,
+
+  "leads": [
+    {
+      "key": "L1",
+      "dateReceived": "2026-03-02",
+      "reportingCategory": "open",
+      "estimatedPremium": "1000.00",
+      "hasQuote": true,
+      "nextFollowUpDate": "2026-04-05"
+    },
+    {
+      "key": "L2",
+      "dateReceived": "2026-03-05",
+      "reportingCategory": "quoted",
+      "estimatedPremium": "2000.00",
+      "hasQuote": true,
+      "nextFollowUpDate": "2026-03-28"
+    },
+    {
+      "key": "L3",
+      "dateReceived": "2026-03-11",
+      "reportingCategory": "open",
+      "estimatedPremium": "500.00",
+      "hasQuote": false,
+      "nextFollowUpDate": null
+    },
+    {
+      "key": "L4",
+      "dateReceived": "2026-02-20",
+      "reportingCategory": "won",
+      "estimatedPremium": "9999.00",
+      "hasQuote": true,
+      "nextFollowUpDate": null
+    },
+    {
+      "key": "L5",
+      "dateReceived": "2026-03-20",
+      "reportingCategory": "lost",
+      "estimatedPremium": "300.00",
+      "hasQuote": true,
+      "nextFollowUpDate": null
+    }
+  ],
+
+  "quotes": [
+    {
+      "key": "Q1",
+      "leadKey": "L1",
+      "preparedDate": "2026-03-03",
+      "sentDate": "2026-03-05",
+      "reportingCategory": "quoted",
+      "decisionDate": null,
+      "currentPremium": "1200.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    },
+    {
+      "key": "Q2",
+      "leadKey": "L2",
+      "preparedDate": "2026-03-06",
+      "sentDate": "2026-03-09",
+      "reportingCategory": "won",
+      "decisionDate": "2026-03-15",
+      "currentPremium": "2500.00",
+      "boundPremium": "2400.00",
+      "competitorPremium": null
+    },
+    {
+      "key": "Q3",
+      "leadKey": "L4",
+      "preparedDate": "2026-03-08",
+      "sentDate": "2026-03-08",
+      "reportingCategory": "lost",
+      "decisionDate": "2026-03-18",
+      "currentPremium": "800.00",
+      "boundPremium": null,
+      "competitorPremium": "640.00"
+    },
+    {
+      "key": "Q4",
+      "leadKey": "L2",
+      "preparedDate": "2026-03-07",
+      "sentDate": null,
+      "reportingCategory": "open",
+      "decisionDate": null,
+      "currentPremium": "100.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    },
+    {
+      "key": "Q5",
+      "leadKey": "L4",
+      "preparedDate": "2026-02-25",
+      "sentDate": "2026-02-26",
+      "reportingCategory": "won",
+      "decisionDate": "2026-02-28",
+      "currentPremium": "5000.00",
+      "boundPremium": "5000.00",
+      "competitorPremium": null
+    },
+    {
+      "key": "Q6",
+      "leadKey": "L1",
+      "preparedDate": "2026-03-12",
+      "sentDate": "2026-03-20",
+      "reportingCategory": "expired",
+      "decisionDate": "2026-03-25",
+      "currentPremium": "700.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    },
+    {
+      "key": "Q7",
+      "leadKey": "L1",
+      "preparedDate": "2026-03-30",
+      "sentDate": null,
+      "reportingCategory": "open",
+      "decisionDate": null,
+      "currentPremium": "50.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    },
+    {
+      "key": "Q8",
+      "leadKey": "L2",
+      "preparedDate": "2026-03-31",
+      "sentDate": null,
+      "reportingCategory": "open",
+      "decisionDate": null,
+      "currentPremium": "150.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    },
+    {
+      "key": "Q9",
+      "leadKey": "L5",
+      "preparedDate": "2026-03-29",
+      "sentDate": null,
+      "reportingCategory": "open",
+      "decisionDate": null,
+      "currentPremium": "25.00",
+      "boundPremium": null,
+      "competitorPremium": null
+    }
+  ],
+
+  "expected": {
+    "$comment": [
+      "Hand-computed over the period 2026-03-01..2026-03-31 with today = 2026-04-01.",
+      "Q5 sits entirely in February and is present ONLY to prove the date window actually excludes;",
+      "Q6 is decided-but-EXPIRED and is present ONLY to prove 'decided' means won+lost, not",
+      "'has a decision date' (V-091's 'undecided quotes excluded from the win-rate denominator')."
+    ],
+
+    "totalLeadsReceived": 4,
+    "$totalLeadsReceived": "L1,L2,L3,L5 received in March; L4 is 2026-02-20.",
+
+    "leadsWithQuote": 3,
+    "leadToQuoteRate": 0.75,
+    "$leadToQuoteRate": "L1,L2,L5 have quotes; L3 does not. 3/4.",
+
+    "totalQuotesPrepared": 8,
+    "$totalQuotesPrepared": "Q1,Q2,Q3,Q4,Q6,Q7,Q8,Q9 prepared in March; Q5 is 2026-02-25.",
+
+    "quotesSent": 4,
+    "$quotesSent": "Q1,Q2,Q3,Q6 have a sentDate inside the period. Q4,Q7,Q8,Q9 unsent; Q5 sent in Feb.",
+
+    "quoteToProposalRate": 0.5,
+    "$quoteToProposalRate": "4 sent / 8 total quotes. Q-5 fixes the denominator as QUOTES, not leads.",
+
+    "wonQuotes": 1,
+    "lostQuotes": 1,
+    "decidedQuotes": 2,
+    "quoteToWinRate": 0.5,
+    "$quoteToWinRate": "Q2 won, Q3 lost, both decided in March. Q6 expired-in-March is NOT decided. 1/2.",
+
+    "proposalToWinRate": 0.25,
+    "$proposalToWinRate": "1 won / 4 sent.",
+
+    "quotedPremium": "5525.00",
+    "$quotedPremium": "1200+2500+800+100+700+50+150+25 over quotes PREPARED in the period.",
+
+    "boundPremium": "2400.00",
+    "$boundPremium": "Q2's bound_premium. Q5's 5000.00 was decided in February and is out of window.",
+
+    "openQuotePremium": "1525.00",
+    "$openQuotePremium": "Q1 1200 + Q4 100 + Q7 50 + Q8 150 + Q9 25; categories open|quoted only.",
+
+    "openLeadEstimatedPremium": "500.00",
+    "$openLeadEstimatedPremium": "L3 alone: open, and the only open lead with no quote.",
+
+    "openPipelinePremium": "2025.00",
+
+    "averageTurnaroundDays": 10.25,
+    "$averageTurnaroundDays": "Q1 3, Q2 4, Q3 16, Q6 18 -> 41/4.",
+
+    "slaStatus": "breached",
+    "$slaStatus": "10.25 > slaTargetDays 3.",
+
+    "averageLeadAgeDays": 26,
+    "$averageLeadAgeDays": "Open leads L1 30, L2 27, L3 21 -> 78/3.",
+
+    "averageQuoteAgeDays": 12,
+    "$averageQuoteAgeDays": "Open quotes Q1 29, Q4 25, Q7 2, Q8 1, Q9 3 -> 60/5.",
+
+    "followUpRequired": 2,
+    "followUpOnTime": 1,
+    "followUpCompliance": 0.5,
+    "$followUpCompliance": "Open leads with a committed next follow-up: L1 (2026-04-05, on time) and L2 (2026-03-28, overdue). L3 has none.",
+
+    "averagePriceGap": 0.25,
+    "$averagePriceGap": "Only Q3 carries a competitor premium: (800-640)/640.",
+
+    "executiveAgingBuckets": { "0-3 days": 3, "4-7 days": 0, "8-14 days": 0, "15+ days": 2 },
+    "pipelineAgingBuckets": { "0-3": 3, "4-7": 0, "8-14": 0, "15-30": 2, "31-60": 0, "60+": 0 },
+    "$agingBuckets": "Open-quote ages from today: Q7 2, Q8 1, Q9 3, Q4 25, Q1 29."
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "id": "T-043",
+  "title": "Design system and prototype visual fidelity for built screens",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-013",
+    "T-031"
+  ],
+  "objective": "Close the visual gap between the running app and docs/prototype/screenshots for every already-built screen: introduce the missing component CSS layer (classes consuming the existing --qiq-* tokens), an in-repo SVG icon set, and restyle the shell and all shipped screens to QuoteIQ_UI_Standards.md / prototype quality. Approved remediation plan: docs/ui-remediation/plan.md.",
+  "scope": [
+    "Phase 1 - src/ui/src/theme/components.css: base element layer (links, focus-visible, tabular numerics), .qiq-btn variants (primary/secondary/danger/ghost, busy/disabled), .qiq-icon-btn with badge, form controls (input/textarea/select/date/toggle/radio, labels, required marker, inline error), .qiq-card, .qiq-chip reporting-category variants (incl. outlined Withdrawn), .qiq-table (right-aligned numerics, hover, pagination), dialog/scrim, toast stack, semantic banners, skeleton, empty state - all values from --qiq-* tokens only",
+    "Phase 1 - components/common/Icon.tsx: single-stroke-weight inline SVG icon set (nav, bell, help, search, export, calendar, arrows, refresh, menu-dots) derived from docs/prototype/app markup",
+    "Phase 2 - shell restyle: Sidebar (brand block, icons, accent active pill defining the previously-undefined .qiq-nav-item classes, badge chip, separator), UserCard (avatar disc, menu), TopBar (64px, search with icon, icon-buttons with count badge, Export secondary, + New Lead primary), Footer, dashboards/FilterBar",
+    "Phase 3 - restyle sweep across built screens: Leads list/detail/dialogs, Lead & Party forms (two-column grid, sticky footer), Parties, Settings tabs, User Manager, Tenant Manager, DrillListPage, 403/404, StatusChip, KpiCard/ChartCard polish (icon halo, 28-32px/700 value, card-link, menu)",
+    "Phase 4 - amend .claude/tasks/T-032..T-037 and T-040 to require the component library and per-screen side-by-side fidelity checks against docs/prototype/screenshots",
+    "Phase 5 - e2e_tests/tests/visual-shell.spec.ts computed-style smoke spec; regenerate docs/ui-remediation/current-state captures for human sign-off"
+  ],
+  "out_of_scope": [
+    "Building the dashboards/Alerts/Reports screens themselves (T-032..T-037, T-040)",
+    "Changing --qiq-* token values, themes, routing, Redux state, or backend code",
+    "New npm dependencies or frameworks",
+    "Self-hosting the Inter font (optional follow-up; Segoe UI fallback accepted)"
+  ],
+  "implementation_details": [
+    "Port component patterns (nav pill, icon-btn, kpi halo, chips, shadows, select chevron data-URI) from docs/prototype/app/assets/css/styles.css but express every color/spacing via existing --qiq-* tokens (V-070 no-raw-hex grep must stay green); shadows/scrim may add new tokens in tokens.css if needed",
+    "Keep UI Standards token values (not prototype hexes) per approved plan decision 3; adjust only on visible mismatch at review",
+    "Existing structural inline styles may remain; decorative inline styling migrates to classes as each component is touched",
+    "Unit tests keying on data-testid/roles stay green; any test asserting inline-style substrings is updated to assert classes instead"
+  ],
+  "files": [
+    "src/ui/src/theme/components.css",
+    "src/ui/src/theme/tokens.css",
+    "src/ui/src/index.css",
+    "src/ui/src/components/common/Icon.tsx",
+    "src/ui/src/components/shell/*.tsx",
+    "src/ui/src/components/common/*.tsx",
+    "src/ui/src/components/dashboards/*.tsx",
+    "src/ui/src/features/**/*.tsx (class application only)",
+    "e2e_tests/tests/visual-shell.spec.ts",
+    ".claude/tasks/T-032.json .. T-037.json, T-040.json (amendments)",
+    "docs/ui-remediation/current-state/*.png (regenerated)"
+  ],
+  "test_plan": {
+    "unit": [
+      "Existing UI unit suite stays green (tests key on data-testid/roles); tests asserting decorative inline-style substrings are updated to assert the new .qiq-* classes instead",
+      "Icon.tsx renders the requested glyph with role/aria-hidden semantics (new test)",
+      "Sidebar/TopBar tests extended: bell and help render accessible icon buttons (svg + aria-label), not literal Bell/Help text; active NavLink carries qiq-nav-item--active"
+    ],
+    "integration": [
+      "npm run typecheck, npm run lint, npm run build all clean",
+      "dotnet test QuoteIQ.slnx as a no-backend-change regression gate",
+      "V-070 no-raw-hex grep over src/ui/src stays green (components.css consumes tokens only)"
+    ],
+    "e2e": [
+      "visual-shell.spec.ts (V-082): real Keycloak login, then computed-style assertions - active nav item has accent pill background and no underline; + New Lead uses accent fill with accent-contrast text; a .qiq-card computes card surface, 1px subtle border, 10px radius; body font-family equals the token stack",
+      "Existing shell/login/logout/leads/settings specs stay green",
+      "Regenerate docs/ui-remediation/current-state/*.png for manual side-by-side sign-off vs docs/prototype/screenshots"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-082"
+  ],
+  "verification_ids": [
+    "V-082"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "verification",
+      "description": "V-082 e2e (visual-shell.spec.ts) and the human side-by-side sign-off of the regenerated docs/ui-remediation/current-state captures were not executed by the evaluator because they require the full running stack (Keycloak + API + SPA + seed-shell-e2e.sh). The spec was reviewed statically instead: it is coherent, its assertions map exactly to the tokens.css light-theme values (accent #159aa6 = rgb(21,154,166), accent-contrast/surface-card #ffffff, radius-card 10px, font-sans begins Inter, 'Segoe UI'), and every selector/testid/class it references (sidebar-nav, new-lead-button, notification-bell, help-button, .qiq-card, .qiq-nav-item--active) exists in the shell components and components.css.",
+      "evidence": "e2e_tests/tests/visual-shell.spec.ts; src/ui/src/theme/tokens.css lines 18-150; src/ui/src/theme/components.css .qiq-nav-item/.qiq-card; src/ui/src/components/shell/TopBar.tsx testids.",
+      "suggested_fix": "Run visual-shell.spec.ts against the local docker stack and obtain human visual sign-off before final closure; no code change required.",
+      "status": "resolved",
+      "resolution": "Human confirmed on 2026-07-14 that the ui-remediation (docs/ui-remediation) was already reviewed and approved, closing the visual side-by-side sign-off. visual-shell.spec.ts is committed and runs in CI against the stack. No code change required.",
+      "created_at": "2026-07-14T03:40:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-13T21:30:00-04:00",
+      "event": "created",
+      "message": "Created from human-approved remediation plan docs/ui-remediation/plan.md (visual fidelity gap found on 2026-07-13 review)."
+    },
+    {
+      "timestamp": "2026-07-13T21:30:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1)."
+    },
+    {
+      "timestamp": "2026-07-13T21:50:00-04:00",
+      "event": "tests_written",
+      "message": "Test-first: e2e_tests/tests/visual-shell.spec.ts (V-082 computed-style assertions) written before the restyle; StatusChip.test.tsx migrated from inline-style to class assertions; new Icon.test.tsx and TopBar.test.tsx unit tests."
+    },
+    {
+      "timestamp": "2026-07-14T03:45:00-04:00",
+      "event": "task_passed",
+      "message": "T-043 PASS (iteration 1/10). Evaluator re-ran frontend typecheck/vitest 348-348/build/V-070 no-raw-hex grep and backend dotnet test QuoteIQ.slnx (Domain 347, Application 32, Api 277, Infrastructure 91, exit 0) - all green, lint = pre-existing baseline in untouched files. visual-shell.spec.ts reviewed statically: coherent, assertions map exactly to tokens.css light-theme values, all referenced selectors/testids/classes exist. F-001 (info, non-blocking): V-082 live run + human side-by-side visual sign-off still pending against the running stack; no code change required."
+    },
+    {
+      "timestamp": "2026-07-13T22:20:00-04:00",
+      "event": "implementation_written",
+      "message": "Phases 1-3: theme/components.css (.qiq-* class library on tokens; new shadow/scrim/hover/chevron tokens in tokens.css), components/common/Icon.tsx (27-glyph in-repo SVG set), shell restyle (Sidebar brand+icons+accent pill, TopBar icon-buttons+searchbox+primary New Lead, UserCard avatar+menu, Footer, TenantSwitcher), sweep across StatusChip/Toast/ErrorBanner/EmptyState/SkeletonTable/ConfirmDialog/ChartCard/KpiCard/FilterBar and all built feature screens (filter bars, card-wrapped tables, primary submit/create buttons, sticky footers, banners). Phase 4: T-032..T-037+T-040 task files amended with design-system + prototype-fidelity requirements."
+    },
+    {
+      "timestamp": "2026-07-13T22:50:00-04:00",
+      "event": "gates_run",
+      "message": "All gates green: typecheck 0; lint = pre-existing baseline (1 error/3 warnings in untouched files); vitest 339/339 (was 335, +4 new); vite build 0; V-070 no-raw-hex grep clean (hex only in tokens.css); Playwright full suite 27 passed / 24 pre-existing test.fixme; dotnet test QuoteIQ.slnx all projects passed (exit 0). Before/after captures regenerated: docs/ui-remediation/before + current-state; side-by-side vs docs/prototype/screenshots confirms shell/nav/cards/chips/tables now match the prototype design system."
+    }
+  ]
+}

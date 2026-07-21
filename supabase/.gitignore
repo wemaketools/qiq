@@ -1,0 +1,12 @@
+# Supabase
+.branches
+.temp
+
+# Local-only asymmetric JWT signing key, generated per machine by
+# scripts/db/ensure-signing-keys.mjs. Never commit signing keys.
+signing_keys.json
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local

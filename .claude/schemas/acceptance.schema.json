@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "acceptance.schema.json",
+  "title": "QuoteIQ Harness Acceptance Criteria",
+  "type": "object",
+  "required": ["generated_at", "spec_path", "criteria"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string" },
+    "spec_path": { "type": "string" },
+    "criteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "description", "category", "requirement_refs", "task_ids", "test_levels", "priority"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^AC-\\d{3}$" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "enum": ["functional", "security", "authorization", "validation", "accessibility", "performance", "error-handling", "observability", "infrastructure", "data"] },
+          "requirement_refs": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "task_ids": { "type": "array", "items": { "type": "string", "pattern": "^T-\\d{3}$" }, "minItems": 1 },
+          "test_levels": { "type": "array", "items": { "enum": ["unit", "integration", "e2e", "manual", "security"] }, "minItems": 1 },
+          "priority": { "enum": ["must", "should"] }
+        }
+      }
+    }
+  }
+}

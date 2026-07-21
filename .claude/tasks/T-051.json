@@ -1,0 +1,82 @@
+{
+  "id": "T-051",
+  "title": "Wire the built-bundle secret/module scan (V-003) and the repo-wide secret scan (V-114) into ci:test",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-042"
+  ],
+  "objective": "Close a must-priority cross-task security gap the T-042 evaluation exposed: AC-002/V-003 (scan the COMPILED client bundle for leaked server secrets and server-only modules) and AC-088/V-114 (repo-wide secret scan) are satisfied nowhere - the existing guards scan SPA SOURCE only, not the built dist. Human ruled (2026-07-21) to build both as CI gates before cutover.",
+  "scope": [
+    "scripts/ci/scan-bundle.ts: build the SPA (npm run build:ui / build:ui equivalent), then scan the produced dist for the service-role key, server-only secrets (the SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, CRON_SECRET, INTERNAL_JOB_SECRET, API_KEY_PEPPER shapes), and server-only MODULE leakage (anything from src/server, lib/config server config, node-only imports). Fail loudly if any appears in the client bundle.",
+    "scripts/ci/scan-secrets.ts: repo-wide secret scan (tracked files) for real-looking credentials/keys/tokens, with an allowlist for placeholders in .env.example/.env.local.example and test fixtures that deliberately carry fake secrets. Fail on a real match.",
+    "Wire both into ci:test (or a ci:security script ci:test invokes) so they run in CI, not just on demand.",
+    "Document both in docs/deployment.md / environment-variables.md alongside the existing SPA-source guard, and close the F-042-1/F-042-2 findings on T-042 once landed."
+  ],
+  "out_of_scope": [
+    "Changing what secrets exist or how they are configured (T-042 owns the catalog)",
+    "The SPA-source import guard, which already exists and stays - this ADDS the built-dist and repo-wide scans it does not cover"
+  ],
+  "implementation_details": [
+    "THE POINT OF THIS TASK IS THAT THE SCAN EXERCISES THE ARTIFACT, NOT ITS SOURCE. The gap exists precisely because the current guard reads SPA source; a secret pulled into the bundle by a transitive/bad import would pass it. So scan-bundle MUST build first and scan the compiled output - a scan that reads source again does not close the gap and must be rejected in review.",
+    "Prove teeth by construction: temporarily plant a fake service-role-key string in a SPA source file that gets bundled, build, and confirm scan-bundle FAILS; remove it and confirm it passes. Same for scan-secrets with a planted tracked-file secret. This is the mutation evidence for a scanner.",
+    "Do NOT let the allowlist become a hole: a scanner that allowlists so broadly it never fails is the vacuous-guard trap this session has hit repeatedly (a guard that passes whether or not the thing under test is present). The allowlist must be specific to known placeholder/fixture locations, and a real secret in a non-allowlisted file must fail.",
+    "Node runtime, no new heavy dependency - prefer a self-contained scan over pulling in a scanning framework; if you believe a dependency is needed, flag it first."
+  ],
+  "files": [
+    "scripts/ci/",
+    "package.json",
+    "docs/deployment.md",
+    "docs/environment-variables.md",
+    "src/server/tests/"
+  ],
+  "test_plan": {
+    "unit": [
+      "scan-bundle detects a planted server-only secret / server module in the built dist and passes on a clean build; scan-secrets detects a planted tracked-file secret and passes clean, with the placeholder allowlist proven to NOT swallow a real secret in a non-allowlisted file"
+    ],
+    "integration": [
+      "ci:test (or ci:security) runs both scans and fails when either finds a planted secret"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-002",
+    "AC-088"
+  ],
+  "verification_ids": [
+    "V-003",
+    "V-114"
+  ],
+  "findings": [
+    {
+      "id": "F-051-1",
+      "severity": "major",
+      "status": "open",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-20T21:00:00-04:00",
+      "owning_task": "T-044",
+      "summary": "scan-secrets (V-114, repo-wide) is git-ls-files/tracked-file based by design (correct), but almost none of this migration's new code is actually git-tracked right now, so the 'REAL-REPO SCANS CLEAN: 1197 tracked files, 0 secrets' claim does not cover the new work at all. Must be re-verified against the truly committed tree before T-044 cutover sign-off.",
+      "detail": "Confirmed first-hand: `git ls-files src/server | wc -l` = 0 (401 files on disk), `git ls-files scripts | wc -l` = 0 (25 files on disk), `git ls-files supabase | wc -l` = 0 (39 files on disk), plus api/, .github/, package.json, package-lock.json, tsconfig*.json, .env.example, .env.local.example, and scripts/ci/scan-secrets.ts + scan-bundle.ts THEMSELVES are all untracked (`git status --porcelain` shows them as `??`). scan-secrets is correctly designed to scan tracked files only (per its own docstring and T-051's scope), so this is not a scanner bug - the scanner has genuine teeth against whatever IS tracked, proven by planting real secrets in tracked files (docs/QuoteIQ_PRD.md, an actually-tracked file) and observing FAIL, then restoring byte-identical and observing PASS. But it means the scan has, in practice, never scanned the new backend/scripts/supabase/docs trees this whole session, since none of it has been committed (agents are instructed never to run git operations per CLAUDE.md - commit is a human/orchestrator step). scan-bundle is unaffected (it scans the filesystem build output directly, not git-tracked files, and was proven effective against the real build).",
+      "suggested_fix": "Before T-044 signs off V-003/V-114: commit the full new tree (human/orchestrator action, not an agent git operation), then re-run `npm run ci:security` (or `npm run ci:test`) against the actual tracked set and confirm 0 findings. Do not treat the current 'REAL-REPO SCANS CLEAN' claim as covering the new code until that re-run happens.",
+      "evidence": "git ls-files src/server|scripts|supabase all return 0; git status --porcelain shows src/server/, scripts/, supabase/, api/, .github/, package.json, .env.example, .env.local.example as untracked (??); scan-secrets teeth re-proven against a genuinely tracked file (docs/QuoteIQ_PRD.md) with a planted postgres inline-credential secret -> FAIL, byte-identical restore verified via sha256."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-20T21:15:00-04:00",
+      "event": "evaluated",
+      "message": "PASS. Verified scan-bundle and scan-secrets first-hand, not just on the implementor's word. scan-bundle: read the source, confirmed it runs `npm run build:ui` and scans the emitted src/ui/dist (not source). Planted a real (non-comment, referenced) `sb_secret_...` literal in src/ui/src/main.tsx, built, ran scan-bundle -> FAILED naming assets/index-*.js [supabase-secret-key] (exit 1). Restored main.tsx byte-identical (sha256 f46dc242...ebaf matches original both before and after), rebuilt clean -> OK 5 assets 0 leaks. (A first attempt planting the secret only inside a JS COMMENT passed vacuously because the minifier strips comments - not a scanner flaw, since real leaks are live code, not comments; retried with a referenced variable and got a clean FAIL.) scan-secrets: read the source (git-ls-files/tracked-only by design, exact-path allowlist, value-shape regexes not name-shape). Planted a postgres inline-credential secret in a GENUINELY TRACKED file (docs/QuoteIQ_PRD.md, confirmed via `git ls-files`) -> FAILED naming the file:line; restored byte-identical (sha256 40ab7878...81b47 matches). Ran the 21 scanner unit tests standalone (ci-scan-bundle 9 + ci-scan-secrets 12) -> all pass, including the sibling-of-allowlisted-path anti-vacuity case and the allowlisted-placeholder-passes case. ci:security composition confirmed wired into ci:test via package.json. Docs (environment-variables.md, deployment.md) correctly describe both scans as wired and reference T-051/V-003/V-114. F-042-1/F-042-2 are genuinely addressed. ONE FINDING (F-051-1, major, open, owner T-044): discovered that almost the entire new codebase (src/server 401 files, scripts 25 files, supabase 39 files, api/, .github/, package.json, tsconfig*, .env*.example, and the scanner scripts themselves) is UNTRACKED in git (`git ls-files <dir>` returns 0 for all of them). scan-secrets is correctly tracked-file-scoped by design, so this isn't a scanner defect, but it means the 'REAL-REPO SCANS CLEAN: 1197 tracked files' claim never actually touched the new work - it scanned only pre-existing legacy-era tracked content. This does not block T-051's PASS (the scanner code is correct, proven with teeth, and correctly wired; committing the tree is an explicit human/orchestrator step per CLAUDE.md, not something T-051 or any agent can do), but it is a MUST-CARRY item for T-044: commit the tree, then re-run `npm run ci:security` against the real tracked set and confirm 0 findings before signing off V-003/V-114. Left the working tree exactly as found (all plant/restore operations verified byte-identical via sha256); did not touch git state; did not edit task_list.json or session_state.json per instruction."
+    },
+    {
+      "timestamp": "2026-07-21T05:30:00-04:00",
+      "event": "task_created",
+      "message": "Created on the human's ruling after the T-038/T-042 evaluation escalated F-042-1/F-042-2 as a genuine must-priority cross-task gap, not extra hardening: V-003 (built-bundle scan) and V-114 (repo-wide secret scan) are satisfied nowhere - the existing guards scan SPA SOURCE only. Depends on T-042 (the finalized env catalog / config it scans against) and BLOCKS T-044 cutover, which signs off V-003/V-114. The human chose a dedicated task over folding the scans into T-043/T-044 specifically to avoid burying a security deliverable in a task about something else - the exact pattern that let the gap form."
+    },
+    {
+      "timestamp": "2026-07-20T19:36:00-04:00",
+      "event": "implemented",
+      "message": "Implemented both CI security scanners and wired them in. FILES ADDED: scripts/ci/scan-bundle.ts (V-003: runs `npm run build:ui`, then scans every emitted src/ui/dist asset for the six server-only var NAMES [SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, DIRECT_DATABASE_URL, CRON_SECRET, INTERNAL_JOB_SECRET, API_KEY_PEPPER], the service_role/sb_secret_ literals, and src/server/ module-path fragments; exports scanBundleDir(dir, extraSecretValues) for value-leak hunts - scans the ARTIFACT not the source); scripts/ci/scan-secrets.ts (V-114: walks git ls-files tracked files for 3-segment JWTs, sb_secret_ keys, PEM private-key blocks, inline-credential postgres URLs, and high-entropy values assigned to secret-named vars; EXACT-path allowlist only); src/server/tests/unit/ci-scan-bundle.test.ts + ci-scan-secrets.test.ts (21 tests); src/server/tests/fixtures/ci-scan-probe-secrets.ts (synthetic planted secrets). FILES EDITED: package.json (added ci:security = scan-secrets && scan-bundle; ci:test now composes `npm run ci:security &&` before the unchanged assert-test-run --min-tests 3722 floor); .github/workflows/ci.yml (dedicated fast-feedback Security-scans step after the SPA build, no Docker); docs/environment-variables.md + docs/deployment.md (documented both scans and the allowlist next to the existing SPA-source guard, status flipped from 'not yet wired' to wired). TEETH PROVEN BY CONSTRUCTION against a REAL build in src/ui/src/main.tsx (byte-exact backup/restore, no git ops): (1) planted sb_secret_ key -> build+scan-bundle FAILED naming assets/index-*.js [supabase-secret-key]; restored, sha256 f46dc242...==orig; (2a) planted a real `import '../../server/lib/config/schema'` -> tsc backstop failed the build (exit 2), scan-bundle exit 1; restored byte-identical; (2b) planted the server var-name literals + src/server path a bundler would inline (green build) -> scan-bundle FAILED with 4 findings [server-var:SUPABASE_SERVICE_ROLE_KEY, server-var:DATABASE_URL, server-var:CRON_SECRET, server-module-path]; restored, sha256 matches orig; clean build -> OK 5 assets 0 leaks. scan-secrets teeth: unit tests plant each rule in a non-allowlisted path (FAIL), the same secret in an allowlisted placeholder/fixture path (PASS), and a NON-allowlisted fixture sibling (FAIL) proving the allowlist is exact-path not a glob; placeholders (<...>) and bare var names do not match. REAL-REPO SCANS CLEAN: scan-secrets scanned 1197 tracked files (17 binary skipped) 0 secrets; scan-bundle 5 assets 0 leaks. Note the deliberate fake-secret fixture src/server/tests/fixtures/log-fixture-secrets.ts is currently UNTRACKED (so not yet scanned) but pre-allowlisted for when it is committed. GATES: 21 scanner unit tests exit 0 (planted-RED observed for every rule); npm run typecheck 0; npm run lint 0. Deferred: full `npm test` / composed `npm run ci:test` NOT run here (sibling T-043 owns the demo DB) - left for the orchestrator's serial sweep. F-042-1 (built-bundle scan) and F-042-2 (repo-wide secret scan) are now ADDRESSED and can be closed on T-042."
+    }
+  ]
+}

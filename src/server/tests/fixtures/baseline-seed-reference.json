@@ -1,0 +1,1248 @@
+{
+  "permissions": [
+    {
+      "code": "tenants.view",
+      "category": "tenants",
+      "description": "View tenant"
+    },
+    {
+      "code": "tenants.create",
+      "category": "tenants",
+      "description": "Create tenant"
+    },
+    {
+      "code": "tenants.edit",
+      "category": "tenants",
+      "description": "Edit tenant"
+    },
+    {
+      "code": "tenants.deactivate",
+      "category": "tenants",
+      "description": "Deactivate/remove tenant"
+    },
+    {
+      "code": "tenants.restore",
+      "category": "tenants",
+      "description": "Restore a removed tenant"
+    },
+    {
+      "code": "tenants.view_removed",
+      "category": "tenants",
+      "description": "View removed tenants"
+    },
+    {
+      "code": "tenants.manage_settings",
+      "category": "tenants",
+      "description": "Manage tenant settings"
+    },
+    {
+      "code": "users.view",
+      "category": "users",
+      "description": "View users"
+    },
+    {
+      "code": "users.invite",
+      "category": "users",
+      "description": "Invite/create user"
+    },
+    {
+      "code": "users.edit",
+      "category": "users",
+      "description": "Edit user"
+    },
+    {
+      "code": "users.deactivate",
+      "category": "users",
+      "description": "Deactivate user"
+    },
+    {
+      "code": "users.assign_tenant",
+      "category": "users",
+      "description": "Assign user to tenant"
+    },
+    {
+      "code": "users.assign_role",
+      "category": "users",
+      "description": "Assign role to user"
+    },
+    {
+      "code": "users.assign_group",
+      "category": "users",
+      "description": "Assign user to group"
+    },
+    {
+      "code": "users.grant_direct_permission",
+      "category": "users",
+      "description": "Grant direct permission to user"
+    },
+    {
+      "code": "roles.view",
+      "category": "roles",
+      "description": "View roles"
+    },
+    {
+      "code": "roles.manage",
+      "category": "roles",
+      "description": "Create, edit, and disable roles"
+    },
+    {
+      "code": "groups.view",
+      "category": "groups",
+      "description": "View user groups"
+    },
+    {
+      "code": "groups.manage",
+      "category": "groups",
+      "description": "Create, edit, and disable user groups"
+    },
+    {
+      "code": "leads.create",
+      "category": "leads",
+      "description": "Create lead"
+    },
+    {
+      "code": "leads.view",
+      "category": "leads",
+      "description": "View lead"
+    },
+    {
+      "code": "leads.view_all",
+      "category": "leads",
+      "description": "View all tenant leads (record-level visibility breadth)"
+    },
+    {
+      "code": "leads.update",
+      "category": "leads",
+      "description": "Update lead"
+    },
+    {
+      "code": "leads.assign",
+      "category": "leads",
+      "description": "Assign/reassign lead"
+    },
+    {
+      "code": "leads.close",
+      "category": "leads",
+      "description": "Close lead"
+    },
+    {
+      "code": "leads.delete",
+      "category": "leads",
+      "description": "Delete/void lead"
+    },
+    {
+      "code": "leads.export",
+      "category": "leads",
+      "description": "Export leads"
+    },
+    {
+      "code": "leads.reassign",
+      "category": "leads",
+      "description": "Bulk reassign leads"
+    },
+    {
+      "code": "leads.correct_closed",
+      "category": "leads",
+      "description": "Correct a closed lead"
+    },
+    {
+      "code": "leads.reopen",
+      "category": "leads",
+      "description": "Reopen a closed lead"
+    },
+    {
+      "code": "parties.create",
+      "category": "parties",
+      "description": "Create party"
+    },
+    {
+      "code": "parties.view",
+      "category": "parties",
+      "description": "View party"
+    },
+    {
+      "code": "parties.update",
+      "category": "parties",
+      "description": "Update party"
+    },
+    {
+      "code": "parties.export",
+      "category": "parties",
+      "description": "Export parties"
+    },
+    {
+      "code": "quotes.create",
+      "category": "quotes",
+      "description": "Create quote"
+    },
+    {
+      "code": "quotes.view",
+      "category": "quotes",
+      "description": "View quote"
+    },
+    {
+      "code": "quotes.view_all",
+      "category": "quotes",
+      "description": "View all tenant quotes (record-level visibility breadth)"
+    },
+    {
+      "code": "quotes.update",
+      "category": "quotes",
+      "description": "Update quote"
+    },
+    {
+      "code": "quotes.revise",
+      "category": "quotes",
+      "description": "Revise quote"
+    },
+    {
+      "code": "quotes.mark_sent",
+      "category": "quotes",
+      "description": "Mark quote sent"
+    },
+    {
+      "code": "quotes.close_won",
+      "category": "quotes",
+      "description": "Close quote won"
+    },
+    {
+      "code": "quotes.close_lost",
+      "category": "quotes",
+      "description": "Close quote lost"
+    },
+    {
+      "code": "quotes.export",
+      "category": "quotes",
+      "description": "Export quotes"
+    },
+    {
+      "code": "quotes.assign",
+      "category": "quotes",
+      "description": "Assign/reassign quote"
+    },
+    {
+      "code": "quotes.withdraw",
+      "category": "quotes",
+      "description": "Withdraw quote"
+    },
+    {
+      "code": "quotes.correct_closed",
+      "category": "quotes",
+      "description": "Correct a closed quote"
+    },
+    {
+      "code": "quotes.set_current",
+      "category": "quotes",
+      "description": "Set the current quote for a lead"
+    },
+    {
+      "code": "pricing.request",
+      "category": "pricing",
+      "description": "Request pricing approval"
+    },
+    {
+      "code": "pricing.approve",
+      "category": "pricing",
+      "description": "Approve pricing"
+    },
+    {
+      "code": "pricing.reject",
+      "category": "pricing",
+      "description": "Reject pricing"
+    },
+    {
+      "code": "brokers.view",
+      "category": "brokers",
+      "description": "View brokers"
+    },
+    {
+      "code": "brokers.manage",
+      "category": "brokers",
+      "description": "Manage brokers (create, edit, disable, contacts)"
+    },
+    {
+      "code": "brokers.manage_api_access",
+      "category": "brokers",
+      "description": "Manage broker API access"
+    },
+    {
+      "code": "brokers.view_performance",
+      "category": "brokers",
+      "description": "View broker performance"
+    },
+    {
+      "code": "reference_data.manage",
+      "category": "reference_data",
+      "description": "Manage tenant reference data lists"
+    },
+    {
+      "code": "business_rules.view",
+      "category": "business_rules",
+      "description": "View tenant business rules"
+    },
+    {
+      "code": "business_rules.manage",
+      "category": "business_rules",
+      "description": "Manage tenant business rules"
+    },
+    {
+      "code": "business_assignments.view",
+      "category": "business_assignments",
+      "description": "View business assignment configuration"
+    },
+    {
+      "code": "business_assignments.manage",
+      "category": "business_assignments",
+      "description": "Manage business assignment configuration"
+    },
+    {
+      "code": "api_access.view",
+      "category": "api_access",
+      "description": "View API credentials"
+    },
+    {
+      "code": "api_access.enable",
+      "category": "api_access",
+      "description": "Enable API access"
+    },
+    {
+      "code": "api_access.disable",
+      "category": "api_access",
+      "description": "Disable API access"
+    },
+    {
+      "code": "api_access.regenerate_secret",
+      "category": "api_access",
+      "description": "Regenerate API credential secret"
+    },
+    {
+      "code": "dashboards.view_executive",
+      "category": "dashboards",
+      "description": "View executive overview dashboard"
+    },
+    {
+      "code": "dashboards.view_pipeline",
+      "category": "dashboards",
+      "description": "View pipeline & conversion dashboard"
+    },
+    {
+      "code": "dashboards.view_broker_performance",
+      "category": "dashboards",
+      "description": "View broker performance dashboard"
+    },
+    {
+      "code": "dashboards.view_rm_performance",
+      "category": "dashboards",
+      "description": "View RM performance dashboard"
+    },
+    {
+      "code": "dashboards.view_loss_analysis",
+      "category": "dashboards",
+      "description": "View loss analysis dashboard"
+    },
+    {
+      "code": "reports.view",
+      "category": "reports",
+      "description": "View reports"
+    },
+    {
+      "code": "reports.export",
+      "category": "reports",
+      "description": "Export reports"
+    },
+    {
+      "code": "alerts.view",
+      "category": "alerts",
+      "description": "View alerts"
+    },
+    {
+      "code": "alerts.assign_owner",
+      "category": "alerts",
+      "description": "Assign alert owner"
+    },
+    {
+      "code": "alerts.escalate",
+      "category": "alerts",
+      "description": "Escalate alert"
+    },
+    {
+      "code": "alerts.resolve",
+      "category": "alerts",
+      "description": "Clear/resolve alert"
+    },
+    {
+      "code": "audit.view",
+      "category": "audit",
+      "description": "View tenant audit history"
+    },
+    {
+      "code": "global.view_any_tenant",
+      "category": "global",
+      "description": "View and switch into any tenant"
+    },
+    {
+      "code": "global.manage_templates",
+      "category": "global",
+      "description": "Manage global default templates"
+    },
+    {
+      "code": "global.cross_tenant_reporting",
+      "category": "global",
+      "description": "View cross-tenant reporting"
+    },
+    {
+      "code": "global.cross_tenant_audit_access",
+      "category": "global",
+      "description": "View cross-tenant audit history"
+    },
+    {
+      "code": "global.cross_tenant_export",
+      "category": "global",
+      "description": "Export data under a cross-tenant context"
+    },
+    {
+      "code": "global.manage_global_defaults",
+      "category": "global",
+      "description": "Manage global default platform data"
+    }
+  ],
+  "items": [
+    {
+      "listType": "request_channel",
+      "name": "Broker email",
+      "displayOrder": 1,
+      "isBrokerChannel": true,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Direct client",
+      "displayOrder": 2,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "RM referral",
+      "displayOrder": 3,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Phone",
+      "displayOrder": 4,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Portal",
+      "displayOrder": 5,
+      "isBrokerChannel": true,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "WhatsApp",
+      "displayOrder": 6,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Renewal review",
+      "displayOrder": 7,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Walk-in / branch",
+      "displayOrder": 8,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "request_channel",
+      "name": "Other",
+      "displayOrder": 9,
+      "isBrokerChannel": false,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Motor",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Property",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Liability",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Engineering",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Marine",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Group Life",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Health",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Funeral",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Agriculture",
+      "displayOrder": 9,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Commercial Combined",
+      "displayOrder": 10,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Specialty Risks",
+      "displayOrder": 11,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "product_line",
+      "name": "Other",
+      "displayOrder": 12,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Individual",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "SME",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Corporate",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Group",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Government",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Parastatal",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Non-profit",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_type",
+      "name": "Other",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Agriculture",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Mining",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Logistics / Transport",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Hospitality",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Retail",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Construction",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Manufacturing",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Financial Services",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Public Sector",
+      "displayOrder": 9,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Professional Services",
+      "displayOrder": 10,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "industry",
+      "name": "Other",
+      "displayOrder": 11,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Retail",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "SME",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Corporate",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Strategic Account",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Specialty Risks",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Agriculture",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Public Sector",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "party_segment",
+      "name": "Other",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Botswana - National",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Gaborone",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Francistown",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Maun",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Kasane",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Lobatse",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Palapye",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Selebi-Phikwe",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "region",
+      "name": "Other",
+      "displayOrder": 9,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "New",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "new",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Assigned",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "assigned",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Information Gathering",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "information_gathering",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Underwriting",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "underwriting",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Pricing",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "pricing",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Quote Sent",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": "quoted",
+      "canonicalKey": "quote_sent",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Negotiation",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": "quoted",
+      "canonicalKey": "negotiation",
+      "isTerminal": false
+    },
+    {
+      "listType": "lead_status",
+      "name": "Closed Won",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": "won",
+      "canonicalKey": "closed_won",
+      "isTerminal": true
+    },
+    {
+      "listType": "lead_status",
+      "name": "Closed Lost",
+      "displayOrder": 9,
+      "isBrokerChannel": null,
+      "reportingCategory": "lost",
+      "canonicalKey": "closed_lost",
+      "isTerminal": true
+    },
+    {
+      "listType": "lead_status",
+      "name": "Expired",
+      "displayOrder": 10,
+      "isBrokerChannel": null,
+      "reportingCategory": "expired",
+      "canonicalKey": "expired",
+      "isTerminal": true
+    },
+    {
+      "listType": "lead_status",
+      "name": "Withdrawn",
+      "displayOrder": 11,
+      "isBrokerChannel": null,
+      "reportingCategory": "withdrawn",
+      "canonicalKey": "withdrawn",
+      "isTerminal": true
+    },
+    {
+      "listType": "quote_status",
+      "name": "Draft",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": "open",
+      "canonicalKey": "draft",
+      "isTerminal": false
+    },
+    {
+      "listType": "quote_status",
+      "name": "Sent",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": "quoted",
+      "canonicalKey": "sent",
+      "isTerminal": false
+    },
+    {
+      "listType": "quote_status",
+      "name": "Revised",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": "quoted",
+      "canonicalKey": "revised",
+      "isTerminal": false
+    },
+    {
+      "listType": "quote_status",
+      "name": "Won",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": "won",
+      "canonicalKey": "won",
+      "isTerminal": true
+    },
+    {
+      "listType": "quote_status",
+      "name": "Lost",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": "lost",
+      "canonicalKey": "lost",
+      "isTerminal": true
+    },
+    {
+      "listType": "quote_status",
+      "name": "Expired",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": "expired",
+      "canonicalKey": "expired",
+      "isTerminal": true
+    },
+    {
+      "listType": "quote_status",
+      "name": "Withdrawn",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": "withdrawn",
+      "canonicalKey": "withdrawn",
+      "isTerminal": true
+    },
+    {
+      "listType": "broker_type",
+      "name": "Tier 1 - strategic partner",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "broker_type",
+      "name": "Tier 2 - core partner",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "broker_type",
+      "name": "Tier 3 - occasional partner",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "broker_type",
+      "name": "Direct / non-intermediated",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Pricing too high",
+      "displayOrder": 1,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Competitor won",
+      "displayOrder": 2,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Incumbent retained",
+      "displayOrder": 3,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Tender exercise only",
+      "displayOrder": 4,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Coverage gap",
+      "displayOrder": 5,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Terms not accepted",
+      "displayOrder": 6,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Service concern",
+      "displayOrder": 7,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Brand / trust concern",
+      "displayOrder": 8,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Underwriting declined",
+      "displayOrder": 9,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "No response",
+      "displayOrder": 10,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Decision postponed",
+      "displayOrder": 11,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Quote expired",
+      "displayOrder": 12,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Lost before quote issued",
+      "displayOrder": 13,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": null,
+      "isTerminal": false
+    },
+    {
+      "listType": "lost_reason",
+      "name": "Other",
+      "displayOrder": 14,
+      "isBrokerChannel": null,
+      "reportingCategory": null,
+      "canonicalKey": "other",
+      "isTerminal": false
+    }
+  ]
+}

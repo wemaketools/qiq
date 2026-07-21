@@ -1,0 +1,84 @@
+{
+  "id": "T-011",
+  "title": "Business assignments backend (assignable roles, accountable owner)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-006", "T-007"],
+  "objective": "Each tenant configures which roles are assignable to leads and quotes and which lead role is the accountable owner, driving the multi-role assignment model (spec FR-23, FR-35, PRD 8/10.4).",
+  "scope": [
+    "business_assignments table (partitioned)",
+    "GET/PUT /api/v1/settings/business-assignments",
+    "Query service exposing assignable roles + eligible users per role for pickers"
+  ],
+  "out_of_scope": ["Assignment rows on leads/quotes (T-018/T-020)"],
+  "implementation_details": [
+    "Liquibase 060-assignments: business_assignments (tenant_id, id identity, role_id bigint FK roles, applies_to text check in ('lead','quote'), is_accountable_owner bool default false, display_order int, PK (tenant_id,id), unique (tenant_id, role_id, applies_to))",
+    "Features/BusinessAssignments: GetBusinessAssignmentsQuery -> {leadRoles:[{assignmentId, roleId, roleName, isAccountableOwner}], quoteRoles:[...]}; UpdateBusinessAssignmentsCommand replacing the configuration transactionally with validation: exactly one is_accountable_owner among lead roles; role_id must reference an active tenant (or global) role; cannot remove a role config while live leads/quotes hold an assignee for it (409 ASSIGNMENT_ROLE_IN_USE — check deferred-safe: lead_assignments/quote_assignments existence, tables from T-018/T-020, guarded with to-table-existence check until then)",
+    "Features/BusinessAssignments/GetEligibleAssigneesQuery{assignmentId, search} -> active tenant users holding that role (direct or via group), for the searchable user dropdowns (PRD 10.4); pricing-approver eligibility variant filters by PermissionCatalog.Pricing.Approve",
+    "Endpoints under /api/v1/settings/business-assignments + /api/v1/settings/business-assignments/eligible-users; RequirePermission(BusinessAssignments.Manage) for writes, tenant members for eligible-user lookups",
+    "Audit on update with before/after"
+  ],
+  "files": [
+    "src/api/db/changelog/060-assignments/*.xml",
+    "src/api/QuoteIQ.Domain/Entities/BusinessAssignment.cs",
+    "src/api/QuoteIQ.Application/Features/BusinessAssignments/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/BusinessAssignmentEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/BusinessAssignments/BusinessAssignmentEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "UpdateAssignments_WhenZeroOrTwoAccountableOwners_ShouldReturnValidationError",
+      "UpdateAssignments_WhenValid_ShouldReplaceConfiguration",
+      "GetEligibleAssignees_ShouldReturnOnlyUsersHoldingTheRoleInTenant",
+      "EligibleApprovers_ShouldRequirePricingApprovePermission",
+      "Configuration_ShouldBeTenantIsolated"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-022"],
+  "verification_ids": ["V-022"],
+  "findings": [
+    {
+      "id": "F-039",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "Regression-coverage gaps (behaviors implemented and correct, just untested): no test locks the documented quote-role rule (a quote role sent with isAccountableOwner=true should 422), the duplicate-role-per-list rule, or GetEligibleAssignees with an unknown assignmentId -> 404.",
+      "evidence": "UpdateBusinessAssignmentsValidator.cs:32-38; GetEligibleAssigneesQueryHandler.cs:27-32.",
+      "recommendation": "Add these three negative tests to harden regression coverage. Non-blocking; can fold into T-016/T-018.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T23:20:00-04:00"
+    },
+    {
+      "id": "F-040",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "Role-active state is not re-checked when enumerating holders. If a role is deactivated AFTER being configured, GetBusinessAssignments still returns it and GetUsersHoldingRoleAsync still lists its holders, whereas EffectivePermissionResolver would stop conferring that role's permissions. Internally consistent (config + picker agree) and the assignment concept differs from permission resolution, so not a true parity bug.",
+      "evidence": "BusinessAssignmentStore.cs:135-140 (Roles join without IsActive filter); EligibleAssigneeReader.cs:28-40.",
+      "recommendation": "A later task may want config reads to flag/exclude now-inactive roles. Product note, not a fix here.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T23:20:00-04:00"
+    },
+    {
+      "id": "F-041",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "functional",
+      "description": "EligibleAssigneeReader search wraps user input in %...% without escaping LIKE metacharacters (%/_); a search containing % matches broadly. Functional nuance only; parameterization keeps it injection-safe.",
+      "evidence": "EligibleAssigneeReader.cs (EF.Functions.ILike with unescaped wildcards).",
+      "recommendation": "Escape LIKE metacharacters in the search term if exact-substring semantics are desired. Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T23:20:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-23, FR-35, PRD 8)" },
+    { "timestamp": "2026-07-12T22:25:00-04:00", "event": "task_started", "message": "T-011 IN_PROGRESS; delegated to Implementor (iteration 1/10). Deps T-006+T-007 both PASS. Test-first (integration with real Postgres + Keycloak Testcontainers, no mocks, AAA): Liquibase 060-assignments business_assignments table (partitioned), GET/PUT /api/v1/settings/business-assignments (exactly-one accountable owner among lead roles, active tenant/global role refs, ASSIGNMENT_ROLE_IN_USE 409 guarded by to-table-existence until T-018/T-020), GetEligibleAssignees (users holding role direct/via group; pricing-approver variant filters Pricing.Approve), BusinessAssignments.Manage for writes, audit before/after." },
+    { "timestamp": "2026-07-12T23:10:00-04:00", "event": "implementation_written", "message": "T-011 implemented, iteration 1/10, status -> IMPLEMENTED. PermissionCatalog.BusinessAssignments.View/Manage already existed from T-005/T-007 (no catalog change needed). Liquibase src/api/db/changelog/060-assignments/060-business-assignments.xml (business_assignments: tenant_id/id composite PK, role_id, applies_to check(lead|quote), is_accountable_owner, display_order, unique(tenant_id,role_id,applies_to), PARTITION BY LIST(tenant_id) + default partition); registered business_assignments in functions/create_tenant_partitions.sql's partitioned_tables array (runOnChange) and included the new changelog in db.changelog-master.xml. Applied + re-applied against the live compose Postgres: first run executed 2 changesets, second run 0 (idempotent). Domain: Entities/BusinessAssignment.cs, Settings/BusinessAssignmentTarget.cs. Application: Abstractions/IBusinessAssignmentStore.cs, Security/IEligibleAssigneeReader.cs, Features/BusinessAssignments/{BusinessAssignmentsDto,BusinessAssignmentErrors,EligibleAssigneeDto}.cs, GetBusinessAssignments/{Query,Handler}.cs, UpdateBusinessAssignments/{Command,Validator,Handler}.cs (full replace matched by (role_id,applies_to), no client-supplied assignment id), GetEligibleAssignees/{Query,Handler}.cs, GetEligibleApprovers/{Query,Handler}.cs (Pricing.Approve variant). Infrastructure: BusinessAssignments/{BusinessAssignmentStore,BusinessAssignmentsServiceCollectionExtensions}.cs, Security/EligibleAssigneeReader.cs (mirrors EffectivePermissionResolver's grant-path union, inverted to enumerate holders), QuoteIqDbContext DbSet+config, DependencyInjection.cs wiring. Api: Endpoints/BusinessAssignmentEndpoints.cs (GET/PUT /api/v1/settings/business-assignments gated by BusinessAssignments.View/Manage; GET .../eligible-users and .../eligible-approvers require only tenant membership, no permission gate), registered in EndpointRegistration. Tests: src/api/tests/QuoteIQ.Api.Tests/BusinessAssignments/BusinessAssignmentEndpointsTests.cs, 13 real-Postgres+Keycloak integration tests (red-first confirmed against the pre-implementation store/entities), all covering test_plan items plus the 403/409-no-op/foreign-role/search/tenant-isolation/cross-tenant-caller cases. ASSIGNMENT_ROLE_IN_USE guard: HasLiveAssignmentsAsync probes to_regclass('lead_assignments')/('quote_assignments'); returns false (safe no-op, matches current test behavior) while neither table exists, and throws NotSupportedException (rather than guessing true/false) if a future migration creates one before this method is extended — flagged for T-018/T-020 to implement the real predicate once their FK/column contract is defined. Flagged ambiguity: spec FR-23/PRD 8 do not say whether quote-target roles need their own accountable owner; validator requires quote roles to carry IsAccountableOwner=false (accountable owner treated as lead-only), documented in UpdateBusinessAssignmentsValidator's remarks for revisiting if a later task clarifies otherwise. Playwright: added a 'settings > business assignments' block to e2e_tests/tests/settings.spec.ts marked test.fixme (Settings UI is T-016, not yet built), following the same precedent as the existing reference-data/business-rules blocks in that file; backend contract proven by the API integration tests instead. Full backend suite run twice consecutively, both green: Domain 9/9, Infrastructure 45/45, Api 150/150 (137 baseline + 13 new), Application.Tests has no tests (pre-existing empty project, unchanged). Liquibase changeset verified applying and idempotent against the live docker-compose Postgres (docker compose run --rm liquibase, twice)." },
+    { "timestamp": "2026-07-12T23:20:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS. All five gates met, no critical/high/major findings. Independent suite (clean first run, no flakes): Domain 9/9, Infrastructure 45/45, Api 150/150 = 204/204. Independent Liquibase double-apply on throwaway postgres:17 + liquibase:4.29: first 24 changesets Run, second 0 (idempotent); \\d business_assignments confirms LIST partition by tenant_id, PK (tenant_id,id), identity bigint (no UUID), unique(tenant_id,role_id,applies_to), check applies_to IN (lead,quote), default partition present; no FK to roles (intentional, matches user_roles/group_roles non-FK pattern vs global roles table), no JSONB, no EF migrations. create_tenant_partitions registers business_assignments (runOnChange, CREATE TABLE IF NOT EXISTS). COMPLETENESS: GET shape correct, exactly-one-lead-accountable-owner (both zero and two tested), role refs validated active + tenant-or-global-visible, transactional full replace, audit before/after asserted; gates GET->View, PUT->Manage, eligible lookups->tenant membership. ELIGIBLE-ASSIGNEE PARITY: faithful one-for-one mirror of EffectivePermissionResolver's four grant paths, inverted to enumerate holders, tenant-scoped + member-confined (stricter, correct for a picker); no missed path. DEFERRED IN-USE GUARD: sound - to_regclass no-op while both tables absent, throws NotSupportedException if exactly one appears (prevents silently-wrong answer), documented at interface/handler/store, no-op removal tested. QUOTE-ROLE ACCOUNTABLE-OWNER=false: spec-consistent (AC-022 scopes accountable owner to lead role), documented. ELIGIBLE-USER ACCESS MODEL (tenant-membership only): intended - feeds RM Assign dialog + approver picker, not a settings-admin action; discloses only in-tenant colleague name/email/role; IDOR-safe (assignmentId resolved against tenant's own config -> NOT_FOUND for foreign id). SECURITY: authz correct, tenant isolation via explicit TenantId predicates (F-020 lesson) + isolation/cross-tenant 403 tests, parameterized SQL incl. to_regclass(@tableName), audit satisfies NFR-02, backend-only no XSS surface. Non-blocking findings F-039 (minor test gaps: quote-role-true 422, duplicate-role, unknown-assignmentId 404), F-040 (info: role-active not re-checked on holder enumeration - internally consistent, product note), F-041 (info: search LIKE metacharacters unescaped, injection-safe). Recommend PASS." },
+    { "timestamp": "2026-07-12T23:22:00-04:00", "event": "task_passed", "message": "T-011 PASS (iteration 1/10). Backend suite 204/204 (Domain 9, Infrastructure 45, Api 150). AC-022 satisfied; V-022 Playwright carried as test.fixme until T-016 Settings UI. Three non-blocking findings F-039 (minor)/F-040 (info)/F-041 (info) recorded OPEN for backlog / fold into T-016/T-018/T-020. T-011 was a dependency only of T-016 (still blocked on T-012/T-013), so no new task unblocks yet. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

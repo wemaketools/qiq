@@ -1,0 +1,425 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "tests/settings.spec.ts",
+      "--reporter=json"
+    ],
+    "configFile": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\playwright.config.ts",
+    "rootDir": "C:/Code/Insurance/QuoteIQ/e2e_tests/tests",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Code/Insurance/QuoteIQ/e2e_tests/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Code/Insurance/QuoteIQ/e2e_tests/tests",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "settings.spec.ts",
+      "file": "settings.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "settings > subsection gating (V-017)",
+          "file": "settings.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "user with only brokers.manage sees only the Brokers tab; other subsections are Forbidden on a deep link",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 683,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:12.747Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-a61d25cf86d52d076308",
+              "file": "settings.spec.ts",
+              "line": 23,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "settings > reference data (V-018)",
+          "file": "settings.spec.ts",
+          "line": 43,
+          "column": 6,
+          "specs": [
+            {
+              "title": "add, reorder, and disable a request channel value",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Asserting a disabled request channel is absent from the New Lead intake form's channel picker (verification.json V-018) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (value removed from active pickers server-side) is proven above and by QuoteIQ.Api.Tests.ReferenceData.ReferenceDataEndpointsTests (T-008). Un-fixme once T-026 lands.",
+                      "location": {
+                        "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                        "line": 149,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:13.507Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Asserting a disabled request channel is absent from the New Lead intake form's channel picker (verification.json V-018) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (value removed from active pickers server-side) is proven above and by QuoteIQ.Api.Tests.ReferenceData.ReferenceDataEndpointsTests (T-008). Un-fixme once T-026 lands.",
+                          "location": {
+                            "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                            "line": 149,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-1da12a6c126484801807",
+              "file": "settings.spec.ts",
+              "line": 44,
+              "column": 3
+            },
+            {
+              "title": "adding a new intermediate lead status restricts its reporting category to open/quoted, and it can be renamed and disabled",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Asserting a disabled request channel is absent from the New Lead intake form's channel picker (verification.json V-018) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (value removed from active pickers server-side) is proven above and by QuoteIQ.Api.Tests.ReferenceData.ReferenceDataEndpointsTests (T-008). Un-fixme once T-026 lands.",
+                      "location": {
+                        "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                        "line": 149,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:13.507Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Asserting a disabled request channel is absent from the New Lead intake form's channel picker (verification.json V-018) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (value removed from active pickers server-side) is proven above and by QuoteIQ.Api.Tests.ReferenceData.ReferenceDataEndpointsTests (T-008). Un-fixme once T-026 lands.",
+                          "location": {
+                            "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                            "line": 149,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-ec26656e165c1f720e1d",
+              "file": "settings.spec.ts",
+              "line": 93,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "settings > business rules and display currency (V-010, V-074)",
+          "file": "settings.spec.ts",
+          "line": 158,
+          "column": 6,
+          "specs": [
+            {
+              "title": "editing business rules persists with a toast, and changing currency updates the footer",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Asserting Leads-list aging-color derivation and New-Lead priority/currency-prefix/Overview-KPI/ export behavior from the saved thresholds/currency (verification.json V-010/V-074) requires the Leads list (T-027), Lead intake (T-026), Overview dashboard (T-032), and exports (T-039), none of which exist yet. The settings-side save/validate/persist/audit behavior and the footer-currency surface are proven above; the backend contract (thresholds/currency validation, persistence, audit) is proven by QuoteIQ.Api.Tests.BusinessRules.BusinessRuleEndpointsTests (T-010). Un-fixme once those downstream screens land.",
+                      "location": {
+                        "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                        "line": 185,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:13.507Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Asserting Leads-list aging-color derivation and New-Lead priority/currency-prefix/Overview-KPI/ export behavior from the saved thresholds/currency (verification.json V-010/V-074) requires the Leads list (T-027), Lead intake (T-026), Overview dashboard (T-032), and exports (T-039), none of which exist yet. The settings-side save/validate/persist/audit behavior and the footer-currency surface are proven above; the backend contract (thresholds/currency validation, persistence, audit) is proven by QuoteIQ.Api.Tests.BusinessRules.BusinessRuleEndpointsTests (T-010). Un-fixme once those downstream screens land.",
+                          "location": {
+                            "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                            "line": 185,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-f0173667c0764d7847b8",
+              "file": "settings.spec.ts",
+              "line": 159,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "settings > business assignments (V-022)",
+          "file": "settings.spec.ts",
+          "line": 197,
+          "column": 6,
+          "specs": [
+            {
+              "title": "configure a lead assignable role with an accountable owner",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Asserting the lead Assign dialog composes one dropdown per configured role with RM marked required (verification.json V-022) requires the lead Assign dialog, which is T-018 (Assign operation)/T-028 (dialog UI) and does not yet exist. The settings-side configuration/save and the accountable-owner invariant are proven above; the backend contract (exactly-one-accountable- owner validation, eligible-user lookups) is proven by QuoteIQ.Api.Tests.BusinessAssignments.BusinessAssignmentEndpointsTests (T-011). Un-fixme once T-028 lands.",
+                      "location": {
+                        "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                        "line": 225,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:13.507Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Asserting the lead Assign dialog composes one dropdown per configured role with RM marked required (verification.json V-022) requires the lead Assign dialog, which is T-018 (Assign operation)/T-028 (dialog UI) and does not yet exist. The settings-side configuration/save and the accountable-owner invariant are proven above; the backend contract (exactly-one-accountable- owner validation, eligible-user lookups) is proven by QuoteIQ.Api.Tests.BusinessAssignments.BusinessAssignmentEndpointsTests (T-011). Un-fixme once T-028 lands.",
+                          "location": {
+                            "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                            "line": 225,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-5ec83c5ff72c29f773d4",
+              "file": "settings.spec.ts",
+              "line": 198,
+              "column": 3
+            }
+          ]
+        },
+        {
+          "title": "settings > brokers (V-023)",
+          "file": "settings.spec.ts",
+          "line": 237,
+          "column": 6,
+          "specs": [
+            {
+              "title": "add a broker with two contacts, the second marked primary demotes the first, then disable it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [
+                    {
+                      "type": "fixme",
+                      "description": "Asserting a disabled broker is absent from the New Lead intake form's broker picker (verification.json V-023) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (broker excluded from active-broker pickers server-side) is proven above and by QuoteIQ.Api.Tests.Brokers.BrokerEndpointsTests (T-012). Un-fixme once T-026 lands.",
+                      "location": {
+                        "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                        "line": 281,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "skipped",
+                      "duration": 0,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-07-13T05:20:13.507Z",
+                      "annotations": [
+                        {
+                          "type": "fixme",
+                          "description": "Asserting a disabled broker is absent from the New Lead intake form's broker picker (verification.json V-023) requires the Lead intake UI, which is T-026 and does not yet exist. The disable action itself (broker excluded from active-broker pickers server-side) is proven above and by QuoteIQ.Api.Tests.Brokers.BrokerEndpointsTests (T-012). Un-fixme once T-026 lands.",
+                          "location": {
+                            "file": "C:\\Code\\Insurance\\QuoteIQ\\e2e_tests\\tests\\settings.spec.ts",
+                            "line": 281,
+                            "column": 8
+                          }
+                        }
+                      ],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d877ffdf71ec720167ae-dfab18ac59194d756d8c",
+              "file": "settings.spec.ts",
+              "line": 238,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-13T05:20:12.461Z",
+    "duration": 1096.154,
+    "expected": 1,
+    "skipped": 5,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

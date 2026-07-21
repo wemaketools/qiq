@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "verification.schema.json",
+  "title": "QuoteIQ Harness Verification Plan",
+  "type": "object",
+  "required": ["generated_at", "acceptance_path", "verifications"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string" },
+    "acceptance_path": { "type": "string" },
+    "verifications": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "acceptance_id", "title", "method", "expected_results", "task_ids"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^V-\\d{3}$" },
+          "acceptance_id": { "type": "string", "pattern": "^AC-\\d{3}$" },
+          "title": { "type": "string" },
+          "method": { "enum": ["unit", "integration", "e2e", "manual", "security"] },
+          "expected_results": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "task_ids": { "type": "array", "items": { "type": "string", "pattern": "^T-\\d{3}$" }, "minItems": 1 },
+          "api": {
+            "type": "object",
+            "required": ["approach", "playwright_triggerable"],
+            "additionalProperties": false,
+            "properties": {
+              "approach": { "type": "string" },
+              "endpoints": { "type": "array", "items": { "type": "string" } },
+              "negative_tests": { "type": "array", "items": { "type": "string" } },
+              "role_permission_setup": { "type": "string" },
+              "playwright_triggerable": { "type": "boolean" }
+            }
+          },
+          "playwright": {
+            "type": "object",
+            "required": ["test_file", "test_title", "steps", "expected_results", "selectors_or_locators", "test_data", "setup", "teardown"],
+            "additionalProperties": false,
+            "properties": {
+              "test_file": { "type": "string" },
+              "test_title": { "type": "string" },
+              "steps": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "expected_results": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "selectors_or_locators": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+              "test_data": { "type": "string" },
+              "setup": { "type": "string" },
+              "teardown": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

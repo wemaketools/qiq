@@ -1,0 +1,100 @@
+{
+  "id": "T-034",
+  "title": "Alert job wiring: pg_cron evaluation + drain schedules, targeted re-evaluation enqueue from workflow executors",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-032",
+    "T-033"
+  ],
+  "objective": "Complete the background-job picture per spec 9.5 Jobs 3-4: register the alert-evaluation pg_cron schedule (*/15) and the every-minute queue-drain schedule, and wire the lead/quote workflow executors to enqueue alert.reevaluate-lead pgmq messages so completed actions clear/downgrade alerts promptly, with dead-letter safety net via the sweep (M-13, M-16, A-14).",
+  "scope": [
+    "Migration: pg_cron entries — alert-evaluation '*/15 * * * *' -> pg_net -> /api/cron/alert-evaluation; queue drain '* * * * *' -> pg_net -> /api/queue/drain (same URL/secret mechanism as T-032)",
+    "Targeted re-evaluation: workflow executors (T-025/T-026 domain-event seam) publish {type:'alert.reevaluate-lead', tenantId, leadId, correlationId, idempotencyKey} via QueuePublisher after commit",
+    "JobHandler alert.reevaluate-lead: runs evaluateForLead (T-033); registered in the drain dispatcher; idempotency key {leadId}:{statusHistoryId}",
+    "Retry/dead-letter behavior validated: visibility-timeout redelivery, max_attempts archive; Job-3 sweep as eventual-consistency safety net",
+    "queue:enqueue:test extended with the real message type"
+  ],
+  "out_of_scope": [
+    "Rule logic and endpoints (T-033)",
+    "Sweep handlers (T-032/T-033)",
+    "Notification delivery (non-goal)"
+  ],
+  "implementation_details": [
+    "Publish AFTER the business transaction commits (fire-and-forget parity with Hangfire Enqueue): enqueue failure must not fail the user operation — log + rely on the sweep (spec 9.5 Job 4 failure handling).",
+    "Correlation id propagates from the originating request into the message and job_run (section 15).",
+    "Idempotency: consumer re-runs converge (reconciliation semantics), key recorded for dedupe observability.",
+    "Local path: queue:worker consumes the same messages; e2e job-trigger hooks will use cron:run + queue:worker (T-043).",
+    "Deployed drain cadence every minute keeps alert clearing prompt without a resident worker (Q-7)."
+  ],
+  "files": [
+    "supabase/migrations/*_pg_cron_alert_and_drain_schedules.sql",
+    "src/server/jobs/queue/handlers/alert-reevaluate-lead.ts",
+    "src/server/domains/leads/workflow/operations.ts (event seam publish)",
+    "src/server/domains/quotes/workflow/operations.ts (event seam publish)",
+    "scripts/jobs/enqueue-test-message.ts",
+    "src/server/tests/integration/alert-reevaluation-queue.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Idempotency-key construction; publish-after-commit ordering logic with the in-memory adapter"
+    ],
+    "integration": [
+      "Completing a workflow operation (e.g., assign on an unassigned-lead alert) enqueues the message; draining clears the alert; re-delivery/duplicate drain converges",
+      "Enqueue failure does not fail the workflow operation; subsequent sweep clears the alert anyway (safety net)",
+      "Failed handler message redelivers then archives at max_attempts with job_run failure records",
+      "cron.job contains alert-evaluation and drain schedules after migrations"
+    ],
+    "e2e": [
+      "Alert clearing after contextual actions verified in adapted suite with job hooks (T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-068",
+    "AC-071"
+  ],
+  "verification_ids": [
+    "V-085",
+    "V-089"
+  ],
+  "findings": [
+    {
+      "id": "F-034-1",
+      "severity": "blocker",
+      "summary": "T-032's invoke_cron_endpoint called extensions.http_get, which does not exist; every deployed sweep would have failed at its scheduled minute.",
+      "detail": "pg_net registers its EXTENSION in the extensions schema but installs its FUNCTIONS in the net schema (measured live: to_regprocedure('extensions.http_get(...)') is NULL, net.http_get present; calling the helper with a populated config row raised 'function extensions.http_get(...) does not exist'). T-032's assertions only checked prosrc source text and cron.job rows, neither of which requires the function to resolve. Fixed in migration 20260720010000_pg_cron_alert_and_drain_schedules.sql via create-or-replace to net.http_get/net.http_post, and pg-cron-schedules.test.ts now EXECUTES both helpers against a rolled-back config row (proven: reverting the helper to extensions.http_get turns that test red while the 11 source-text assertions stay green).",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T16:00:00-04:00"
+    },
+    {
+      "id": "F-034-2",
+      "severity": "major",
+      "summary": "F-032-2 addressed: both expiry sweeps now thread the alert re-evaluation seam, so an automatic expiry refreshes its lead's alerts promptly (AC-066) instead of converging only via the 15-minute sweep.",
+      "detail": "Decision: BUILD the enqueue seam rather than accept bounded 15-minute convergence. Rationale: the .NET reference is authoritative and it already had this behaviour — QuoteExpiryJob/LeadInactivityExpiryJob resolve LeadOperationExecutor/QuoteOperationExecutor from the DI scope, and those executors enqueue IAlertReevaluationQueue after commit. Passing a bare { db } in TypeScript would have silently dropped behaviour the reference has. quote-expiry.ts and lead-inactivity-expiry.ts take an optional onLeadChanged and build workflowDeps once per tenant; createJobRuntime supplies it. Covered by two mutation-killed tests (the quote sweep test asserts exactly two messages, one per executor call site, with the cascade rule on). Convergence is still bounded at 15 min as the safety net when the queue is down, which is asserted separately.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T16:00:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to spec 9.5 Jobs 3-4 wiring, M-13/M-16, A-14, Q-7."
+    },
+    {
+      "timestamp": "2026-07-20T16:10:00-04:00",
+      "event": "implemented",
+      "message": "Wired Jobs 3-4. New migration 20260720010000_pg_cron_alert_and_drain_schedules.sql adds the alert-evaluation (*/15) and queue-drain (* * * * *, POST /api/queue/drain via new invoke_queue_drain() + internal_job_secret column) schedules and FIXES T-032's extensions.http_get -> net.http_get bug (F-034-1). New src/server/jobs/queue/alert-reevaluate-lead.ts: the alert.reevaluate-lead handler (evaluateForLead) + the publish seam (fire-and-forget, per-event idempotency key {leadId}:{statusHistoryId}). appendStatusHistory/appendQuoteStatusHistory now return the new row id; lead/quote workflow executors and quote creation publish after commit with namespaced event keys (statusHistoryId, qsh:, quote:). createJobRuntime registers alertReevaluateLeadHandler + createAlertEvaluationHandler and exposes onLeadChanged; both composition roots (api/v1 catch-all and scripts/dev/serve-api.ts) pass the seam to the leads AND quotes slots via defaultLeadsDeps/defaultQuotesDeps(onLeadChanged). Both expiry sweeps thread the seam (F-034-2). queue:enqueue:test gained --lead shorthand building the real envelope. docs/background-jobs.md updated. Tests: new unit alert-reevaluation.test.ts (8), new integration alert-reevaluation-queue.test.ts (12, isolated pgmq queue, end-to-end through real seam+drain+alert rows), extended pg-cron-schedules.test.ts (execution proof), cron-scripts.test.ts + job-endpoints.test.ts flipped from the T-033-era 'unregistered/501' assertions to registered, auth-wiring.test.ts pins the seam on both roots. cron:list reports all three registered. Gates: my suites isolated 136 passed exit 0; typecheck 0; lint 0; db:types:check 0 after regenerating types (added internal_job_secret column). 8 mutants applied+killed (runtime handler-registration deletion, both expiry seam call sites x2, per-lead idempotency key, seam swallow, composition root), each with sha/line-count application proof and verified restore hash; the runtime registerCronHandler(alert-evaluation) deletion initially SURVIVED (registered-but-nothing-dispatches gap) and was killed by strengthening cron-scripts.test.ts. Zero row/queue/job_run residue verified by direct query. No URL or secret committed (job_cron_config stays empty locally; verified 0 rows). Added one migration - orchestrator should review the diff and refresh the snapshot; I applied it directly to the shared local DB (idempotent create-or-replace + cron.schedule upsert, non-destructive) and did NOT run db:validate or supabase:reset."
+    },
+    {
+      "timestamp": "2026-07-20T16:20:00-04:00",
+      "event": "evaluated",
+      "message": "PASS. Verified first-hand, not on trust: (1) queried pg_proc/pg_namespace live -- to_regprocedure('net.http_get(...)') resolves, 'extensions.http_get(...)' does not; executed both invoke_cron_endpoint and invoke_queue_drain inside a rolled-back transaction against a throwaway config row and both ran clean; reverted invoke_cron_endpoint to extensions.http_get live and reproduced the exact 'function extensions.http_get(...) does not exist' error, then restored and reconfirmed prosrc contains net.http_get -- the anti-regression claim is real, not asserted. (2) Ran pg-cron-schedules.test.ts (12/12 pass) and confirmed it executes both helpers, not just prosrc text. (3) Reproduced the registered-but-never-dispatched mutant myself: deleted the alert-evaluation registerCronHandler call in runtime.ts, reran cron-scripts.test.ts and watched 2 tests go red (cron:list reports NOT REGISTERED, cron:run:all exits non-zero); restored the file and verified sha256 identical to the pre-mutation baseline (1836fca6...); reran the suite green (6/6). Live cron:list and cron:run:all both show all three sweeps registered and dispatching with job_run rows. (4) Read alert-reevaluate-lead.ts and confirmed the idempotency key is alertReevaluationKey(leadId, eventKey) = {leadId}:{lead_status_history.id}, not per-lead; alert-reevaluation-queue.test.ts (ran 12/12 green in isolation) proves this end-to-end: distinct events on the same lead enqueue distinct keys and both are processed (the quote-expiry cascade test asserts exactly two messages with two distinct keys), while an identical redelivery is skipped as a duplicate and a replay after a simulated pre-ack crash (idempotency key row deleted, message resent) re-executes for real and converges to the same state. The suite drives real executor -> real seam -> real pgmq queue -> real drain -> asserts alert rows changed, with a fixture proven non-vacuously stalled in its own first test. (5) Confirmed live that job_cron_config grants no SELECT/INSERT/UPDATE/DELETE to anon/authenticated (only the table owner and service_role's DDL-adjacent grants); confirmed internal_job_secret and cron_secret are two distinct nullable/not-null columns, and invoke_queue_drain uses jsonb_build_object for headers (no string-interpolated body) with REVOKE ALL from public/anon/authenticated and SECURITY DEFINER search_path = public, extensions, net, matching invoke_cron_endpoint's pattern. (6) Read both migrations end to end: no URL, no secret, no committed job_cron_config row (0 rows locally). (7) Ran job-endpoints.test.ts + auth-wiring.test.ts (68/68 pass): both cron_secret and internal_job_secret are independently enforced, unauthenticated/mismatched requests rejected on /api/cron/* and /api/queue/drain. (8) npm run typecheck exits 0 (F-034-7's typecheck errors, raised against T-034's own files by T-040's implementor, are no longer present at evaluation time). All acceptance criteria (AC-068, AC-071) and verification entries (V-085, V-089) satisfied with first-hand reproduction of both the primary defect and its regression guard. No open findings remain -- F-034-1 and F-034-2 were already resolved by the implementor and independently reproduced above. Recommendation to the orchestrator: given the extensions-vs-net schema error escaped T-032's implementation, the T-032 evaluator pass, AND the orchestrator's own snapshot review, audit any OTHER migration or helper that calls a pg_net function (grep for 'extensions.http_' and 'net.http_' across supabase/migrations/) to confirm no sibling helper has the same latent defect; none was found in this session's migrations set beyond the two already covered here, but this class of defect (source-text/registry assertions substituting for execution) is exactly the shape flagged in three separate places this session (drill-widget, cron:list, this one) and is worth a standing lint/review rule: any SECURITY DEFINER function invoking an extension function must have an integration test that CALLS it, not just inspects prosrc.",
+      "status": "PASS",
+      "verified_by": "evaluator"
+    }
+  ]
+}

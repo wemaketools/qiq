@@ -1,0 +1,38 @@
+@import './theme/tokens.css';
+@import './theme/components.css';
+
+/*
+ * Minimal global reset. All screen/component styling draws exclusively from the --qiq-* tokens
+ * imported above (docs/QuoteIQ_UI_Standards.md §1, §2) — no raw hex values here or in components.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--qiq-font-sans);
+  font-size: 14px;
+  color: var(--qiq-text-primary);
+  background: var(--qiq-surface-app);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

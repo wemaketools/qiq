@@ -1,0 +1,1468 @@
+{
+  "generated_at": "2026-07-11T10:59:32-04:00",
+  "spec_path": "spec.md",
+  "criteria": [
+    {
+      "id": "AC-001",
+      "title": "Application gated behind authentication",
+      "description": "Given an unauthenticated user, When they request any screen or API endpoint other than login/password-reset, Then they are redirected to login (UI) or receive 401 (API), and no self-service sign-up exists.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-01"
+      ],
+      "task_ids": [
+        "T-004",
+        "T-013"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-002",
+      "title": "Email login with non-revealing failure",
+      "description": "Given a user logging in with email as username, When credentials are wrong or the account is deactivated, Then one generic error is shown that does not reveal account existence or which value was wrong.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-02"
+      ],
+      "task_ids": [
+        "T-004",
+        "T-013"
+      ],
+      "test_levels": [
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-003",
+      "title": "Anonymous password reset with uniform confirmation",
+      "description": "Given the reset flow, When any email (existing or not) is submitted, Then the same confirmation is shown, a time-limited single-use link is sent only to existing accounts, and the reset is audited.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-03"
+      ],
+      "task_ids": [
+        "T-004"
+      ],
+      "test_levels": [
+        "e2e",
+        "manual",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-004",
+      "title": "Post-login lands in last active tenant",
+      "description": "Given a user with a remembered tenant preference, When they log in, Then they land in their last active tenant on their default screen, and switching tenant updates the stored preference.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-04"
+      ],
+      "task_ids": [
+        "T-013"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-005",
+      "title": "Keycloak-served pages themed as QuoteIQ",
+      "description": "Given the identity-provider login and reset pages, When rendered, Then they carry the QuoteIQ placeholder wordmark and accent styling per PRD 12.11.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-05"
+      ],
+      "task_ids": [
+        "T-004"
+      ],
+      "test_levels": [
+        "manual",
+        "e2e"
+      ],
+      "priority": "should"
+    },
+    {
+      "id": "AC-006",
+      "title": "Tenant lifecycle: create, edit, soft-remove, restore, audit",
+      "description": "Given an authorized user in Tenant Manager, When they create/edit/remove/restore a tenant, Then removal is a soft delete (status Removed, hidden from default lists, restorable), only name/contact fields are captured, and every action is audited.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-06",
+        "FR-07"
+      ],
+      "task_ids": [
+        "T-006",
+        "T-014"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-007",
+      "title": "Tenant creation seeds all reference lists",
+      "description": "Given the global default template, When a tenant is created, Then all eleven reference lists are populated transactionally with the PRD 6.3 defaults, seeded values are tenant-owned and editable, and template edits affect future tenants only.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-08"
+      ],
+      "task_ids": [
+        "T-009"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-008",
+      "title": "Tenant data isolation",
+      "description": "Given users of tenant A and tenant B, When a tenant-A user requests any tenant-B record by id or list, Then the response is 403/404 with no data leakage, on every tenant-scoped endpoint and in the UI (lists, search, dashboards, alerts, exports).",
+      "category": "security",
+      "requirement_refs": [
+        "FR-09",
+        "NFR-01"
+      ],
+      "task_ids": [
+        "T-003",
+        "T-006",
+        "T-042"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-009",
+      "title": "Tenant switcher with visible context",
+      "description": "Given a multi-tenant or Internal user, When they use the shell tenant switcher, Then the active tenant is always visible, all tenant-scoped views reload in the new context, and single-tenant users see no switcher.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-10"
+      ],
+      "task_ids": [
+        "T-013"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-010",
+      "title": "Tenant business rules configurable",
+      "description": "Given a permitted administrator, When they edit business rules (thresholds, SLA targets, expiry windows, duplicate window, ref formats, inactivity period, approval targets, currency, attachment cap), Then values validate, persist per tenant, are audited, and drive downstream behavior.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-11"
+      ],
+      "task_ids": [
+        "T-010",
+        "T-016"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-011",
+      "title": "RBAC model supports all assignment paths",
+      "description": "Given the RBAC schema, When permissions are granted via direct permission, direct role, group role, or group direct permission, Then each path independently confers access within its tenant scope.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-12"
+      ],
+      "task_ids": [
+        "T-005"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-012",
+      "title": "User Manager administration",
+      "description": "Given an authorized administrator, When they create a user (first/last/email), assign tenants/roles/permissions/groups, or deactivate, Then Keycloak is provisioned/disabled accordingly, deactivation preserves history, and all changes are audited.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-13"
+      ],
+      "task_ids": [
+        "T-007",
+        "T-015"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-013",
+      "title": "Effective access view",
+      "description": "Given a user record, When an administrator opens effective access, Then direct roles, direct permissions, group memberships, tenant assignments, and the resolved permission set per tenant are shown.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-14"
+      ],
+      "task_ids": [
+        "T-007",
+        "T-015"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-014",
+      "title": "Effective permission union semantics",
+      "description": "Given overlapping grants, When permissions resolve, Then the result is the union of all paths filtered to the tenant context, with global grants applying cross-tenant only when explicitly global.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-15"
+      ],
+      "task_ids": [
+        "T-005"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-015",
+      "title": "Internal role global capabilities",
+      "description": "Given an Internal user with global permissions, When they manage tenants/templates or switch into any tenant, Then access is granted, audited, and denied to non-Internal users.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-16"
+      ],
+      "task_ids": [
+        "T-005",
+        "T-006"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-016",
+      "title": "Permission-driven visibility; illegal operations hidden",
+      "description": "Given a user's effective permissions and an item's status, When navigation and detail screens render, Then admin nav entries appear only with permission and workflow actions show only server-computed legal operations (hidden, not disabled).",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-17"
+      ],
+      "task_ids": [
+        "T-013",
+        "T-028"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-017",
+      "title": "Settings section with per-subsection permissions",
+      "description": "Given a user with permission to at least one Settings subsection, When they open Settings, Then vertical tabs show only permitted subsections and all content operates in the active tenant.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-18"
+      ],
+      "task_ids": [
+        "T-016"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-018",
+      "title": "Reference lists manageable per type",
+      "description": "Given the Reference data tab, When an administrator adds/edits/disables/reorders values in any of the eleven lists, Then type-specific rules apply (cover types per product line, broker-channel flag on channels) and changes are audited.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-19"
+      ],
+      "task_ids": [
+        "T-008",
+        "T-016"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-019",
+      "title": "Guarded status rules",
+      "description": "Given lead/quote status lists, When statuses are renamed, reordered, or added, Then every status maps to a reporting category, terminal statuses cannot be disabled, canonical keys are immutable, and no form ever exposes status as editable.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-20"
+      ],
+      "task_ids": [
+        "T-008"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-020",
+      "title": "Disabled reference values stay historically resolvable",
+      "description": "Given a reference value used on historical records, When it is disabled, Then historical records still display it while new records cannot select it.",
+      "category": "data",
+      "requirement_refs": [
+        "FR-21"
+      ],
+      "task_ids": [
+        "T-008"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-021",
+      "title": "Global default template managed by Internal users",
+      "description": "Given the global template endpoints, When an Internal user edits the template, Then changes persist for future tenant seeding and non-Internal callers receive 403.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-22"
+      ],
+      "task_ids": [
+        "T-008"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-022",
+      "title": "Business assignments configuration",
+      "description": "Given the Business assignments tab, When roles are configured as assignable to leads/quotes, Then exactly one lead role is the accountable owner, configurations validate against tenant roles, and pickers list only eligible users per role.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-23"
+      ],
+      "task_ids": [
+        "T-011",
+        "T-016"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-023",
+      "title": "Broker administration",
+      "description": "Given the Brokers subsection, When brokers are added/edited/disabled with contacts, Then name is required, exactly one contact is primary, disabled brokers vanish from pickers but persist on records, and changes are audited.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-24"
+      ],
+      "task_ids": [
+        "T-012",
+        "T-016"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-024",
+      "title": "API credential provisioning lifecycle",
+      "description": "Given API access administration, When tenant or broker credentials are provisioned/revealed/regenerated/disabled, Then Keycloak clients are managed accordingly, secrets show only via permission-bound reveal, old secrets die on regeneration, and every action is audited.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-25"
+      ],
+      "task_ids": [
+        "T-030"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-025",
+      "title": "Parties list",
+      "description": "Given the Parties section, When the list renders, Then columns include name/type/segment/industry/region/strategic/open-leads/total-leads/last-activity with filters, type-ahead search, sorting, 25-per-page pagination, and export.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-26"
+      ],
+      "task_ids": [
+        "T-025"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-026",
+      "title": "Party detail with workable leads",
+      "description": "Given a party detail page, When viewed, Then the summary and the party's leads (Leads-list columns minus Party) are shown, and + New Lead opens intake pre-filled and locked to this party.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-27"
+      ],
+      "task_ids": [
+        "T-025"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-027",
+      "title": "Party form validation with optional region",
+      "description": "Given New/Edit Party, When submitted, Then name and type are required, contacts are format-validated, region is optional everywhere (Q-9), a duplicate name shows a non-blocking warning, and parties cannot be deleted.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-28"
+      ],
+      "task_ids": [
+        "T-017",
+        "T-025"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-028",
+      "title": "Intake form field contract",
+      "description": "Given the New Lead form, When completed, Then all PRD 9.3 fields behave as specified: party picker with inline creation, conditional broker requirement, owner default, region default from party, dependent cover types, currency inputs with tenant symbol, policy-term Other companion (Q-11), derived overridable priority.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-29"
+      ],
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-029",
+      "title": "No lifecycle fields at intake; system reference",
+      "description": "Given lead creation, When a lead is saved, Then no lifecycle/quote/SLA/outcome field was capturable, the reference is generated per tenant format, and status is always New.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-30"
+      ],
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-030",
+      "title": "Duplicate lead warning",
+      "description": "Given an open lead for the same party and product line within the tenant window, When another is submitted, Then a non-blocking warning lists duplicates with links and offers Create anyway / Review existing; Create anyway persists.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-31"
+      ],
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-031",
+      "title": "Intake success flow and edit parity",
+      "description": "Given a successful creation, When saved, Then the user lands on Lead Detail with a 'Lead {ref} created' toast; Edit Lead reuses the same fields/validation and never exposes lifecycle data.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-32"
+      ],
+      "task_ids": [
+        "T-026"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-032",
+      "title": "REST API intake with credential scoping",
+      "description": "Given client-credential tokens, When leads are submitted via API, Then broker-scoped credentials force the broker (spoof attempts rejected), tenant-scoped credentials validate payload brokers per channel rules, owner is optional, validation failures return a structured field/code/message list, and duplicates return warnings without blocking.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-33"
+      ],
+      "task_ids": [
+        "T-030"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-033",
+      "title": "Workflow-only transitions with append-only history",
+      "description": "Given any lead or quote, When its status changes, Then the change happened through a named workflow operation recording timestamp, actor, previous/new status, and inputs in an append-only history; no endpoint or screen accepts a direct status write.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-34"
+      ],
+      "task_ids": [
+        "T-019"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-034",
+      "title": "Multi-role assignment via single dialog",
+      "description": "Given configured assignable roles, When Assign/Reassign runs, Then one operation sets/changes/clears any subset of role assignments, the accountable owner is required, New→Assigned fires on first owner set, and per-role changes are audited.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-35"
+      ],
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-035",
+      "title": "Lead operations match PRD 10.4",
+      "description": "Given each lead workflow operation, When invoked from every status, Then availability, required inputs, resulting status, and side effects match the PRD 10.4 lead table exactly, and illegal transitions return 409 with legal-operation hints.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-36"
+      ],
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "test_levels": [
+        "unit",
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-036",
+      "title": "Pricing approval sub-state",
+      "description": "Given a lead in Pricing, When approval is requested/approved/rejected, Then the sub-state tracks Pending/Approved/Rejected without changing lead status, rejection permits re-request, pending-beyond-target raises an alert, and the optional high-value gate blocks Send quote without approval.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-37"
+      ],
+      "task_ids": [
+        "T-019",
+        "T-024"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-037",
+      "title": "Quote operations match PRD 10.4",
+      "description": "Given each quote workflow operation, When invoked from every status, Then availability, inputs, resulting status, and cascades match the PRD 10.4 quote table: Send requires valid-until + lead next-follow-up and moves the lead on first send; Revise creates a new current version; Won withdraws siblings; Lost offers lead closure.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-38"
+      ],
+      "task_ids": [
+        "T-020",
+        "T-029"
+      ],
+      "test_levels": [
+        "unit",
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-038",
+      "title": "Closed Won only via quote Mark won",
+      "description": "Given a lead, When it reaches Closed Won, Then the transition came exclusively from a quote-level Mark won carrying a bound premium; no lead-level won operation exists.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-39"
+      ],
+      "task_ids": [
+        "T-020"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-039",
+      "title": "Lifecycle guardrails",
+      "description": "Given lifecycle rules, When closing or progressing items, Then Lost requires a structured reason (comment when Other), Won requires bound premium + decision date, open leads past Quote Sent require a future next-follow-up, key dates are captured and date-consistent, and closed records are read-only outside the audited correction process.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-40"
+      ],
+      "task_ids": [
+        "T-019",
+        "T-020"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-040",
+      "title": "Shared workflow dialog pattern",
+      "description": "Given any workflow dialog, When opened, Then it names the action and target, states the consequence, collects only that operation's inputs, uses danger styling for destructive actions, validates inline, and on success updates chip/timeline in place with a toast.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-41"
+      ],
+      "task_ids": [
+        "T-028",
+        "T-029"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-041",
+      "title": "Automation limited to expiry jobs",
+      "description": "Given background automation, When jobs run, Then only quote expiry (past valid-until) and lead inactivity expiry (quote activity counts as lead activity) change status automatically with system-actor history; SLA/stalled/aging conditions raise alerts only.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-42"
+      ],
+      "task_ids": [
+        "T-023"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-042",
+      "title": "Leads list working queue",
+      "description": "Given the Leads list, When rendered and used, Then columns, aging/overdue coloring, flag chips, filters, My-leads toggle, search, sorting, pagination, empty state, and note-required bulk reassign (Q-12) behave per PRD 12.4, with row click opening detail and no inline editing.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-43"
+      ],
+      "task_ids": [
+        "T-027"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-043",
+      "title": "Lead detail composition",
+      "description": "Given Lead Detail, When viewed, Then header (assignees, flags, contextual primary action, More actions), read-only summary panels, combined newest-first timeline with prominent next-follow-up/Overdue chip, and closed-only outcome panel render per PRD 12.5.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-44"
+      ],
+      "task_ids": [
+        "T-022",
+        "T-028"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-044",
+      "title": "Quotes are lead-subordinate only",
+      "description": "Given navigation and search, When quotes are accessed, Then no top-level Quotes entry exists and every quote opens within its lead's context.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-45"
+      ],
+      "task_ids": [
+        "T-029"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-045",
+      "title": "New Quote form rules",
+      "description": "Given the New Quote modal, When completed, Then ref/version are read-only system values, premium is required > 0, prepared date defaults today and cannot precede lead receipt, valid-until is optional at Draft but required at Send, and Save as draft adds a Draft row.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-46"
+      ],
+      "task_ids": [
+        "T-020",
+        "T-029"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-046",
+      "title": "Quote detail panel content",
+      "description": "Given an expanded quote row, When viewed, Then fields, version history, status history, attachments, and only the legal workflow buttons for its status are shown.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-47"
+      ],
+      "task_ids": [
+        "T-029"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-047",
+      "title": "Attachment rules",
+      "description": "Given quote attachments, When files are uploaded/downloaded/removed, Then only PNG/JPG/PDF/DOC/DOCX pass (magic-number checked), the per-tenant size cap applies, add/remove are audited, closed-quote rules hold, and content round-trips intact from object storage.",
+      "category": "security",
+      "requirement_refs": [
+        "FR-48"
+      ],
+      "task_ids": [
+        "T-021",
+        "T-029"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-048",
+      "title": "Quote editing rules by status",
+      "description": "Given a quote, When edits are attempted, Then Draft is directly editable, Sent changes only via Revise (new version, prior visible), and closed quotes reject changes without the correction permission.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-49"
+      ],
+      "task_ids": [
+        "T-020"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-049",
+      "title": "Single current quote per lead",
+      "description": "Given multiple quotes on a lead, When quotes are created/revised/marked current, Then exactly one carries the current marker used by dashboard rollups.",
+      "category": "data",
+      "requirement_refs": [
+        "FR-50"
+      ],
+      "task_ids": [
+        "T-020"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-050",
+      "title": "Follow-up logging",
+      "description": "Given Log follow-up, When submitted, Then follow-up date defaults today, next follow-up is required and future while the lead is open past Quote Sent, count and last/next dates update, a timeline entry is written, and status never changes.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-51"
+      ],
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-051",
+      "title": "Application shell composition",
+      "description": "Given the shell, When rendered, Then sidebar (brand, nav, badge), user card (theme, sign-out), tenant switcher, top bar (search, bell, help, Export, + New Lead), and footer (currency line, data timestamp, refresh) match PRD 12.2.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-52"
+      ],
+      "task_ids": [
+        "T-013"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-052",
+      "title": "Global search behavior",
+      "description": "Given the top-bar search, When typing 2+ characters, Then grouped tenant-scoped results cover leads/quotes/parties/brokers, quote results open their lead, party results open party detail, and breadth permissions constrain visible items.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-53"
+      ],
+      "task_ids": [
+        "T-038"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-053",
+      "title": "Dashboard framework behaviors",
+      "description": "Given any dashboard, When used, Then the filter bar (with RM-Performance variant) persists across dashboard navigation, every KPI/chart/row drills to underlying items, chips use the shared reporting-category palette, KPI deltas color by declared good direction, and lead vs quote metrics are labeled distinctly.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-54"
+      ],
+      "task_ids": [
+        "T-031"
+      ],
+      "test_levels": [
+        "e2e",
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-054",
+      "title": "Executive Overview content",
+      "description": "Given seeded data, When Overview loads, Then nine KPI cards, open-items-per-stage bars (not cumulative), aging donut, won/lost trend with period selector, high-value table, and Requires Attention panel render with correct values and drill-throughs.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-55"
+      ],
+      "task_ids": [
+        "T-032"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-055",
+      "title": "Pipeline & Conversion content",
+      "description": "Given seeded data, When Pipeline loads, Then nine KPIs, cumulative conversion funnel with Lost last, product-line stacked columns, source and channel donuts, open-stage-only aging heatmap, at-risk table with risk reasons, and Immediate Actions panel render correctly with pre-filtered alert drill-through.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-56"
+      ],
+      "task_ids": [
+        "T-033"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-056",
+      "title": "Broker Performance content",
+      "description": "Given seeded brokers, When the Brokers dashboard loads, Then six KPIs, volume ranking, quadrant matrix (volume × conversion, bubble = won premium), and the full ranked broker table with tier chips, color-coded conversion, and top loss reason render correctly.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-57"
+      ],
+      "task_ids": [
+        "T-034"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-057",
+      "title": "RM Performance content",
+      "description": "Given seeded RMs, When RM Performance loads, Then six KPIs, RM/broker rankings, shared-palette matrix, turnaround bars with dashed SLA target, watchlist with suggested-action chips, and Leadership Insights render correctly with the RM/Team + Broker Type filter variant.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-58"
+      ],
+      "task_ids": [
+        "T-035"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-058",
+      "title": "Loss Analysis content",
+      "description": "Given seeded losses, When Loss Analysis loads, Then five KPIs (no Win-back Potential), reason and product-line bars, six-month trend, competitor table, commentary feed, and drill-downs distinguishing pre-quote vs post-quote losses render correctly.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-59"
+      ],
+      "task_ids": [
+        "T-036"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-059",
+      "title": "SLA visibility in prescribed locations",
+      "description": "Given no dedicated SLA nav entry, When users seek turnaround data, Then PRD 17.1 metrics appear on Pipeline (KPI + heatmap), RM Performance (turnaround bars), Brokers (avg TAT), the Alerts SLA tab, and the SLA/Turnaround report including the underwriting delay queue.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-60"
+      ],
+      "task_ids": [
+        "T-033",
+        "T-035",
+        "T-040"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-060",
+      "title": "Eleven alert types rule-driven",
+      "description": "Given tenant thresholds, When alert evaluation runs, Then all eleven FR-61 alert types materialize for matching conditions, resolve when conditions clear, and boundary cases respect configured thresholds.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-61"
+      ],
+      "task_ids": [
+        "T-024"
+      ],
+      "test_levels": [
+        "unit",
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-061",
+      "title": "Alerts center behavior",
+      "description": "Given the Alerts center, When used, Then category cards activate tabs, the premium-at-risk rollup shows, queue columns/flags render, contextual actions open the matching workflow dialog and clear/downgrade the alert on completion, and row click opens Lead Detail with the alerting quote highlighted.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-62"
+      ],
+      "task_ids": [
+        "T-037"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-062",
+      "title": "New-alert badge semantics",
+      "description": "Given per-user alert views, When alerts are created after a user's last visit, Then nav badge and bell show that count for that user only, opening the Alerts center resets it to zero, and it is a new-since-last-visit count, not open-alert count.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-63"
+      ],
+      "task_ids": [
+        "T-024",
+        "T-037"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-063",
+      "title": "Reports screen on-demand only",
+      "description": "Given the Reports screen, When rendered, Then permitted report cards each offer Open report (print-ready view with header metadata) and CSV, and no scheduling UI exists.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-64"
+      ],
+      "task_ids": [
+        "T-040"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-064",
+      "title": "Export fidelity and restrictions",
+      "description": "Given exports, When generated, Then active filters are preserved, headers include tenant/date/period/currency/last-refreshed, detailed lists behind summaries are exportable, and cross-tenant exports require the explicit Internal permission.",
+      "category": "functional",
+      "requirement_refs": [
+        "FR-65"
+      ],
+      "task_ids": [
+        "T-039",
+        "T-040"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-065",
+      "title": "Data-quality validation catalog",
+      "description": "Given system boundaries, When invalid input arrives (missing mandatory fields, quote without lead, bad date ordering, inactive or foreign-tenant reference values, premium <= 0), Then requests are rejected with structured errors and nothing persists.",
+      "category": "validation",
+      "requirement_refs": [
+        "FR-66"
+      ],
+      "task_ids": [
+        "T-018",
+        "T-019",
+        "T-020"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-066",
+      "title": "Seed data set complete and idempotent",
+      "description": "Given a fresh environment, When the seed command runs, Then all FR-67 minimums and distributions exist (users, brokers, parties, leads by lifecycle, quotes by status, follow-ups, pricing approvals, histories, per-category alert conditions), a second run converges to the same state, and the post-seed verifier passes.",
+      "category": "data",
+      "requirement_refs": [
+        "FR-67"
+      ],
+      "task_ids": [
+        "T-041"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-067",
+      "title": "Per-endpoint tenant-isolation test coverage",
+      "description": "Given every tenant-scoped endpoint, When the integration suite runs, Then each has a test proving a tenant-A caller cannot read or mutate tenant-B data, and EF query filters prevent unfiltered cross-tenant reads.",
+      "category": "security",
+      "requirement_refs": [
+        "NFR-01"
+      ],
+      "task_ids": [
+        "T-003",
+        "T-042"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-068",
+      "title": "Audit coverage of privileged actions",
+      "description": "Given privileged actions (tenant/user/role/reference/rule/credential changes, workflow operations, corrections, reopens, exports), When executed, Then an audit record captures who/when/what with before/after where applicable.",
+      "category": "observability",
+      "requirement_refs": [
+        "NFR-02"
+      ],
+      "task_ids": [
+        "T-003",
+        "T-006",
+        "T-007"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-069",
+      "title": "Accessibility WCAG 2.1 AA",
+      "description": "Given key screens (Overview, Leads list, Lead detail, intake form, Alerts center) in both themes, When scanned with axe, Then no critical violations exist and color is never the only signal (chips carry text).",
+      "category": "accessibility",
+      "requirement_refs": [
+        "NFR-03"
+      ],
+      "task_ids": [
+        "T-042"
+      ],
+      "test_levels": [
+        "e2e",
+        "manual"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-070",
+      "title": "Token-based light/dark theming",
+      "description": "Given the design tokens, When the theme toggles, Then all screens render correctly in light and dark using --qiq-* custom properties with no raw hex in components, and the preference persists per user.",
+      "category": "functional",
+      "requirement_refs": [
+        "NFR-04"
+      ],
+      "task_ids": [
+        "T-013"
+      ],
+      "test_levels": [
+        "e2e",
+        "manual"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-071",
+      "title": "Performance at seed volumes",
+      "description": "Given the seeded data set, When dashboard endpoints and paginated lists are exercised, Then dashboard payloads return within 2 seconds and lists page server-side at 25 rows.",
+      "category": "performance",
+      "requirement_refs": [
+        "NFR-05"
+      ],
+      "task_ids": [
+        "T-032",
+        "T-041"
+      ],
+      "test_levels": [
+        "integration",
+        "manual"
+      ],
+      "priority": "should"
+    },
+    {
+      "id": "AC-072",
+      "title": "Secrets only from Vault",
+      "description": "Given all environments including local, When the API starts, Then DB/Keycloak/S3/Hangfire credentials come from HashiCorp Vault, startup fails fast listing missing keys without values, and no secret exists in source or config files.",
+      "category": "security",
+      "requirement_refs": [
+        "NFR-06"
+      ],
+      "task_ids": [
+        "T-002"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-073",
+      "title": "Deterministic CI-safe test suite",
+      "description": "Given the full test suite, When run repeatedly and in any order in CI, Then results are deterministic with isolated fixtures (Testcontainers) and no order dependence.",
+      "category": "infrastructure",
+      "requirement_refs": [
+        "NFR-07"
+      ],
+      "task_ids": [
+        "T-001"
+      ],
+      "test_levels": [
+        "integration",
+        "manual"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-074",
+      "title": "Tenant display currency everywhere",
+      "description": "Given a tenant's configured currency, When premium values render (inputs, cards, axes, tables, footer, exports), Then the tenant symbol/code is used with compact notation on cards/axes and full amounts in tables, and changing the setting updates the UI.",
+      "category": "functional",
+      "requirement_refs": [
+        "NFR-08",
+        "A-3"
+      ],
+      "task_ids": [
+        "T-010",
+        "T-013",
+        "T-016"
+      ],
+      "test_levels": [
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-075",
+      "title": "No hard deletes of business records",
+      "description": "Given removal flows, When tenants are removed or users deactivated or reference values disabled, Then records are soft-deleted/disabled preserving history and reporting, with no hard-delete endpoint for business records.",
+      "category": "data",
+      "requirement_refs": [
+        "NFR-09"
+      ],
+      "task_ids": [
+        "T-006",
+        "T-007"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-076",
+      "title": "Numeric keys and tenant partitioning",
+      "description": "Given the physical schema, When inspected, Then primary keys are bigint identity (no UUIDs), tenant-scoped tables are LIST-partitioned on tenant_id with composite keys, and tenant creation creates its partitions transactionally.",
+      "category": "infrastructure",
+      "requirement_refs": [
+        "spec §11"
+      ],
+      "task_ids": [
+        "T-003"
+      ],
+      "test_levels": [
+        "integration"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-077",
+      "title": "Upload hardening",
+      "description": "Given file uploads, When content is received, Then extension and magic number must agree with an allow-listed type, objects live in a private bucket under tenant-prefixed keys, and downloads stream through the API with attachment disposition.",
+      "category": "security",
+      "requirement_refs": [
+        "spec §16"
+      ],
+      "task_ids": [
+        "T-021"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-078",
+      "title": "Intake rate limiting",
+      "description": "Given the API intake endpoint, When a client exceeds its configured request rate, Then requests receive 429 without affecting other clients.",
+      "category": "security",
+      "requirement_refs": [
+        "spec §16"
+      ],
+      "task_ids": [
+        "T-030"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-079",
+      "title": "Security headers and CORS",
+      "description": "Given API responses, When inspected, Then HSTS and standard security headers are present and CORS admits only the configured SPA origin.",
+      "category": "security",
+      "requirement_refs": [
+        "spec §16"
+      ],
+      "task_ids": [
+        "T-042"
+      ],
+      "test_levels": [
+        "integration",
+        "security"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-080",
+      "title": "Isolated, modifiable formulas and rules",
+      "description": "Given MetricDefinitions, ExecutiveEscalationRule, and alert predicates, When formulas need changing, Then each lives in exactly one named, unit-tested class (Q-4/Q-5/Q-10) and SQL aggregations share their test fixtures.",
+      "category": "functional",
+      "requirement_refs": [
+        "spec §9.6"
+      ],
+      "task_ids": [
+        "T-024",
+        "T-031",
+        "T-035"
+      ],
+      "test_levels": [
+        "unit"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-081",
+      "title": "Per-environment configuration with working local",
+      "description": "Given configuration files for local/dev/qa/stage/uat/prod, When the local environment runs via docker-compose, Then it is fully functional while other environments carry documented placeholders (Q-7).",
+      "category": "infrastructure",
+      "requirement_refs": [
+        "Q-7"
+      ],
+      "task_ids": [
+        "T-002"
+      ],
+      "test_levels": [
+        "integration",
+        "manual"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-082",
+      "title": "Built screens match the prototype design system",
+      "description": "Given the approved remediation plan (docs/ui-remediation/plan.md), When any already-built screen (shell, Leads, Parties, Settings, User/Tenant Manager, dashboard framework components) renders, Then all controls, nav, cards, chips, and tables are styled by the shared .qiq-* component CSS layer consuming --qiq-* tokens (no undefined class names, no unstyled native controls, icons not text placeholders), and the shell visually matches docs/prototype/screenshots framing (dark sidebar with accent active pill, icon top bar) per QuoteIQ_UI_Standards.md.",
+      "category": "functional",
+      "requirement_refs": [
+        "NFR-04",
+        "PRD 12.2",
+        "UI-Standards 4-9, 14-16"
+      ],
+      "task_ids": [
+        "T-043"
+      ],
+      "test_levels": [
+        "e2e",
+        "manual"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-083",
+      "title": "Every seeded role lands on a permitted screen and drives its workflows without authorization errors",
+      "description": "Given the PRD 20.4 seeded roles (Tenant Admin, Sales Head, Relationship Manager, Underwriter, Sales Operations, Executive Viewer), When each logs in and works the screens their role permits (leads list/intake/detail, parties, dashboards, settings where permitted), Then the post-login landing is a page they can view (never an immediate Forbidden), and no API call issued by those screens returns 403 — lookup reads (reference lists, business assignments/rules, broker pickers) succeed for any tenant member while mutations remain permission-gated.",
+      "category": "authorization",
+      "requirement_refs": [
+        "PRD 20.4",
+        "PRD 20.5",
+        "PRD 21.2",
+        "PRD 12.1",
+        "UI-Standards 8"
+      ],
+      "task_ids": [
+        "T-044"
+      ],
+      "test_levels": [
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    },
+    {
+      "id": "AC-084",
+      "title": "Zero-membership Internal users land on Tenant Manager and can switch into any tenant",
+      "description": "Given an Internal user with tenant-less global grants (global.view_any_tenant, tenants.*) and no tenant memberships, When they log in, Then they land on Tenant Manager (never a Forbidden page), the tenant switcher offers every active tenant, switching into a non-member tenant establishes a working tenant context whose UI capabilities equal their global grants (matching backend enforcement), and the selection persists across full reloads — while a non-Internal user still cannot set a lastTenantId they are not a member of.",
+      "category": "authorization",
+      "requirement_refs": [
+        "FR-16",
+        "FR-04",
+        "FR-10",
+        "PRD 5.3",
+        "PRD 20.4"
+      ],
+      "task_ids": [
+        "T-045"
+      ],
+      "test_levels": [
+        "unit",
+        "integration",
+        "e2e"
+      ],
+      "priority": "must"
+    }
+  ]
+}

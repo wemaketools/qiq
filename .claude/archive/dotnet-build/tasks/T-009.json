@@ -1,0 +1,83 @@
+{
+  "id": "T-009",
+  "title": "Reference data seeding on tenant creation from global template",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-008"],
+  "objective": "Creating a tenant auto-populates every configurable reference list from the current global default template inside the creation transaction, plus a default tenant_settings row; template edits affect future tenants only (spec FR-08, PRD 6.3/6.4).",
+  "scope": [
+    "TenantReferenceSeeder invoked by the ITenantProvisioningHook from T-006",
+    "Global default template content seeded with the PRD 6.3 value sets (startup seeder, idempotent)",
+    "Default tenant_settings row creation (works with T-010 columns; coordinate if T-010 not yet merged — settings row creation may land there instead, decided by whichever merges second)"
+  ],
+  "out_of_scope": ["Demo seed data (T-041)", "Settings endpoints (T-010)"],
+  "implementation_details": [
+    "Infrastructure/Provisioning/TenantReferenceSeeder.cs implements ITenantProvisioningHook: copies default_reference_items -> reference_items for the new tenant preserving name, order, flags, reporting_category, canonical_key, is_terminal; resolves cover-type -> product-line linkage via default_product_line_key mapping to the newly created tenant product-line ids; single transaction with tenant insert",
+    "Infrastructure/Provisioning/DefaultTemplateSeeder.cs (IHostedService, idempotent by (list_type,name)): loads PRD 6.3 defaults — request channels (9 incl. broker-channel flags on Broker email, Portal), product lines (12), party types (8), industries (11), party segments (8), regions (9 Botswana), lead statuses (11 canonical with categories and terminal flags per PRD 6.3 table), quote statuses (7), lost reasons (14 per Appendix C, 'Other' flagged requires-comment via canonical_key 'other'), broker types (4); content defined in a single C# data file DefaultReferenceData.cs",
+    "CreateTenant handler (T-006) already calls hooks; register seeder in DI; on failure the whole tenant creation rolls back",
+    "Audit entry 'tenant.reference_seeded' with counts per list"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Infrastructure/Provisioning/TenantReferenceSeeder.cs",
+    "src/api/QuoteIQ.Infrastructure/Provisioning/DefaultTemplateSeeder.cs",
+    "src/api/QuoteIQ.Infrastructure/Provisioning/DefaultReferenceData.cs",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Provisioning/TenantSeedingTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "CreateTenant_ShouldPopulateAllElevenListsWithExpectedCounts",
+      "CreateTenant_ShouldLinkCoverTypesToTenantProductLines",
+      "EditTemplateThenCreateTenant_ShouldSeedNewValues",
+      "EditTemplate_ShouldNotChangeExistingTenantLists",
+      "SeededTerminalStatuses_ShouldCarryIsTerminalTrue",
+      "SecondTenant_Edits_ShouldNotAffectFirstTenant"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-007"],
+  "verification_ids": ["V-007"],
+  "findings": [
+    {
+      "id": "F-036",
+      "source": "tests-code-review",
+      "severity": "info",
+      "category": "testing",
+      "description": "DefaultTemplateSeeder idempotency is only implicitly proven. The seeder is idempotent by (list_type,name) via an existing-keys HashSet and is exercised because all 7 tests call EnsureDefaultTemplateSeededAsync (running StartAsync repeatedly against a shared default_reference_items table), so duplication would trip the unique constraint or inflate seeded counts. But there is no dedicated idempotency assertion.",
+      "evidence": "src/api/QuoteIQ.Infrastructure/Provisioning/DefaultTemplateSeeder.cs:34-67; no test named for idempotency.",
+      "recommendation": "Add one explicit test that calls StartAsync twice and asserts default_reference_items row count is unchanged and equals DefaultReferenceData.All.Count after the second run. Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T22:20:00-04:00"
+    },
+    {
+      "id": "F-037",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "cover_type is seeded with zero default rows. PRD 6.3 defines no cover-type defaults (PRD 27.3 defers them to client discovery), so seeding 'the PRD 6.3 defaults' correctly yields an empty set and inventing values would violate CLAUDE.md's no-silent-gap-filling rule. Evaluator position: acceptable, not a defect. The cover-type->product-line linkage mechanism is implemented and tested via an ad hoc template row (CreateTenant_ShouldLinkCoverTypesToTenantProductLines).",
+      "evidence": "src/api/QuoteIQ.Infrastructure/Provisioning/DefaultReferenceData.cs:26-34 (documented deviation).",
+      "recommendation": "Confirm with product that empty cover_type defaults at pilot is intended. No code change required.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T22:20:00-04:00"
+    },
+    {
+      "id": "F-038",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "Quote-status reporting categories / terminal flags were inferred, not tabulated in PRD 6.3. FR-20 requires every status to map to a reporting category and the DB check constraint forbids null/unknown categories, so a mapping is structurally mandatory; the chosen mapping reuses the six spec-defined reporting categories (Open/Quoted/Won/Lost/Expired/Withdrawn) and the same terminal set as lead statuses (Won/Lost/Expired/Withdrawn). Evaluator position: acceptable documented assumption; quote workflow (T-020) not yet built so risk is low.",
+      "evidence": "src/api/QuoteIQ.Infrastructure/Provisioning/DefaultReferenceData.cs:36-44, 182-202.",
+      "recommendation": "Have product ratify the quote-status category/terminal mapping when T-020 lands. No change required now.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T22:20:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-08, PRD 6.3/6.4)" },
+    { "timestamp": "2026-07-12T21:50:00-04:00", "event": "task_started", "message": "T-009 IN_PROGRESS; delegated to Implementor (iteration 1/10). Test-first (integration with real Postgres + Keycloak Testcontainers, no mocks, AAA): tenant creation auto-seeds all reference lists from the global default template inside the creation transaction + default tenant_settings row; template edits affect future tenants only; idempotent startup DefaultTemplateSeeder; audit tenant.reference_seeded with per-list counts." },
+    { "timestamp": "2026-07-12T22:10:00-04:00", "event": "implementation_written", "message": "T-009 IMPLEMENTED (iteration 1/10). Created DefaultReferenceData.cs (PRD 6.3/Appendix C value sets: channels 9, product lines 12, party types 8, industries 11, party segments 8, regions 9, lead statuses 11 w/ canonical keys+categories+terminal flags, quote statuses 7, broker types 4, lost reasons 14 incl. 'Other' requires-comment); DefaultTemplateSeeder.cs (IHostedService, idempotent by (list_type,name)); TenantReferenceSeeder.cs (ITenantProvisioningHook copies live global template -> new tenant reference_items, resolves cover-type->product-line via DefaultProductLineKey, writes audit tenant.reference_seeded w/ per-list counts, enforces canonical-status completeness -> also closes T-008 F-022 by rolling back if canonical lead/quote statuses missing/misconfigured); 7 integration tests (real Postgres Testcontainers, no mocks) incl. all six planned + SeedingFailure_ShouldRollBackTenantCreation + audit + exactly-one-settings-row assertions. NOTABLE DEVIATION for evaluator scrutiny: moved the ITenantProvisioningHook call INSIDE the tenant-creation transaction in CreateTenantCommandHandler (was post-commit per T-006 advisory A-T6-4) to satisfy AC-007/V-007 rollback requirement; ordered settings-hook then reference-hook. Deleted NoOpTenantProvisioningHook (dead). T-010 TenantSettingsProvisioningHook confirmed to already create the default tenant_settings row inside the same transaction; NOT duplicated. Playwright: e2e_tests/tests/tenant-manager.spec.ts added for V-007 as test.fixme (Tenant Manager UI T-014 + Settings reference-data UI T-016 not built). SPEC AMBIGUITIES FLAGGED (not guessed): (1) cover types have no PRD 6.3 defaults (open discovery per PRD 27.3) -> shipped zero default cover_type rows, linkage tested via ad hoc template row; (2) quote-status reporting categories/terminal flags not tabulated in PRD 6.3 -> inferred from FR-20 six canonical categories, Won/Lost/Expired/Withdrawn terminal. Full backend suite twice, both green no flakes: Domain 9/9, Infrastructure 45/45, Api 137/137 = 191/191. Handed to Evaluator." },
+    { "timestamp": "2026-07-12T22:20:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS. All five gates met (completeness AC-007/V-007/FR-08, test validity, tests pass, Playwright coverage, security). Value-set counts verified against spec.md line 300 (11 canonical lead-status keys) + reference_items schema (line 386): channels 9 (broker flags on Broker email + Portal), product lines 12, party types 8, industries 11, party segments 8, regions 9, lead statuses 11 with correct categories + 4 terminal flags, quote statuses 7, broker types 4, lost reasons 14 with Other->canonical_key 'other'. Seeder reads the LIVE template (IDefaultReferenceItemStore.ListAllAsync) so template edits affect future tenants only, proven both directions. Single tenant_settings row (T-010 hook), asserted exactly-once, not duplicated. Audit tenant.reference_seeded per-list counts written+asserted. TRANSACTION-BOUNDARY CHANGE JUDGED CORRECT + NO REGRESSION: TenantStore.CreateAsync wraps insert + create_tenant_partitions + settings-hook -> reference-hook -> tenant.created audit in one Begin..Commit; NO external/non-transactional side effect inside the transaction (Keycloak provisioning is T-007, not this path), so A-T6-4's post-commit concern does not apply and AC-007 rollback is satisfied; 137/137 Api suite drives full seeding path inside the transaction with no T-006 regression. Rollback genuine (SeedingFailure_ShouldRollBackTenantCreation nulls closed_won.reporting_category, EnsureCanonicalStatusesComplete throws, tenant row asserted absent). F-022 closure verified real + tested. 7 tests real Postgres, no mocks, AAA, order-independent, non-tautological; none weakened/deleted. Playwright V-007 faithful with legitimate T-014/T-016 fixme. Security: tenant-owned rows with write-guard, audit carries only counts, parameterized SQL, no IDOR. Independent full suite: Domain 9/9, Application 0, Infrastructure 45/45, Api 137/137 = 191/191, 0 failed, no flakes. Non-blocking info advisories F-036 (add explicit idempotency test), F-037 (empty cover_type defaults acceptable per PRD 27.3), F-038 (inferred quote-status categories acceptable, ratify at T-020). T-009 PASS." },
+    { "timestamp": "2026-07-12T22:22:00-04:00", "event": "task_passed", "message": "T-009 PASS (iteration 1/10). Backend suite 191/191 (Domain 9, Infrastructure 45, Api 137). AC-007 satisfied; V-007 Playwright carried as test.fixme until T-014/T-016 UI. Three info advisories F-036/F-037/F-038 recorded OPEN for product ratification (non-blocking). No task depends on T-009, so no new unblocks. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "id": "T-039",
+  "title": "Exports: CSV writer with formula-injection guard, exceljs Excel writer, list and dashboard exports",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-036",
+    "T-037"
+  ],
+  "objective": "Port the export capability: hand-rolled CSV writer with formula-injection guarding, exceljs-based XLSX writer replacing ClosedXML, and the list (leads/parties) and dashboard export endpoints honoring active filters with tenant/report/period/currency headers — synchronous with the documented size limit (P-12, A-16, Q-18).",
+  "scope": [
+    "domains/exports: CsvWriter (injection guard: prefix ' on cells starting =+-@) and ExcelWriter (exceljs) with the reference column/header conventions (tenant, report, period, currency header rows)",
+    "List exports: leads and parties CSV/Excel honoring active list filters (reuse repository filter logic from T-024/T-023)",
+    "Dashboard exports: per-dashboard export endpoints honoring the active filter bar (T-035 filter applier)",
+    "Cross-tenant exports Internal-only where the reference allows them; exports audited where required (P-13)",
+    "Documented synchronous size limit under the ~4.5MB response cap (Q-18) with a clear error when exceeded"
+  ],
+  "out_of_scope": [
+    "Queued/async export scale path (documented only, Q-18)",
+    "Report print views (T-040)",
+    "Scheduled report distribution (excluded per A-13)"
+  ],
+  "implementation_details": [
+    "Byte-parity focus: column order/captions and header block per the reference exports so downstream consumers see no change (A-3).",
+    "Streaming into memory-bounded buffers; enforce the documented row/size cap before generation and return the reference-shaped error beyond it.",
+    "Formula-injection guard unit-tested against the OWASP CSV injection cases.",
+    "Content-Type/Content-Disposition per reference (attachment; filename conventions).",
+    "Filter parity: exports reuse the exact same predicate builders as the list/dashboard queries — no duplicated filter logic (P-12)."
+  ],
+  "files": [
+    "src/server/domains/exports/document.ts",
+    "src/server/domains/exports/csv.ts",
+    "src/server/domains/exports/excel.ts",
+    "src/server/domains/exports/service.ts",
+    "src/server/domains/exports/routes.ts",
+    "src/server/domains/exports/index.ts",
+    "src/server/lib/router/app.ts",
+    "api/v1/[[...segments]].ts",
+    "scripts/dev/serve-api.ts",
+    "package.json",
+    "src/server/tests/unit/csv-injection.test.ts",
+    "src/server/tests/integration/exports.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "CSV injection guard cases (=,+,-,@ starts, embedded quotes/commas/newlines); Excel writer produces parseable workbook with header block"
+    ],
+    "integration": [
+      "Leads/parties export honors active filters (fixture comparisons row-for-row); dashboard export matches on-screen dataset for the same filters",
+      "Header rows carry tenant/report/period/currency; size-limit exceeded returns documented error; tenant isolation; Internal-only cross-tenant paths enforced; export audit where required"
+    ],
+    "e2e": [
+      "Export download specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-024",
+    "AC-081",
+    "AC-082",
+    "AC-084"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-031",
+    "V-102",
+    "V-103",
+    "V-104",
+    "V-105",
+    "V-108"
+  ],
+  "findings": [
+    {
+      "id": "F-039-01",
+      "severity": "minor",
+      "summary": "REFERENCE CONTRADICTION (recorded, diverged deliberately). ExportLimits.MaxRows was 100000 and was used only as the query PAGE SIZE with no post-check, so the reference silently returned a TRUNCATED file beyond it. AC-082 requires an over-limit request to fail with a documented error rather than a truncated file, and 100k rows would blow the ~4.5MB Vercel response cap (Q-18/R-1) long before being reached. Implemented MAX_EXPORT_ROWS=20000 (arithmetic documented in service.ts) and ENFORCED it: totalCount is compared to the cap before rendering; over-limit returns 400 EXPORT_TOO_LARGE with no file and no audit row.",
+      "status": "resolved"
+    },
+    {
+      "id": "F-039-02",
+      "severity": "minor",
+      "summary": "CSV record separator diverges from the reference deliberately. CsvExportWriter used StringBuilder.AppendLine (Environment.NewLine), so the emitted bytes were a function of the HOST OS (LF on its Linux containers, CRLF on Windows) rather than of the data - not a contract any test can pin. This port emits CRLF everywhere per RFC-4180, which is also strictly more parseable because a quoted field may contain a bare LF.",
+      "status": "resolved"
+    },
+    {
+      "id": "F-039-03",
+      "severity": "minor",
+      "summary": "Audit action string is the reference bare \"export\" rather than this port dotted convention (lead.created, broker.updated, ...). Kept for reference parity because the entity_type beside it (lead/party/dashboard) already carries the domain. This is the ONLY non-dotted action in the port; flagged in case the evaluator prefers export.generated for consistent action-prefix querying.",
+      "status": "open"
+    },
+    {
+      "id": "F-039-04",
+      "severity": "minor",
+      "summary": "ExportsDeps.maxRows is a TEST SEAM for the documented size limit. AC-082 makes the over-limit path a must-verify, and seeding 20001 leads is not a test worth keeping; without the seam the endpoint enforcement would ship untested. Production composition roots never set it - auth-wiring.test.ts pins the argument list as exactly defaultExportsDeps().",
+      "status": "resolved"
+    },
+    {
+      "id": "F-039-05",
+      "severity": "minor",
+      "summary": "NEW TRANSITIVE VULNERABILITY from the approved exceljs dependency (Q-9): exceljs adds 93 packages and npm audit reports 2 moderate advisories, both from uuid (\"Missing buffer bounds check in v3/v5/v6 when buf is provided\"). Not reachable from this code path (we never call uuid with a caller-supplied buffer; exceljs uses it for internal workbook ids), but it is new information about an approved dependency and is the human call, not mine.",
+      "status": "open",
+      "detail": "EVALUATOR CONFIRMED FIRST-HAND: `grep -rn \"require('uuid')\" node_modules/exceljs/lib` finds exactly one call site (cf-rule-ext-xform.js, conditional-formatting-extension ids), and it invokes `uuidv4()` with ZERO arguments at both call sites (lines 43 and 77) - the advisory (GHSA-w5hq-g745-h8pq) requires the caller to pass a `buf` parameter, which never happens anywhere in exceljs. The export code path in this task never touches conditional-formatting extensions at all. RECOMMENDATION TO THE HUMAN: accept as a documented, unreachable transitive advisory - no code or dependency change needed. Re-check on any future exceljs upgrade in case a new call site starts passing a buffer."
+    },
+    {
+      "id": "F-039-06",
+      "severity": "minor",
+      "summary": "Premium crosses numeric(18,2) -> JS number before reaching the export, because LeadListItemDto.premium is number|null (T-024, toNullableAmount). The export reuses the list projection deliberately for filter/breadth parity, so it inherits that conversion; the reference did the same thing (decimal -> JSON number). Exact for every value numeric(18,2) can hold within double range, but recorded because an export is a reporting surface where rounding would be visible. Not fixed here: changing it is a T-024 contract change.",
+      "status": "open"
+    },
+    {
+      "id": "F-039-07",
+      "severity": "minor",
+      "summary": "E2E (V-105) NOT written in this task, by the task file own instruction: test_plan.e2e says \"Export download specs adapted in T-043\", and e2e_tests/tests/exports.spec.ts already exists from the .NET run as a describe.fixme awaiting the T-041 seed persona. Writing it here would collide with T-043. Verified instead that the existing SPA export UI (ExportMenu/exportsApi) already targets these exact paths and query-param names, so no UI change was required and the wire contract is preserved.",
+      "status": "open"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-12, A-16/Q-9, Q-18, spec 16 injection guarding."
+    },
+    {
+      "timestamp": "2026-07-20T19:45:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS at iteration 0/10. Reproduced first-hand rather than accepted: (1) THE EXCELJS ROUND-TRIP CLAIM, verified directly against the installed exceljs@4.4.0 via a standalone script: assigning a plain string `'=HYPERLINK(...)'` as `cell.value` and re-parsing the written workbook returns `type === ValueType.String (3)` and `formula === undefined`; assigning the object form `{ formula: '1+1' }` returns `type === ValueType.Formula (6)` with `formula === '1+1'`. The implementor's claim that exceljs does NOT need the guard to stay inert is confirmed exactly. Also verified the supporting reasoning: writing a guarded value (`'=HYPERLINK(...)` with the leading apostrophe) and reading it back returns the apostrophe as a literal leading character in the string, not consumed as Excel's quotePrefix formatting flag - so the guard-for-CSV-reexport-parity argument is sound, not merely plausible. (2) THE OVER-GUARD DIRECTION reproduced: mutated csv.ts to route the number branch through guardExportCell and re-ran csv-injection.test.ts - 2 tests failed on `-500.75` rendering as `'-500.75`, confirming the number/date exclusion is genuinely pinned from both sides, restored and verified byte-identical by grep afterward. (3) GUARD ON WRITTEN BYTES verified by reading exports.test.ts directly: INJECTED_PARTY_NAME = '=HYPERLINK(\"http://evil\",\"x\")' and INJECTED_BROKER_NAME = '@SUM(1+1),Evil \"Brokers\"' are real seeded fixture values, and the assertions check the GUARDED string is present AND the unguarded string is absent (not merely toContain(guarded), which would pass on a partial guard) - both CSV and XLSX paths asserted, RFC-4180 quote-doubling and the guard composing correctly on one cell. Traced every text sink to answer 'which field is NOT guarded': every text/header/metadata cell goes through guardExportCell or setTextCell; the one field that bypasses it - the download filename, built by `slugify(tenantName)` - is independently restricted to `[a-z0-9-]` (verified in service.ts:202-209), which is a stricter sanitizer than the cell guard, not a gap; number/date cells are typed writers that cannot carry a formula. No unguarded text sink found reaching an export. (4) BREADTH mutant M6 reproduced: forced `callerHasViewAll: true` in the leads export query in service.ts and re-ran exports.test.ts - 2 assertions failed immediately (an over-broad row set and an over-broad row count), consistent with the implementor's '4 integration tests' claim once cascading failures are counted; restored and verified byte-identical. (5) MAX_EXPORT_ROWS=20,000 arithmetic checked against the stated ~150-200 bytes/row and the ~4.5MB Vercel cap: 20,000 * 200B = 4.0MB, comfortably inside the cap with the documented margin; the over-limit path is enforced BEFORE rendering (totalCount compared to cap) and no audit row is written on rejection, matching AC-082's 'never a truncated file' requirement exactly - the reference's page-size-only enforcement (100k rows, no check) is confirmed as a real defect being fixed rather than a reference behavior being narrowed for no reason. CRLF pinning (F-039-02) read and is a genuine RFC-4180 improvement over the reference's host-dependent Environment.NewLine. (6) FILE-RESTORE INTEGRITY: all touched files (csv.ts, service.ts) verified restored to baseline byte-for-byte by direct grep after each mutation; git diff is blind here (exports/ is untracked), so grep-level content checks were used deliberately rather than relied-on git status. (7) F-039-05 (uuid transitive advisory) traced to its exact call site inside node_modules/exceljs and confirmed unreachable - see the finding's evaluator detail. (8) V-105 SUBSTITUTION ruled ACCEPTABLE: e2e_tests/tests/exports.spec.ts is a pre-existing describe.fixme carried from the prior .NET-era run (not authored by this task), explicitly deferred to T-041's seed persona per the task's own test_plan.e2e, and the substitution claim (SPA ExportMenu/exportsApi already target `/exports/{leads,parties,dashboard}?format=...`) verified directly in exportsApi.ts and routes.ts - the wire contract genuinely matches; nothing here should block T-039 on T-043/T-041's schedule. TEST-FIRST STATUS: T-039's own disclosure states RED was actually observed (module-not-found, then 14 real assertion failures on unguarded writer output before the guard was applied) - this is NOT one of the four disclosed deviations and needs no governance ruling; it is a genuine red-green cycle. Gates re-run serially, own suites: csv-injection.test.ts (50), exports.test.ts (40), auth-wiring.test.ts pins - all green; typecheck exit 0."
+    },
+    {
+      "timestamp": "2026-07-20T14:45:00-04:00",
+      "event": "implemented",
+      "message": "Ported the export capability test-first. RED observed twice: first module-not-found, then the meaningful red - writers implemented WITHOUT the guard produced 14 real assertion failures on bytes/cell values while the structural tests already passed. Guard then applied; 50/50 unit green. Delivered: document.ts (ExportDocument model + guardExportCell + \"u\"/\"0.##\" formatters), csv.ts (UTF-8 BOM, RFC-4180, CRLF), excel.ts (exceljs, frozen header, #,##0.## numbers), service.ts (cross-tenant gate, metadata, three projections, audit, row cap), routes.ts (3 endpoints reusing the LIST query schemas so filter parity is structural), index.ts, plus the app.ts slot and both composition roots. GUARDED: every text cell, every column header, and every metadata value (tenant name + filter echo). NOT GUARDED: number and date cells, because their writers emit typed values that no spreadsheet evaluates - guarding them would corrupt a legitimate -500.00; pinned from BOTH directions. MEASURED exceljs: a plain string assignment (even \"=X\") round-trips as ValueType.String with formula undefined, so exceljs does NOT need the guard to stay inert; the guard is applied anyway for CSV/XLSX parity and to survive re-export to CSV. Documented sync limit (Q-18): MAX_EXPORT_ROWS=20000, enforced before rendering, 400 EXPORT_TOO_LARGE with no file. Tests: 50 unit + 40 integration + 2 auth-wiring pins. MUTATION TESTING: 8 mutants, ALL KILLED, each with a sha256 application proof and a verified byte-identical restore - M1 strip CSV guard (6 unit + 3 integration), M2 strip Excel guard (5+1), M3 OVER-guard numbers (2+1), M4 drop size limit (2), M5 disable cross-tenant gate (2), M6 force canViewAllLeads=true (4), M7 drop audit write (4), M8 shrink trigger set to [=,+] (10+1). Two restores initially came back NON-identical (replace-first hit a duplicated branch; empty-string replace inserted at offset 0) - both caught by hash verification and repaired to the exact baseline before continuing. Residue: zero rows across 8 tables by direct query. Gates: own suites 0, typecheck 0, lint 0, db:types:check 0 (no schema change). Full suite 3491 passed/52 skipped; the only failures were pgmq-queue and job-endpoints, which pass in isolation - concurrent-sibling (T-032) interference on shared queue state, reported separately."
+    }
+  ]
+}

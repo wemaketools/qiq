@@ -1,0 +1,75 @@
+{
+  "id": "T-023",
+  "title": "Hangfire setup with quote-expiry and lead-inactivity-expiry jobs",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-020", "T-022"],
+  "objective": "Hangfire runs on PostgreSQL with a secured dashboard; the only automatic status changes in the product — quote expiry and lead inactivity expiry — execute hourly per tenant rules with full history/audit (spec FR-42, §8, PRD 10.4 Expire rows).",
+  "scope": [
+    "Hangfire.PostgreSql wiring + recurring job registration",
+    "QuoteExpiryJob and LeadInactivityExpiryJob",
+    "Secured Hangfire dashboard (Internal permission)"
+  ],
+  "out_of_scope": ["Alert evaluation job (T-024)"],
+  "implementation_details": [
+    "AddHangfire with PostgreSqlStorage (connection from Vault config); AddHangfireServer; dashboard at /hangfire behind authorization filter requiring PermissionCatalog.Global.ViewAnyTenant",
+    "Jobs/QuoteExpiryJob.cs: per active tenant (explicit tenant loop with cross-tenant context): quotes in canonical sent/revised with valid_until < today -> status Expired via QuoteOperationExecutor system path (acting user = system), history row operation 'expire_automatic'; when tenant rule (future setting, default off) and lead has no other open quote -> lead Expired too (PRD 10.4)",
+    "Jobs/LeadInactivityExpiryJob.cs: open-category leads with last_activity_at < now - lead_inactivity_expiry_days -> lead Expired + history; quote activity already counts via T-022 stamping",
+    "System actor: audit rows with actor_user_id null and actor_label 'system'; RecurringJob.AddOrUpdate hourly cron for both; per-tenant counts logged (spec §15)",
+    "JobActivator scoping: each job iteration creates a DI scope and sets TenantContext explicitly per tenant"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Infrastructure/Jobs/QuoteExpiryJob.cs",
+    "src/api/QuoteIQ.Infrastructure/Jobs/LeadInactivityExpiryJob.cs",
+    "src/api/QuoteIQ.Infrastructure/Jobs/HangfireSetup.cs",
+    "src/api/QuoteIQ.Api/Auth/HangfireDashboardAuthorizationFilter.cs",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Jobs/ExpiryJobTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "QuoteExpiryJob_WhenSentQuotePastValidUntil_ShouldExpireWithHistoryAndAudit",
+      "QuoteExpiryJob_ShouldNotTouchDraftOrClosedQuotes",
+      "LeadInactivityExpiryJob_WhenNoActivityBeyondPeriod_ShouldExpireLead",
+      "LeadInactivityExpiryJob_WhenRecentQuoteActivity_ShouldNotExpireLead",
+      "Jobs_ShouldProcessMultipleTenantsWithCorrectIsolation",
+      "HangfireDashboard_WithoutInternalPermission_ShouldReturn403"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-041"],
+  "verification_ids": ["V-041"],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "QuoteExpiryJob.TryCascadeLeadExpiryAsync (the optional per-tenant ExpireLeadWhenLastQuoteExpires rule from implementation_details/PRD 10.4: when the rule is on and the expired quote's lead has no other open quote, the lead is also expired) has zero test coverage. Every test runs with the rule at its default-off value, so the entire cascade branch -- including the 'other open quote blocks cascade' guard via ListOtherOpenQuotesAsync and the LeadOperationExecutor.Expire cascade -- is never executed. The 6 agreed test_plan tests do not include a cascade case, so this is not an Implementor deviation from the plan, but the in-scope behavior remains unverified.",
+      "evidence": "QuoteExpiryJob.cs lines 110-145; ExpiryJobTests.cs seeds TenantSettings with C# defaults (ExpireLeadWhenLastQuoteExpires=false) and never sets it true.",
+      "suggested_fix": "Add one integration test: rule on, a Sent quote past valid_until whose lead has no other open quote -> lead becomes Expired with system-actor history/audit; plus a guard case with a sibling open quote asserting the lead is NOT expired.",
+      "status": "open",
+      "created_at": "2026-07-13T22:10:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "The quote-expiry candidate query (QuoteStore.ListExpiredCandidatesAsync) expires both canonical Sent and Revised quotes, but the positive expiry test only exercises a Sent quote. The Revised-past-valid_until path is asserted only indirectly (it is in the same canonical-key array). A Revised-specific positive assertion would fully cover FR-38's revised-quote expiry.",
+      "evidence": "QuoteStore.cs line 188 (expirableCanonicalKeys = Sent, Revised); ExpiryJobTests.cs test 1 seeds only a Sent quote.",
+      "suggested_fix": "Extend QuoteExpiryJob_WhenSentQuotePastValidUntil_ShouldExpireWithHistoryAndAudit (or add a sibling) to also seed a Revised quote past valid_until and assert it expires.",
+      "status": "open",
+      "created_at": "2026-07-13T22:10:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-42, §8 jobs, PRD 10.4)" },
+    { "timestamp": "2026-07-13T21:40:00-04:00", "event": "task_started", "message": "T-023 IN_PROGRESS; delegated to Implementor (iteration 1/10). Deps T-020 (quotes) + T-022 (activity stamping) PASS. Backend task, test-first (real Postgres+Keycloak Testcontainers): Hangfire.PostgreSql (conn from Vault) + AddHangfireServer + hourly RecurringJob; dashboard /hangfire behind HangfireDashboardAuthorizationFilter requiring Global.ViewAnyTenant. QuoteExpiryJob (per active tenant, cross-tenant context: sent/revised quotes with valid_until<today -> Expired via QuoteOperationExecutor SYSTEM path, history 'expire_automatic'; optional lead-expire when no other open quote). LeadInactivityExpiryJob (open-category leads with last_activity_at < now - lead_inactivity_expiry_days -> Expired; quote activity already counts via T-022). System actor: audit actor_user_id null / actor_label 'system'. Per-job DI scope + explicit per-tenant TenantContext; per-tenant counts logged. ONLY automatic status changes in the product. AC-041." },
+    { "timestamp": "2026-07-13T21:52:00-04:00", "event": "implementation_written", "message": "T-023 IMPLEMENTED (iteration 1/10). Reconciled on resume: all five target files present on disk (test-first, Implementor completed before the interruption cut off the state write): ExpiryJobTests.cs (400 lines, 6 integration tests), QuoteExpiryJob.cs (146), LeadInactivityExpiryJob.cs (105), HangfireSetup.cs (96), HangfireDashboardAuthorizationFilter.cs (62), plus SystemCurrentUser.cs (system actor: UserId null, IsSystemActor true, ActorLabel 'system'). Handed to Evaluator." },
+    { "timestamp": "2026-07-13T21:53:00-04:00", "event": "evaluation_started", "message": "T-023 EVALUATING (iteration 1/10). Evaluator to independently verify against AC-041 / V-041: run the Infrastructure suite (real Postgres+Keycloak Testcontainers); confirm ONLY quote-expiry (sent/revised past valid_until -> Expired) and lead-inactivity-expiry are automatic; system-actor history/audit (null user, 'system' label, 'expire_automatic'); draft/closed quotes untouched; quote activity counts as lead activity (T-022); multi-tenant isolation with per-tenant DI scope + explicit TenantContext; /hangfire dashboard 403 without Global.ViewAnyTenant; Vault-sourced connection; no unrelated regression; security review of the cross-tenant loop + dashboard exposure." },
+    { "timestamp": "2026-07-13T22:10:00-04:00", "event": "evaluator_pass", "message": "Evaluator returned PASS (iteration 1/10). Full backend suite 635/635 (Domain 297, Application 28, Infrastructure 50, Api 260), 0 failures/0 skips, clean build (TreatWarningsAsErrors). Target tests confirmed executed (not trait-skipped): ExpiryJobTests 5 passed, HangfireDashboardAuthorizationFilterTests 3 passed. All five pass criteria met; NO security findings at any severity (cross-tenant loop sets explicit per-tenant TenantContext + every candidate query TenantId-filtered; dashboard filter genuinely 403s without Global.ViewAnyTenant per real 403/200/401 tests; IsSystemActor bypass unreachable from HTTP; Vault-sourced conn; no PII logged). Two MINOR non-blocking test-gap findings recorded (F-001 cascade lead-expiry rule branch uncovered - default-off in all tests; F-002 Revised-quote expiry only covered indirectly). Both left status=open as deferred follow-ups (candidate for a hardening pass / when ExpireLeadWhenLastQuoteExpires is enabled); neither is a security issue and neither blocks AC-041/V-041." },
+    { "timestamp": "2026-07-13T22:11:00-04:00", "event": "task_passed", "message": "T-023 PASS (iteration 1/10). Hangfire on PostgreSQL + secured /hangfire dashboard + the two hourly recurring jobs (QuoteExpiryJob, LeadInactivityExpiryJob) - the ONLY automatic status changes in the product - complete and verified. Unblocks T-024 (Alerts backend, its sole dependency) to READY. F-001/F-002 remain open as minor deferred follow-ups. 23 tasks now PASS, 0 FAIL." }
+  ]
+}

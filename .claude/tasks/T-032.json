@@ -1,0 +1,136 @@
+{
+  "id": "T-032",
+  "title": "Expiry sweep jobs: quote-expiry and lead-inactivity-expiry handlers with pg_cron schedules",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-031",
+    "T-026"
+  ],
+  "objective": "Port Hangfire Jobs 1 and 2 per the spec 9.5 mapping: the quote-expiry handler (Sent quotes past valid_until -> Expired, optional lead expiry per tenant rule) and the lead-inactivity-expiry handler (open leads inactive beyond tenant threshold -> Expired), both state-guarded idempotent, tenant-batched, writing history + audit + job_run, scheduled via pg_cron -> pg_net -> the CRON_SECRET-protected endpoints (M-13, M-14, spec 9.5 Jobs 1-2).",
+  "scope": [
+    "src/server/jobs/cron/quote-expiry.ts: per active tenant — open Sent quotes with valid_until < now() transition to Expired with quote_status_history + audit; lead expiry cascade when tenant rule enabled and no other open quote; per-tenant counts into job_run",
+    "src/server/jobs/cron/lead-inactivity-expiry.ts: open leads with last_activity_at older than tenant lead_inactivity_expiry_days (quote activity counts as activity) -> Expired with history + audit; counts into job_run",
+    "Wire both into their T-031 endpoint scaffolds and cron:run scripts",
+    "Migration registering pg_cron schedules: quote-expiry '0 * * * *', lead-inactivity-expiry '10 * * * *' (UTC), invoking the deployed endpoints via pg_net with the secret header — parameterized for environment URL (documented placeholder pattern for deployed envs; local relies on cron:run scripts)",
+    "Automatic transitions only via these jobs (P-07)"
+  ],
+  "out_of_scope": [
+    "Alert evaluation (T-033/T-034)",
+    "Alert refresh beyond enqueue/reconcile hand-off (Job 3 sweep guarantees consistency)",
+    "Queue-dispatch scale path (documented, not built)"
+  ],
+  "implementation_details": [
+    "State-guarded idempotency (spec 9.5): only rows currently matching the transition predicate change; re-runs are no-ops — assert in tests by running twice.",
+    "Tenant batching via forEachActiveTenant with per-tenant try/catch (one tenant's failure doesn't stop others); respect maxDuration by chunking (N-02/R-6).",
+    "Expired statuses resolved via canonical keys from reference data (guarded statuses), not hardcoded ids.",
+    "History rows attribute actor = system/job per reference convention; audit entries per P-13.",
+    "pg_cron + pg_net registration SQL: store the target base URL + secret via a documented mechanism (e.g., a settings table or Vault-free config row — decide and document; never hardcode production URLs in migrations; local/CI values injected by seed/env script). Flag the chosen mechanism in docs/background-jobs.md (M-18).",
+    "Integration test asserts cron.job rows exist after migrations (spec 17)."
+  ],
+  "files": [
+    "src/server/jobs/cron/quote-expiry.ts",
+    "src/server/jobs/cron/lead-inactivity-expiry.ts",
+    "src/server/jobs/cron/partial-sweep-error.ts",
+    "src/server/jobs/runtime.ts",
+    "src/server/domains/quotes/repository.ts",
+    "src/server/domains/quotes/index.ts",
+    "src/server/domains/leads/repository.ts",
+    "src/server/domains/leads/index.ts",
+    "src/server/domains/leads/workflow/operations.ts",
+    "scripts/jobs/run-cron.ts",
+    "supabase/migrations/20260720000000_pg_cron_expiry_schedules.sql",
+    "src/server/lib/db/generated/supabase-types.ts",
+    "docs/background-jobs.md",
+    "src/server/tests/integration/quote-expiry-job.test.ts",
+    "src/server/tests/integration/lead-inactivity-job.test.ts",
+    "src/server/tests/integration/pg-cron-schedules.test.ts",
+    "src/server/tests/unit/expiry-thresholds.test.ts",
+    "src/server/tests/integration/cron-scripts.test.ts",
+    "src/server/tests/integration/job-endpoints.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Transition predicate logic if extracted pure (threshold comparisons, tenant-rule gating)"
+    ],
+    "integration": [
+      "Quote expiry: fixture Sent quotes past/before valid_until — only past ones expire, history + audit written, lead cascade honors tenant rule + other-open-quote guard; run twice -> no duplicates (idempotency)",
+      "Lead inactivity: only leads beyond threshold expire; quote activity resets the clock; run twice idempotent",
+      "job_run rows with per-tenant counts; endpoint invocation with secret works; cron:run local path produces identical effects",
+      "cron.job contains both schedules after migration apply"
+    ],
+    "e2e": [
+      "Job-triggered state visible in adapted suite via job-trigger hooks (T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-066",
+    "AC-067",
+    "AC-068",
+    "AC-072"
+  ],
+  "verification_ids": [
+    "V-083",
+    "V-084",
+    "V-085",
+    "V-090"
+  ],
+  "findings": [
+    {
+      "id": "F-032-1",
+      "severity": "minor",
+      "status": "open",
+      "summary": "REFERENCE CONTRADICTION (reference followed): T-032 scope says 'open Sent quotes', but QuoteStore.ListExpiredCandidatesAsync (:188) expires canonical keys 'sent' AND 'revised', and T-026's legality matrix already allows expire_automatic from SENT_REVISED. Ported as the reference has it; pinned by the revisedPast fixture."
+    },
+    {
+      "id": "F-032-2",
+      "severity": "major",
+      "status": "open",
+      "summary": "AC-066/V-083 require 'alerts are refreshed' after quote expiry, but the task file puts alert refresh out_of_scope and T-033's alert-evaluation.ts states the Job 3 sweep guarantees consistency. Both sweeps therefore pass no onLeadChanged callback; alerts converge within 15 minutes via Job 3 rather than immediately. FLAGGED, not silently filled - needs a ruling on whether T-034 should wire the enqueue seam into these two handlers.",
+      "detail": "EVALUATOR CONFIRMED FIRST-HAND (not closed, human ruling requested): alert-evaluation.ts:10 schedules a full per-tenant reconciliation sweep every 15 minutes (pg_cron '*/15 * * * *'), and neither quote-expiry.ts nor lead-inactivity-expiry.ts calls any onLeadChanged/onQuoteChanged seam. So 'alerts are refreshed' in AC-066/V-083's literal wording is not true; what is true is 'alerts converge within a bounded 15-minute window'. RECOMMENDATION TO THE HUMAN: amend AC-066 and V-083 to state the bounded-convergence contract explicitly (mirroring the AC-045/AC-049/AC-054/AC-060 pattern already ratified this session, where a measured/bounded reformulation replaced an unmeasurable literal wording), UNLESS immediate consistency is actually required for operational reasons (e.g., an SLA alert must not lag a quote's own expiry by up to 15 minutes) - in which case T-034 should be scoped to wire an enqueue call into both expiry handlers rather than relying purely on the sweep. This task (T-032) is not blocked on the answer either way: the sweep-convergence behavior is real, tested, and correctly disclosed rather than silently assumed."
+    },
+    {
+      "id": "F-032-6",
+      "severity": "minor",
+      "status": "open",
+      "summary": "Doc/comment drift, safe direction: the migration's COMMENT ON TABLE job_cron_config and docs/background-jobs.md both say the table is 'service-role only', but live grants show service_role has SELECT=false (only TRUNCATE/REFERENCES/TRIGGER) - only the postgres superuser and the SEARCH_PATH-pinned SECURITY DEFINER function public.invoke_cron_endpoint can read it. Verified live: `has_table_privilege('service_role', 'public.job_cron_config', 'select')` returns false. Not a security defect (the drift makes the access model MORE restrictive than documented, not less), but it is the same comment-drifts-from-code pattern flagged earlier this session (breadthPredicate(), the drill parity claim) and should be corrected in both the migration COMMENT and docs/background-jobs.md so a future reader does not assume service-role read access exists where it does not.",
+      "evidence": "node -e pg query: information_schema.role_table_grants for job_cron_config lists only postgres with full DML; service_role has TRUNCATE/REFERENCES/TRIGGER only; has_table_privilege(anon/authenticated/service_role, 'select') all false."
+    },
+    {
+      "id": "F-032-3",
+      "severity": "minor",
+      "status": "open",
+      "summary": "Inherited MVP flag: tenant-local 'today' for quote expiry is modelled as the UTC date (reference's DateOnly.FromDateTime(DateTime.UtcNow)); no per-tenant timezone column exists in spec 11.2 tenant_settings. A tenant far from UTC sees quotes expire up to a day early/late relative to its own wall clock."
+    },
+    {
+      "id": "F-032-4",
+      "severity": "minor",
+      "status": "open",
+      "summary": "Ordering asymmetry preserved from the reference: quote-expiry reads tenant_settings only AFTER finding candidates, so an unprovisioned tenant with nothing due is a clean no-op; lead-inactivity-expiry must read settings first (the threshold IS the setting) so an unprovisioned tenant always fails that sweep. Both branches asserted."
+    },
+    {
+      "id": "F-032-5",
+      "severity": "minor",
+      "status": "open",
+      "summary": "Added migration 20260720000000_pg_cron_expiry_schedules.sql (new table public.job_cron_config, function public.invoke_cron_endpoint, two cron.schedule rows). Applied ADDITIVELY to the shared local DB via psql (no reset); db:types regenerated. Orchestrator should refresh the snapshot after reviewing the diff. T-034 adds the alert-evaluation and queue-drain schedules using the same helper."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to M-13/M-14/M-15, spec 9.5 Jobs 1-2, P-07 automatic transitions."
+    },
+    {
+      "timestamp": "2026-07-20T19:30:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS at iteration 0/10. Reproduced first-hand rather than accepted: (1) M3 (lead threshold '<'->'<=') applied and re-run - all 13 tests in lead-inactivity-job.test.ts STILL PASSED, confirming genuine equivalence on these fixtures; then M3c (threshold arithmetic shifted -2 days, comparison operator untouched) applied and re-run - 9 of 18 tests across the integration and unit suites FAILED, proving the boundaryJustInside/boundaryToday fixtures actually straddle the real threshold rather than sitting vacuously far past it. (2) M4 (drop the lead reporting_category guard) and M5 (drop the quote canonical_key guard) both reproduced: each kills exactly one test (`expect(counts.leadsFailed).toBe(0)` / `expect(counts.quotesFailed).toBe(0)`), confirming those added assertions are real and load-bearing, not decorative. All five mutated files verified restored to baseline byte-for-byte by direct grep after every mutation (no git diff available - domains/jobs trees are untracked). (3) `npm run cron:list` run live: quote-expiry and lead-inactivity-expiry report 'registered'; alert-evaluation (genuinely unregistered, pending T-034) still correctly reports 'NOT REGISTERED' - the fix does not overclaim. (4) job_cron_config access verified LIVE via a direct pg query (not taken from the migration text): service_role has SELECT=false (only TRUNCATE/REFERENCES/TRIGGER), matching the orchestrator's report exactly; only postgres and the SECURITY DEFINER function can read the row. The function's job_name parameter was assessed for injection: it is only ever invoked with hardcoded literals from this migration's own `cron.schedule(...)` calls, the function is REVOKE ALL from public/anon/authenticated, and no attacker-reachable path supplies job_name - safe. Comment drift ('service-role only' when service_role cannot even SELECT) filed as F-032-6, minor, non-blocking - drift is in the SAFE direction but should be corrected for the same reason breadthPredicate()/drill-parity drift mattered earlier. (5) F-032-1 (sent+revised) and F-032-4 (canonical_key vs reporting_category asymmetry) both confirmed directly in quotes/repository.ts:574 and leads/repository.ts:345 - reference-faithful, disclosed, no code change needed; asymmetry ruled PRESERVE, consistent with this session's standing 'reference wins over task-text paraphrase' precedent (T-026). (6) Boundary discrimination confirmed on BOTH sides for both sweeps via named fixtures (boundaryToday='sent' i.e. NOT expired; boundaryJustInside='quote_sent' i.e. NOT expired) - neither sweep merely proves old things expire. TEST-FIRST DEVIATION RULING: ACCEPTED as substitute evidence, consistent with the T-050 precedent, on the strength of the mutation proof reproduced above (equivalence ruling backed by a second confirming mutation, guard-removal mutants killed by assertions added specifically because they were missing, and independent evaluator reproduction of the load-bearing subset). GOVERNANCE RECOMMENDATION (for the human, this is the 4th disclosure of the same shape this session): document an explicit carve-out in CLAUDE.md rather than continue re-adjudicating case by case, with these conditions, ALL required: (a) the task has an existing reference implementation being ported/migrated - the carve-out does NOT apply to net-new business logic invented without an oracle; (b) the deviation is disclosed by the implementor at delivery time, not discovered by the evaluator; (c) mutation testing covers every predicate/branch in the linked acceptance criteria, with every restore verified byte-identical; (d) any mutant ruled equivalent is backed by a SECOND mutation proving the fixtures are not vacuously stale (the M3/M3c pattern here); (e) the evaluator independently reproduces the load-bearing mutants first-hand rather than accepting the report. Absent all five, the hard MUST stands and a red run must be observed. F-032-2 (alert refresh vs 15-minute convergence) is NOT closed and needs the human's ruling on whether to amend AC-066/V-083 to the measured bounded-convergence contract (recommended, mirroring AC-045/049/054/060) or scope T-034 to add an immediate-refresh seam; T-032 is NOT blocked on this answer either way, since the sweep-convergence behavior it ships is real, correctly disclosed, and independent of which wording the human prefers. Gates re-run serially, own suites: 9 files / 196 tests / 0 skipped, exit 0. typecheck exit 0."
+    },
+    {
+      "timestamp": "2026-07-20T15:00:00-04:00",
+      "event": "implemented",
+      "message": "T-032 IN_PROGRESS->IMPLEMENTED. Ported Hangfire Jobs 1-2 as state-guarded cron sweeps. Predicates ported from the .NET stores, not re-derived: quote = valid_until IS NOT NULL AND valid_until < today(UTC) AND canonical_key IN ('sent','revised') [reference includes Revised, contradicting the task scope - F-032-1]; lead = last_activity_at IS NOT NULL AND < (now - tenant days) AND reporting_category IN ('open','quoted') [category-keyed, opposite of the quote side]. Both transition ONLY through executeQuoteOperation/executeLeadOperation under the system actor, so legality/history/audit cannot be skipped; executeLeadOperation widened to LeadOperationName with a checked permission lookup. Registered both handlers in createJobRuntime (the composition root, since both are factories over DbClient); T-034 adds alert-evaluation there. Fixed a real gap the tests caught: cron:list never built a runtime and so reported every sweep as unregistered even in production. Added migration for the two pg_cron schedules ('0 * * * *' / '10 * * * *' UTC) invoking pg_net via public.invoke_cron_endpoint, reading base_url + cron_secret from a single-row public.job_cron_config populated out of band - no URL or secret committed, empty locally by design (Q-7), service-role only. GATES (serial, isolated): own suites 61 passed EXIT 0; typecheck EXIT 0 after the full suite; lint EXIT 0; db:types:check EXIT 0. Residue verified zero by direct query. MUTATION TESTING - 10 mutants, all restores hash-verified byte-identical: M1 valid_until '<'->'<=' KILLED (boundaryToday sent->expired); M2 drop 'revised' KILLED; M3 lead '<'->'<=' SURVIVED, ruled EQUIVALENT (differs only for a row equal to the threshold to microsecond precision), so M3c threshold shifted by 2 days KILLED (boundaryJustInside moved) proving the fixtures straddle the boundary; M4 remove lead category guard SURVIVED - NOT equivalent, it makes every closed lead a failed candidate forever, so a leadsFailed assertion was ADDED and M4 re-run KILLED; M5 remove quote status guard SURVIVED for the same reason, quotesFailed assertion ADDED and M5 re-run KILLED; M6 ignore tenant cascade rule KILLED; M7 disable other-open-quote guard KILLED; M8 as-of date +10y KILLED; M9 disable lead legality re-check SURVIVED in these suites (defence in depth behind the candidate query) and was PROVEN killed by lead-workflow.test.ts, which owns that guard; M10 remove the state guard on both layers KILLED THE RUN-TWICE TEST SPECIFICALLY, proving the idempotency assertion is load-bearing rather than vacuous. TEST-FIRST DEVIATION DISCLOSED: both integration suites and the unit suite were authored before the handlers existed, but were first EXECUTED after implementation, so no red run was observed; the mutation results above are offered as substitute discrimination evidence. Also disclosed: two cron-script/endpoint assertions were deliberately scoped to 'the registered handler ran' rather than 'the sweep succeeded', because those sweeps walk the whole estate and any concurrent suite holding an unprovisioned tenant makes a partial failure legitimate - sweep correctness is pinned against controlled fixtures instead. Sibling-artifact failures observed and NOT mine: quote-workflow and pgmq queue-drain tests fail only under concurrent execution and pass in isolation (77/77 and 18/18)."
+    }
+  ]
+}

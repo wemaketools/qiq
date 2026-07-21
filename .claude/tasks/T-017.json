@@ -1,0 +1,233 @@
+{
+  "id": "T-017",
+  "title": "User Manager backend: users, roles, groups, permissions, effective access, Supabase Auth Admin provisioning",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-016"
+  ],
+  "objective": "Port the full User Manager API surface: user CRUD/deactivate with Supabase Auth identity provisioning/linking/disable, role CRUD with usage visibility, group CRUD with member/role/permission subresources, permission catalog listing, and the effective-access view — per-tenant scoping throughout, all changes audited (P-03, section 12 User Manager).",
+  "scope": [
+    "Users: list/create/get/update, deactivate (not delete), tenant assignments (>=1 tenant unless Internal), direct role and permission assignment per tenant, group membership management, effective-access view endpoint",
+    "Roles: list/create/get/update, disable/delete with usage visibility endpoint (which users/groups reference the role)",
+    "Groups: list/create/get/update, disable/delete; subresources for members, roles, direct permissions",
+    "GET /api/v1/permissions (catalog)",
+    "Supabase Auth integration: creation provisions an auth user via the Admin API (email; password flow per reference behavior — invite/temporary password consistent with the .NET+Keycloak behavior adapted to GoTrue), links auth_user_id; deactivation disables the auth user (ban) so sign-in fails",
+    "Audit for every user/role/group/permission change (P-13)"
+  ],
+  "out_of_scope": [
+    "User Manager UI (exists; unchanged)",
+    "Effective-permission engine itself (T-012 — consumed here)",
+    "Password-reset UX (SPA + GoTrue, T-018)"
+  ],
+  "implementation_details": [
+    "Mirror the reference endpoint paths and DTOs from the .NET Users/Roles/Groups endpoint files exactly (A-3); user creation collects first name, last name, email (required).",
+    "Provisioning flow: create app users row + auth user atomically-as-practical — auth-side failure must roll back the app row (or compensate + surface error); duplicate-email handling per reference semantics.",
+    "Deactivate: is_active=false + Auth Admin ban/disable; reactivation path mirrors reference behavior; deactivated users rejected at T-011 middleware.",
+    "Role disable requires usage check surface (roles-in-use warning/blocking per reference behavior — verify implemented behavior and port it).",
+    "Per-tenant scoping: role/permission/group assignments carry tenant context; a user may differ per tenant (P-03).",
+    "Effective-access endpoint reuses computeEffectivePermissions (T-012) — no duplicate logic."
+  ],
+  "files": [
+    "src/server/domains/users/routes.ts",
+    "src/server/domains/users/service.ts",
+    "src/server/domains/users/repository.ts",
+    "src/server/domains/users/schemas.ts",
+    "src/server/domains/users/errors.ts",
+    "src/server/domains/users/auth-admin.ts",
+    "src/server/domains/users/index.ts",
+    "src/server/domains/rbac/admin-context.ts",
+    "src/server/domains/rbac/admin-repository.ts",
+    "src/server/domains/rbac/admin-errors.ts",
+    "src/server/domains/rbac/admin-schemas.ts",
+    "src/server/domains/rbac/admin-routes-support.ts",
+    "src/server/domains/rbac/roles.service.ts",
+    "src/server/domains/rbac/roles.routes.ts",
+    "src/server/domains/rbac/groups.service.ts",
+    "src/server/domains/rbac/groups.routes.ts",
+    "src/server/domains/rbac/permissions.routes.ts",
+    "src/server/domains/rbac/index.ts",
+    "src/server/lib/router/app.ts",
+    "api/v1/[[...segments]].ts",
+    "scripts/dev/serve-api.ts",
+    "src/server/tests/integration/users.test.ts",
+    "src/server/tests/integration/roles-groups.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new (effective-permission logic already unit-tested in T-012)"
+    ],
+    "integration": [
+      "User create provisions a local Supabase Auth user, links auth_user_id, and the new user can sign in; deactivate blocks sign-in and API access",
+      "Role/group CRUD + assignment matrix persists and feeds effective-access correctly (fixture-based expectations)",
+      "Normal user requires >=1 tenant; Internal user may have zero; per-tenant assignment isolation (role in tenant A grants nothing in tenant B)",
+      "Permission matrix per endpoint (403 without user-management permissions); all changes produce audit rows",
+      "Contract check against reference DTOs"
+    ],
+    "e2e": [
+      "User Manager spec + RBAC visibility spec adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-017",
+    "AC-024",
+    "AC-029",
+    "AC-030",
+    "AC-031"
+  ],
+  "verification_ids": [
+    "V-021",
+    "V-031",
+    "V-038",
+    "V-039",
+    "V-040",
+    "V-041"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-03, A-4 Admin API, section 12 User Manager, P-13 audit."
+    },
+    {
+      "timestamp": "2026-07-19T09:50:00-04:00",
+      "event": "implemented",
+      "message": "T-017 implemented: users/roles/groups/permissions/effective-access routes, Supabase Auth Admin provisioning with compensation, per-tenant assignment model, self-lockout and grant-no-higher-than-self guards, audit on every mutation. 44 tests added (938 total). All gates green. 9 mutants applied and killed."
+    },
+    {
+      "timestamp": "2026-07-20T11:15:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator verdict: PASS. Suites re-run alone: users.test.ts + roles-groups.test.ts + auth-wiring.test.ts = 58/58 EXIT=0; full-suite baseline green (938/938). Routes confirmed tenant-scoped (/users,/roles,/groups,/permissions absent from GLOBAL_ROUTE_PREFIXES) with requirePermission on every route and isReadAccessible/isWriteAccessible or requireVisibleUser on every by-id path; denial renders the uniform 404 (no cross-tenant existence oracle). FOUR of the implementor's 9 mutants re-run first-hand, each proven applied by grep before running: MUTANT-1 (requireVisibleUser confinement removed) KILLED by exactly 'confines list and by-id access to members of the ambient tenant (F-027)'; MUTANT-2 (callerHoldsInAllScopes=true) KILLED by exactly the 3 claimed tests across both suites; MUTANT-3 (grantApplies drops tenant scope) KILLED by exactly 'resolves per-tenant assignments independently: tenant A grants nothing in tenant B' — per-tenant scoping is real, not assumed; MUTANT-4 (requireWritableGroup drops isWriteAccessible) KILLED by 'confines every by-id group route to the ambient tenant'. TWO evaluator-original mutants also KILLED: E1 (user.updated audit write suppressed) killed by the PUT test — audit coverage is asserted beyond create; E2 (activate gate weakened users.deactivate->users.view) killed by the 403-matrix test, which pins the exact required permission string per route using a users.view-only caller. All mutants reverted; residue grep clean; suites re-green 58/58. FIVE FLAGGED DECISIONS RULED, all ACCEPTED: (1) GET /permissions from the seeded table gated on roles.view — the seeded table is what the FKs accept, and V-040 demands the seeded catalog exactly; (2) activate gated on users.deactivate — the catalog is fixed (P-03), users.activate does not exist, and adding a code would ripple through seed.sql/SPA mirror/drift guards; read as the user-lifecycle permission this is correct; (3) provisioning failure as 422 USER_AUTH_PROVISIONING_FAILED — verified problem.ts sanitizes every status >=500 (constant detail, code dropped), so a 5xx would violate AC-031's typed-error requirement; 422 for an upstream dependency is semantically imperfect but the right call inside this contract; (4) compensating deletion of the orphaned auth identity — a deliberate improvement over the reference's accepted orphan, required in spirit by AC-031 ('no half-created app user') since an orphan makes the address permanently un-creatable; covered by the compensation test; (5) one userManager buildApp slot — cohesion decision, wiring pinned for both composition roots by auth-wiring tests. Security: auth-admin.ts is the sole service-role touchpoint, key read only via config module; initial password random, never returned/logged; create-path auth error message deliberately not propagated (email echo); built SPA bundle scanned first-hand — zero occurrences of any server-only literal or the service-role JWT payload. Residual obligation: V-039 e2e user-manager spec belongs to T-043."
+    },
+    {
+      "timestamp": "2026-07-19T20:20:00-04:00",
+      "event": "record_migrated",
+      "message": "Schema conformance (CLAUDE.md: all generated JSON must conform to .claude/schemas/). These blocks were written by the implementor/evaluator as TOP-LEVEL keys the task schema does not allow. They are substantive audit records, so they are PRESERVED VERBATIM here rather than deleted. Moved: implementation_notes, test_results.",
+      "migrated_top_level": {
+        "implementation_notes": {
+          "routes_ported": [
+            "GET/POST /api/v1/users, GET/PUT /users/{id}, POST /users/{id}/deactivate, GET /users/{id}/effective-access (UserEndpoints.cs:30-35, permission for permission)",
+            "GET/POST /api/v1/roles, GET/PUT /roles/{id}, POST /roles/{id}/disable, GET /roles/{id}/usage (RoleEndpoints.cs:22-27)",
+            "GET/POST /api/v1/groups, GET/PUT /groups/{id}, POST /groups/{id}/disable, POST /groups/{id}/members, POST /groups/{id}/members/{userId}/remove, POST /groups/{id}/roles, POST /groups/{id}/permissions (GroupEndpoints.cs:31-39)",
+            "GET /api/v1/permissions (NEW: no .NET reference route; spec s375 + AC-030)",
+            "POST /api/v1/users/{id}/activate (NEW: no .NET reference route; AC-029 + V-038 require reactivation)"
+          ],
+          "measured_semantics": [
+            "duplicate user email -> 422 USER_EMAIL_DUPLICATE (UserEndpoints.cs:113), NOT 409",
+            "already inactive -> 409 (UserEndpoints.cs:111) while its 422 siblings are unprocessable",
+            "role/group duplicate name -> 422 (RoleEndpoints.cs:80, GroupEndpoints.cs:114), NOT 409",
+            "group already-member / not-member -> 422 (GroupEndpoints.cs:114-115), NOT 409",
+            "roles/groups mappers attach a `code` extension and render detail as 'CODE: message'; the tenants mapper does not. Both preserved as-is.",
+            "empty-body 200 on deactivate/activate/disable/member/roles/permissions (Results.Ok())"
+          ],
+          "decisions_without_reference": [
+            "GET /permissions gated on roles.view; reads the SEEDED permissions table rather than the TS catalog constant so offered codes are exactly the codes the FKs accept.",
+            "POST /users/{id}/activate gated on users.deactivate: the permission catalog is FIXED (P-03) and has no users.activate code; adding one would change seed.sql, the SPA mirror and the drift guards.",
+            "Auth provisioning failure maps to 422 USER_AUTH_PROVISIONING_FAILED, not 5xx: lib/errors/problem.ts sanitizes every status >= 500 (detail replaced, code dropped), which would violate AC-031's 'typed error'.",
+            "Provisioning COMPENSATES on app-side failure (deletes the auth identity), improving on the reference's accepted-orphan behaviour, because an orphan makes the address permanently un-creatable.",
+            "Initial password is server-generated, random, never returned or logged; the user reaches the account via the best-effort recovery link (emailSent), mirroring the Keycloak reset-password email.",
+            "One buildApp slot (`userManager`) registers all four routers rather than four slots: they are one feature."
+          ],
+          "unmapped_dotnet_behavior": [
+            "IKeycloakAdminService.SendResetPasswordEmailAsync has no exact GoTrue analogue; ported as auth.admin.generateLink({type:'recovery'}) with the same best-effort/emailSent semantics.",
+            "Keycloak 'enabled' flag has no GoTrue equivalent; disable is implemented as an indefinite ban (ban_duration), which refuses sign-in as AC-029 requires."
+          ]
+        },
+        "test_results": {
+          "commands": [
+            {
+              "command": "npm test",
+              "exit_code": 0,
+              "result": "938 passed / 938 (58 files) on a clean run"
+            },
+            {
+              "command": "npm run typecheck",
+              "exit_code": 0
+            },
+            {
+              "command": "npm run lint",
+              "exit_code": 0
+            },
+            {
+              "command": "npm run db:types:check",
+              "exit_code": 0
+            },
+            {
+              "command": "npm run db:validate",
+              "exit_code": 0
+            },
+            {
+              "command": "npx vitest run users.test.ts roles-groups.test.ts auth-wiring.test.ts",
+              "exit_code": 0,
+              "result": "58 passed"
+            }
+          ],
+          "tests_added": 44,
+          "total_backend_tests": 938,
+          "min_tests_floor_note": "package.json --min-tests left at 880 deliberately (T-014/T-018 concurrent); orchestrator to set the floor once.",
+          "flaky_observed": "db-types-drift.test.ts failed on two intermediate full runs while a concurrent agent regenerated src/server/lib/db/generated/*; unrelated to T-017 and green on a clean run.",
+          "mutation_testing": [
+            {
+              "id": "MUTANT-1",
+              "target": "users/service.ts requireVisibleUser tenant confinement removed",
+              "applied_verified": true,
+              "killed_by": "users.test.ts > confines list and by-id access to members of the ambient tenant (F-027)"
+            },
+            {
+              "id": "MUTANT-2",
+              "target": "rbac/admin-context.ts callerHoldsInAllScopes always true",
+              "applied_verified": true,
+              "killed_by": "3 tests: users grant-no-higher-than-self, roles F-034, groups ceiling"
+            },
+            {
+              "id": "MUTANT-3",
+              "target": "rbac/effective-permissions.ts grantApplies drops the tenant scope predicate",
+              "applied_verified": true,
+              "killed_by": "users.test.ts > resolves per-tenant assignments independently"
+            },
+            {
+              "id": "MUTANT-4",
+              "target": "groups.service.ts requireWritableGroup drops isWriteAccessible",
+              "applied_verified": true,
+              "killed_by": "roles-groups.test.ts > confines every by-id group route to the ambient tenant"
+            },
+            {
+              "id": "MUTANT-5",
+              "target": "users/service.ts deactivate skips authAdmin.setDisabled",
+              "applied_verified": true,
+              "killed_by": "users.test.ts > deactivates without deleting (V-038)"
+            },
+            {
+              "id": "MUTANT-6",
+              "target": "users/service.ts creation compensation (authAdmin.deleteUser) removed",
+              "applied_verified": true,
+              "killed_by": "users.test.ts > compensates a post-provisioning database failure"
+            },
+            {
+              "id": "MUTANT-7",
+              "target": "roles.service.ts role.disabled audit write suppressed",
+              "applied_verified": true,
+              "killed_by": "roles-groups.test.ts > lists assigned users and groups before disable"
+            },
+            {
+              "id": "MUTANT-8a",
+              "target": "api/v1/[[...segments]].ts userManager wiring line deleted",
+              "applied_verified": true,
+              "killed_by": "auth-wiring.test.ts > api/v1/[[...segments]].ts passes user-manager deps"
+            },
+            {
+              "id": "MUTANT-8b",
+              "target": "scripts/dev/serve-api.ts userManager wiring line deleted",
+              "applied_verified": true,
+              "killed_by": "auth-wiring.test.ts > scripts/dev/serve-api.ts passes user-manager deps"
+            }
+          ],
+          "mutation_summary": "9/9 mutants applied (verified by re-reading the file) and 9/9 killed; every file restored byte-identical afterwards."
+        }
+      }
+    }
+  ]
+}

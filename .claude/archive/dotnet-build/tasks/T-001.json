@@ -1,0 +1,93 @@
+{
+  "id": "T-001",
+  "title": "Solution, frontend, e2e, and local-infrastructure scaffold",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": [],
+  "objective": "Bootstrap the repository so every later task has a building, testable skeleton: .NET 10 solution, React SPA, Playwright project, and local docker-compose infrastructure (PostgreSQL, Keycloak, Vault, MinIO).",
+  "scope": [
+    "Create src/api solution with projects QuoteIQ.Api, QuoteIQ.Application, QuoteIQ.Domain, QuoteIQ.Infrastructure (file-scoped namespaces, nullable enabled) and xUnit test projects under src/api/tests: QuoteIQ.Api.Tests, QuoteIQ.Application.Tests, QuoteIQ.Domain.Tests, QuoteIQ.Infrastructure.Tests",
+    "Wire Serilog at host level, Cortex.Mediator registration in Application DI extension (AddApplication), Infrastructure DI extension (AddInfrastructure)",
+    "Health endpoint GET /health (anonymous) as first minimal-API endpoint mapping pattern under Api/Endpoints",
+    "Create src/ui Vite React 18 + TypeScript strict app with Redux Toolkit store skeleton and npm scripts: dev, build, typecheck (tsc --noEmit), test",
+    "Create e2e_tests Playwright TypeScript project with config pointing at local app URL and one smoke spec (health/login page reachable)",
+    "Create docker-compose.yml at repo root with services: postgres:17, keycloak:26, hashicorp/vault (dev mode), minio; named volumes; healthchecks",
+    "Create Liquibase wiring: src/api/db/changelog/db.changelog-master.xml plus liquibase.properties template and a compose 'liquibase' one-shot service (or documented CLI command) that applies the changelog",
+    "README.dev.md documenting: compose up, liquibase update, dotnet run, npm dev, test commands"
+  ],
+  "out_of_scope": [
+    "Any business tables, entities, or endpoints beyond /health",
+    "Vault secret reading (T-002), Keycloak realm content (T-004)"
+  ],
+  "implementation_details": [
+    "Solution file src/api/QuoteIQ.sln; project references: Api -> Application + Infrastructure; Infrastructure -> Application + Domain; Application -> Domain",
+    "QuoteIQ.Api/Program.cs: WebApplicationBuilder with Serilog (ReadFrom.Configuration), AddApplication(), AddInfrastructure(configuration), MapEndpoints() convention that discovers IEndpoint implementations (simple static registration list, no reflection magic)",
+    "Api/Endpoints/HealthEndpoint.cs maps GET /health returning { status: \"ok\" }",
+    "Directory.Build.props under src/api setting TargetFramework net10.0, Nullable enable, TreatWarningsAsErrors true, LangVersion latest",
+    "NuGet baseline: Cortex.Mediator, Serilog.AspNetCore, Npgsql.EntityFrameworkCore.PostgreSQL (referenced now, used from T-003), FluentValidation",
+    "src/ui: Vite react-ts template; eslint + prettier config; tsconfig strict true, noUncheckedIndexedAccess true; folder layout src/app (store), src/api (client placeholder), src/features, src/components, src/theme",
+    "e2e_tests: @playwright/test, playwright.config.ts with baseURL http://localhost:5173, webServer entries commented until app runs; smoke.spec.ts asserting the dev server serves the app shell",
+    "docker-compose.yml ports: postgres 5432, keycloak 8080, vault 8200, minio 9000/9001; postgres init creates database quoteiq; minio entrypoint creates bucket quoteiq-attachments via mc in a sidecar init container",
+    "Liquibase master changelog includes an empty 000-baseline changeset so 'liquibase update' succeeds on the empty database"
+  ],
+  "files": [
+    "src/api/QuoteIQ.slnx",
+    "src/api/QuoteIQ.Api/Program.cs",
+    "src/api/QuoteIQ.Api/Endpoints/HealthEndpoint.cs",
+    "src/api/QuoteIQ.Application/DependencyInjection.cs",
+    "src/api/QuoteIQ.Infrastructure/DependencyInjection.cs",
+    "src/api/Directory.Build.props",
+    "src/api/db/changelog/db.changelog-master.xml",
+    "src/api/tests/QuoteIQ.Api.Tests/HealthEndpointTests.cs",
+    "src/ui/package.json",
+    "src/ui/tsconfig.json",
+    "src/ui/src/app/store.ts",
+    "e2e_tests/playwright.config.ts",
+    "e2e_tests/tests/smoke.spec.ts",
+    "docker-compose.yml",
+    "README.dev.md"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "HealthEndpoint_WhenCalled_ShouldReturnOk via WebApplicationFactory",
+      "Solution builds and dotnet test passes across all four test projects",
+      "Liquibase update applies cleanly against compose postgres (empty baseline)"
+    ],
+    "e2e": [
+      "smoke.spec.ts: dev server serves the SPA root"
+    ]
+  },
+  "acceptance_ids": ["AC-073"],
+  "verification_ids": ["V-073"],
+  "findings": [
+    {
+      "id": "F-001",
+      "severity": "medium",
+      "status": "resolved",
+      "resolved_in_iteration": 2,
+      "iteration": 1,
+      "summary": "Keycloak healthcheck in docker-compose.yml can never succeed",
+      "detail": "docker-compose.yml keycloak healthcheck probes localhost:8080/health/ready, but keycloak:26 disables health endpoints unless KC_HEALTH_ENABLED=true and serves them on the management interface port 9000, not 8080. Container stays permanently unhealthy/starting; any future depends_on condition service_healthy (T-004) would hang. Fix: add KC_HEALTH_ENABLED true to keycloak environment and probe management port 9000 /health/ready (e.g., bash /dev/tcp probe), or use a plain TCP-connect check on 8080. CONFIRMED LIVE by infra evaluator: 8080/health/ready returns 404, port 9000 refuses connections (management interface not started), container ends 'running (unhealthy)' after start_period+retries. Fix alongside: Keycloak 26 logs deprecation warning for KEYCLOAK_ADMIN/KEYCLOAK_ADMIN_PASSWORD; rename to KC_BOOTSTRAP_ADMIN_USERNAME/KC_BOOTSTRAP_ADMIN_PASSWORD."
+    },
+    {
+      "id": "F-002",
+      "severity": "low",
+      "status": "resolved",
+      "resolved_in_iteration": 2,
+      "iteration": 1,
+      "summary": "No dev-only warning comment on hardcoded compose credentials",
+      "detail": "docker-compose.yml contains local dev credentials (quoteiq/quoteiq, admin/admin, quoteiq-dev-root, quoteiq123) without a local-dev-only warning comment. CLAUDE.md permits local-dev secrets only with warnings. Fix: add a warning comment in docker-compose.yml."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (§8, §18)" },
+    { "timestamp": "2026-07-11T12:00:00-04:00", "event": "task_started", "message": "Marked IN_PROGRESS; delegated to Implementor (iteration 1)" },
+    { "timestamp": "2026-07-11T12:17:00-04:00", "event": "implementation_written", "message": "Implementor completed scaffold: QuoteIQ.slnx (.NET 10 slnx format), 4 projects + 4 xUnit test projects, /health endpoint (2/2 integration tests pass via WebApplicationFactory), Vite React 18.3 + TS strict + Redux Toolkit (3/3 Vitest tests, typecheck clean), Playwright smoke 1/1 pass, docker-compose.yml (config-validated), Liquibase baseline changelog, README.dev.md. Deviations: .slnx instead of .sln (SDK default), vitest ^4 (CVE fixes), eslint+prettier replacing oxlint. NOT verified: live compose up + liquibase update (Docker daemon unresponsive at time of run)." },
+    { "timestamp": "2026-07-11T12:40:00-04:00", "event": "evaluator_result", "message": "Evaluator (code audit) verdict FAIL -> NEEDS_FIXES, iteration 1. All runnable checks green as re-run by evaluator: backend 2/2 (run twice), Vitest 3/3 (incl. shuffled), typecheck clean, lint clean, Playwright 1/1, compose config valid. Scope, conventions, test quality, security basics confirmed. All 4 deviations assessed acceptable; files list updated to QuoteIQ.slnx. Findings recorded: F-001 (medium, keycloak healthcheck wrong port/disabled), F-002 (low, missing dev-creds warning comment). Live infra verification running separately now that Docker is fixed." },
+    { "timestamp": "2026-07-11T12:50:00-04:00", "event": "evaluator_result", "message": "Live infra evaluator (post Docker fix): compose up verified live - postgres/vault/minio healthy, minio-init created quoteiq-attachments bucket, Vault 1.18.5 unsealed, Keycloak 26.0.8 serving 8080 (root 302, admin console 200); liquibase one-shot applied 000-baseline (DATABASECHANGELOG row confirmed via psql); README.dev.md commands accurate verbatim; teardown clean, volumes preserved. FAIL only on keycloak healthcheck - confirms F-001 live. Advisory folded into F-001: KEYCLOAK_ADMIN env vars deprecated in KC26." },
+    { "timestamp": "2026-07-11T12:58:00-04:00", "event": "implementation_written", "message": "Fix iteration 2 applied to docker-compose.yml only: F-001 (KC_HEALTH_ENABLED true, healthcheck moved to management port 9000 /health/ready, 9000 not published to host, KEYCLOAK_ADMIN vars renamed to KC_BOOTSTRAP_ADMIN_*) and F-002 (top-of-file local-dev-only credentials warning). Implementor live-verified: compose config valid, all four services healthy at ~20s, 8080 root 302 to /admin/, smallrye-health installed, no ERROR logs, teardown preserved volumes. README.dev.md unchanged (still accurate). Status EVALUATING; re-evaluation launched." },
+    { "timestamp": "2026-07-11T13:05:00-04:00", "event": "task_passed", "message": "Iteration-2 evaluator verdict PASS. F-001 and F-002 confirmed resolved (compose reviewed + live re-verify: all four services healthy in ~10s, 8080 302 to /admin/, teardown clean, volumes preserved). Backend regression gate green (2/2). README.dev.md still accurate. No new findings. AC-073/V-073 satisfied. Task marked PASS." }
+  ]
+}

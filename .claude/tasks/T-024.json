@@ -1,0 +1,173 @@
+{
+  "id": "T-024",
+  "title": "Leads backend core: create/list/get/update, tenant-formatted refs, duplicate checks, bulk reassign, breadth permissions",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-023",
+    "T-020",
+    "T-021"
+  ],
+  "objective": "Port the lead intake/edit and list/detail core: full-field New/Edit Lead per the implemented spec, system-generated tenant-formatted lead refs via transactional per-tenant/year sequences, non-blocking duplicate warnings, permission-bound bulk reassign with mandatory audit note, and visibility-breadth (view_all vs own) enforcement in query filters (P-06, P-08 core).",
+  "scope": [
+    "POST /api/v1/leads (full validation catalog: party picker/inline new party, existing/new client, date received not future, channel with broker requirement, owner defaulting via rm slot, region defaulting from party, external ref uniqueness warning, product line -> cover type dependency, premium > 0 when provided, policy term incl. Other free-text required, derived-High priority, intake notes as first activity)",
+    "GET /api/v1/leads (implemented columns/filters/sort/paging/search, My-leads toggle honoring breadth permissions, aging/flag indicators data), GET /{id}, PUT /{id} (draft-editable fields per reference)",
+    "Lead ref generation: tenant format template + per-tenant/year reference_sequences allocation via SELECT ... FOR UPDATE inside the create transaction (pooler-safe)",
+    "POST /api/v1/leads/bulk-reassign (permission-bound, mandatory note, audited)",
+    "Status always New on creation; duplicate-lead warning non-blocking"
+  ],
+  "out_of_scope": [
+    "Workflow operations + status history (T-025)",
+    "Quotes (T-026)",
+    "Timeline endpoint (T-029)",
+    "Intake API endpoint (T-030)",
+    "CSV/Excel export (T-039)"
+  ],
+  "implementation_details": [
+    "Port the FluentValidation lead validators to zod verbatim (section 14 catalog); warnings for duplicates/external-ref via the preserved warnings payload with proceed semantics.",
+    "Ref generator: shared format-token module with T-020; sequence allocation SQL identical to the reference (single-transaction FOR UPDATE — R-3 compatible).",
+    "Breadth enforcement: leads.view_all-style permission decides whether list/detail queries filter to owned/assigned leads — implemented in the repository query, not post-filtering (P-03/P-08).",
+    "Owner defaulting: rm-slot role holders per T-020 assignments; region defaults from party when absent; priority derived High per high-value threshold business rule.",
+    "Bulk reassign: validates target assignee eligibility (rm-slot role), writes per-lead assignment change + one audit entry with the mandatory note per reference shape.",
+    "last_activity_at stamped on create and mutations (feeds inactivity job)."
+  ],
+  "files": [
+    "src/server/domains/leads/routes.ts",
+    "src/server/domains/leads/service.ts",
+    "src/server/domains/leads/repository.ts",
+    "src/server/domains/leads/schemas.ts",
+    "src/server/domains/leads/lead-ref.ts",
+    "src/server/tests/unit/lead-ref.test.ts",
+    "src/server/tests/integration/leads-core.test.ts",
+    "src/server/tests/integration/leads-list.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Lead-ref format generation across templates/years; priority derivation from threshold; duplicate normalization"
+    ],
+    "integration": [
+      "Create: full validation catalog (each rule 422 with reference code); ref uniqueness under parallel creates (sequence transaction); status New; intake note becomes first activity",
+      "List: columns/filters/sort/paging/search parity; My-leads + breadth permission matrix (view_all sees all, restricted sees own/assigned only)",
+      "Bulk reassign: permission-bound, mandatory note enforced, audit written, assignments updated",
+      "Tenant isolation per endpoint; cross-tenant lead id 404"
+    ],
+    "e2e": [
+      "Lead intake + leads list specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-021",
+    "AC-022",
+    "AC-024",
+    "AC-042",
+    "AC-043",
+    "AC-044",
+    "AC-045",
+    "AC-046"
+  ],
+  "verification_ids": [
+    "V-026",
+    "V-027",
+    "V-031",
+    "V-055",
+    "V-056",
+    "V-057",
+    "V-058",
+    "V-059"
+  ],
+  "findings": [
+    {
+      "id": "T-024-F1",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "RATIFIED 2026-07-19. Verified in the reference source first-hand: CreateLeadCommandHandler returns CreateLeadOutcomeDto.RequiresConfirmationFor BEFORE the transaction with nothing persisted, LeadEndpoints renders requiresConfirmation as Results.Json(..., 409), and createAnyway bypasses the gate. The measured reference wins over the task brief. Both behaviours (confirm-gate persists nothing; external-ref warning's row physically persists, on create AND edit) verified present in leads-core.test.ts:999-1123 and green.",
+      "title": "Task file contradicts the reference: duplicate-lead check is CONFIRM-GATED, not non-blocking",
+      "detail": "Task brief and implementation_details describe the duplicate-lead warning as non-blocking ('write and audit FIRST, search AFTER'). MEASURED: CreateLeadCommandHandler.cs:184-193 runs the duplicate check BEFORE the transaction and returns CreateLeadOutcomeDto.RequiresConfirmationFor with lead=null and nothing persisted; LeadEndpoints.cs:85-88 renders that as 409. The caller re-submits with createAnyway:true. AC-044's 'while still allowing creation to proceed' is satisfied by those proceed semantics. The genuinely non-blocking warnings are DUPLICATE_EXTERNAL_REF and DUPLICATE_PARTY_NAME, which ARE searched after the write. Implemented per the reference; both behaviours are tested, including that the confirm-gate persists nothing and that the external-ref warning's row physically persists.",
+      "summary": "Task file contradicts the reference:"
+    },
+    {
+      "id": "T-024-F2",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "RATIFIED 2026-07-19. Verified first-hand: CreateLeadValidator requires OwnerUserId NotNull (except LeadSource.Api submissions, a T-030 concern) and RegionId > 0; no handler derives either. The client-side region pre-fill exists exactly where claimed (LeadFormPage.tsx applyPartyDefaults). Implementing both as required with no server-side defaulting is correct. NOTE FOR THE HUMAN alongside F4: AC-042/V-055 also carry the false-premise clauses ('region defaults from party; owner defaulting applies' / 'assert stored values') and should be amended in the same pass as AC-045/V-058.",
+      "title": "Task file contradicts the reference: there is no server-side region or owner defaulting",
+      "detail": "Task scope lists 'owner defaulting via rm slot' and 'region defaulting from party'. MEASURED: CreateLeadValidator.cs:39-47 REQUIRES both ownerUserId and regionId (>0) and the handler never derives either. Region defaulting is CLIENT-side only (src/ui/src/features/leads/LeadFormPage.tsx:306 pre-fills regionId from the selected party when blank). Implemented per the reference: both fields required, no server-side defaulting. Flagged rather than invented.",
+      "summary": "Task file contradicts the reference:"
+    },
+    {
+      "id": "T-024-F3",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "RATIFIED 2026-07-19. Verified first-hand: LeadStore.FindOpenDuplicatesAsync is party_id + product_line_id + date window + open/quoted reporting categories, tenant-scoped, no name matching. Name normalization belongs to the party rule (T-023). Covering the lead rule at the integration level, where it is falsifiable, is the right call; no unit test for a rule that does not exist.",
+      "title": "Task file contradicts the reference: duplicate detection uses no name normalization",
+      "detail": "test_plan.unit asks for 'duplicate normalization'. MEASURED: the duplicate-LEAD rule is LeadStore.FindOpenDuplicatesAsync (:96-114) = same party_id + product_line_id + date_received within tenant duplicate_check_days + status reporting_category in (open,quoted). No names are involved. Name normalization/trigram similarity belongs to the PARTY duplicate rule (T-023). No such unit test was written; the lead rule is covered by integration tests instead, which is the level at which it is falsifiable.",
+      "summary": "Task file contradicts the reference:"
+    },
+    {
+      "id": "T-024-F4",
+      "severity": "major",
+      "status": "resolved",
+      "evaluator_ruling": "VERIFIED, NOT CLOSED — remains ESCALATED TO THE HUMAN. The evaluator independently confirmed every load-bearing claim in the reference source: GetLeadQueryHandler.Handle calls only LeadStore.FindAsync, whose sole predicate is 'l.TenantId == tenantId && l.Id == id' (LeadStore.cs:49-52); the permission resolver is consulted in that handler ONLY to compute availableOperations, never to filter; ListLeadsQueryHandler alone resolves leads.view_all into the query filter. So the preserved contract for the detail GET is 200 within the tenant, and AC-045's '404/403 per the preserved contract' clause rests on a false premise. CONFIRMED this is breadth-WITHIN-tenant, not a tenant-isolation hole: the tenant predicate always applies, cross-tenant ids 404 identically to nonexistent ones (tested), and AC-021/AC-022 are fully satisfied. TECHNICAL RECOMMENDATION: option (a) — amend AC-045/V-058 (and the AC-042/V-055 defaulting clauses per F2) to match the preserved contract. Rationale: (i) the migration's stated goal is behaviour preservation, and the implementation matches the measured reference exactly; (ii) the surfaces that link to leads by id (dashboards drill, alerts, search, party leads card) are not breadth-filtered in the reference either, so tightening only the detail GET buys little real confidentiality — a restricted user still learns of leads through those surfaces — while 404ing links those surfaces legitimately produce; (iii) numeric sequential ids do make the open detail GET enumerable by a leads.view holder, so IF the business wants breadth to be a confidentiality boundary rather than a workload-scoping convenience, it must be applied consistently across detail GET, timeline (T-029), drill (T-035+), search, export (T-039) and the party leads card in ONE coordinated decision — that is a product change, not a T-024 bug, and piecemeal tightening here would produce an inconsistent and broken UX. If the human instead chooses option (b), the change is localised to getLeadById in service.ts plus one 404 test, as the implementor stated.",
+      "title": "OPEN DECISION for evaluator: GET /leads/{id} is NOT breadth-filtered in the reference",
+      "detail": "AC-045/V-058 say 'Direct GET of a lead outside the restricted caller's breadth -> 404/403 per the preserved contract'. MEASURED: GetLeadQueryHandler.cs:52-56 applies ONLY the tenant predicate via LeadStore.FindAsync; it does not consult leads.view_all or lead_assignments at all, so in the reference a leads.view holder CAN fetch any lead in their tenant by id. Only the LIST query applies breadth (ListLeadsQueryHandler.cs:28-35). Implemented AS MEASURED (detail GET returns 200) rather than silently tightening, because tightening would 404 leads that legitimately reach users via dashboards, alerts, search and party leads cards, all of which link by id. This is a genuine spec-vs-reference conflict with a security dimension: REQUESTING AN EVALUATOR RULING. If the ruling is to tighten, the change is localised to getLeadById in service.ts plus a breadth check, and a test should be added asserting 404 for an out-of-breadth id.",
+      "resolution": "Escalated to the human by the orchestrator and RULED 2026-07-19: amend the acceptance criteria to the preserved contract (option a, the evaluator's recommendation). AC-045 now states breadth is a LIST-query filter only and an out-of-breadth detail GET returns 200; V-058's negative test is inverted accordingly and now pins the behaviour FROM BOTH DIRECTIONS, plus a cross-tenant 404 case so tenant isolation - which IS the real confidentiality boundary - stays covered. AC-042/V-055 amended for the same false-premise class: owner and region are caller-required, not server-defaulted. NO CODE CHANGE; T-024 stands as implemented. The evaluator's caution is recorded for the record: if breadth ever should become a confidentiality boundary, it must be applied in ONE coordinated decision across detail, timeline, drill, search, export and the party leads card, since all of them surface the same leads by id.",
+      "summary": "OPEN DECISION for evaluator:"
+    },
+    {
+      "id": "T-024-F5",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "RATIFIED 2026-07-19: emitting [] until T-025's legality matrix is correct. HOWEVER the empty value is NOT pinned by any test (unlike flags — see F6): the evaluator grepped both leads suites and availableOperations appears only in the response-shape interface. Recorded as new finding T-024-F8.",
+      "title": "availableOperations is intentionally empty until T-025",
+      "detail": "LeadDto.availableOperations is emitted as [] by this task. The legality matrix (LeadWorkflow.GetLegalOperations intersected with caller permissions, LeadDto.cs:61-66) is T-025's workflow scope. Emitting a guessed list would tell the SPA's 'More actions' menu to offer operations this task cannot honour. T-025 must populate it.",
+      "summary": "availableOperations is intentionally empty until T-025"
+    },
+    {
+      "id": "T-024-F6",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "RATIFIED 2026-07-19. The pin exists and was read by the evaluator: leads-list.test.ts:852 asserts flags toStrictEqual([]) inside the projection test, so T-031 must change a test deliberately when it populates the chips.",
+      "title": "List row flags is empty pending T-031 alerts",
+      "detail": "LeadListItemDto.flags is [] here, matching the reference's own comment (LeadDto.cs:150-152) that Escalated/SLA/Expiring/High-value chips are computed from alert-evaluation data owned by another task. Pinned by a test so a later task must fill it deliberately.",
+      "summary": "List row flags is empty pending T-031 alerts"
+    },
+    {
+      "id": "T-024-F7",
+      "severity": "minor",
+      "status": "resolved",
+      "evaluator_ruling": "CONFIRMED FIRST-HAND 2026-07-19 and ruled to need its OWN SMALL TASK (orchestrator to schedule; out of T-024 scope, correctly not fixed here). lib/validation's EXPLICIT_CODE is /^([A-Z][A-Z0-9_]*)\\|/, so the mixed-case FluentValidation-style prefixes verifiably present in brokers/schemas.ts, assignments/schemas.ts, api-access/schemas.ts:45 and business-rules/schemas.ts fall through: the code is DERIVED (which may or may not coincide with the intended prefix) and the literal 'NotNullValidator|' text leaks into the human-readable message the SPA displays. Cosmetic but repo-wide and user-visible. Follow-up task should either widen EXPLICIT_CODE to any pipe-prefixed token or restyle the sibling messages to SCREAMING_SNAKE codes, and add one regression test per affected domain asserting the rendered message carries no pipe prefix.",
+      "title": "Validation codes use SCREAMING_SNAKE explicit codes; sibling domains may leak a prefix",
+      "detail": "lib/validation/index.ts only recognises an explicit per-rule code when the message matches its EXPLICIT_CODE regex (leading capital, then capitals/digits/underscores, then a pipe). Mixed-case prefixes used elsewhere in the repo (e.g. 'NotNullValidator|...' in assignments/schemas.ts) do NOT match, so they fall through to the derived code AND leak the prefix text into the human-readable message. This domain therefore uses LEAD_* SCREAMING_SNAKE codes throughout, matching the validation module's own documented example (LEAD_DATE_RECEIVED_FUTURE). The sibling domains that use mixed-case prefixes look like a latent cosmetic defect -- REPORTED, deliberately NOT changed here (out of scope).",
+      "summary": "Validation codes use SCREAMING_SNAKE explicit codes;"
+    },
+    {
+      "id": "T-024-F8",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "status": "open",
+      "title": "availableOperations: [] is emitted but pinned by NO test",
+      "detail": "The detail projection emits availableOperations: [] (service.ts projectLeadDetail) pending T-025's legality matrix, and F5 relies on 'T-025 must populate it' — but unlike flags (pinned at leads-list.test.ts:852), no test asserts the empty value. Grep of both leads suites finds availableOperations only in the LeadDto test interface. The guard that forces T-025 to fill it DELIBERATELY (by changing a red test rather than silently) therefore does not exist. NON-BLOCKING one-line fix: add expect(body.availableOperations).toStrictEqual([]) to the 'returns the full detail projection' test (leads-core.test.ts:1126-1140), either as a quick T-024 touch-up or folded into T-025's brief as its starting red test.",
+      "created_at": "2026-07-19T15:45:00-04:00",
+      "summary": "availableOperations:"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-06, P-08 (list core), section 14 validation catalog, A-12 sequences."
+    },
+    {
+      "timestamp": "2026-07-19T14:45:00-04:00",
+      "event": "implemented",
+      "message": "Implemented the leads core against the .NET reference (CreateLead/GetLead/UpdateLead/ListLeads/BulkReassign handlers, LeadStore, ReferenceSequenceService, LeadEndpoints). Files added: src/server/domains/leads/{schemas,errors,lead-ref,repository,service,routes,index}.ts. Tests added: src/server/tests/unit/lead-ref.test.ts (14), tests/integration/leads-core.test.ts (71), tests/integration/leads-list.test.ts (46). Shared files touched: lib/router/app.ts (leads slot), api/v1/[[...segments]].ts + scripts/dev/serve-api.ts (composition roots), tests/integration/auth-wiring.test.ts (wiring pin, proven falsifiable per root), domains/parties/schemas.ts (LeadListItemDto/LeadAssigneeDto now re-exported from the canonical leads definition instead of duplicated). Gates: own suites 131 passed in isolation; parties+auth-wiring regression 229 passed; cross-cutting sweeps 138 passed; typecheck 0; lint 0; db:types:check no drift. Residue verified zero (tenants/leads/assignments/audit/reference_sequences). Test-first observed: unit suite run RED (module not found) before implementation. MUTATION TESTING (6 mutants, each proven applied, all restored byte-identical and re-verified green): M1 breadth predicate deleted from listLeads (line delta 960->952) KILLED 5 tests; M2 'for update' removed from allocateReferenceSequence (SQL-line grep 1->0, sha delta) KILLED the 20-parallel-create ref-uniqueness test; M3 duplicate-lead confirm-gate made non-blocking (requiresConfirmation:true 1->0) KILLED the 409 test; M4 cover-type/product-line dependency dropped (grep 1->0) KILLED the dependency test; M5 policy-term-other term-conditional clear removed SURVIVED initially -- investigated rather than accepted, found NOT equivalent (zod .trim() turns whitespace-only text into an empty string, which the schema rule permits, so the mutant persists '' where null belongs), added the whitespace test which KILLS it; M6 tenant predicate dropped from the brokers LEFT JOIN SURVIVED initially -- refuted by seeding convention-violating state the schema permits (leads.broker_id has NO physical FK), i.e. a tenant-C lead naming a tenant-A broker, which made the leak observable and KILLS it."
+    },
+    {
+      "timestamp": "2026-07-19T15:45:00-04:00",
+      "event": "evaluated",
+      "message": "VERDICT: PASS (iteration 0), with T-024-F4 explicitly carved out as an OPEN acceptance-criterion defect escalated to the human — the PASS covers the implementation against the measured preserved contract; the AC-045 direct-GET clause is unverifiable as written and awaits the human's amend-or-tighten ruling (technical recommendation recorded on F4: amend). RULINGS: F1/F2/F3 (task-file contradictions) each verified in the reference source first-hand and RATIFIED toward the measured behaviour — duplicate-lead is confirm-gated 409 with nothing persisted and createAnyway proceed semantics; DUPLICATE_EXTERNAL_REF and DUPLICATE_PARTY_NAME are the genuinely non-blocking, searched-after-write warnings; owner and region are required with client-side-only region pre-fill (LeadFormPage.tsx applyPartyDefaults confirmed); lead duplicate detection is party+product-line+window+category with no name normalization. F7 (validation-code prefix leak) confirmed first-hand and ruled to need its own follow-up task, correctly untouched here. Parties/schemas.ts re-export of LeadListItemDto/LeadAssigneeDto RATIFIED: single canonical definition beats structural twins that drift, it is type-only, and the parties suite passes untouched. STRUCTURAL PROPERTIES VERIFIED FIRST-HAND WITH RE-RUN MUTANTS: M1 (breadth predicate deleted from listLeads, 960->952 lines, sha-proven, restored byte-identical to 3b4515...) killed exactly the 5 breadth tests — proving breadth lives IN the SQL before count and page, not in post-filtering, with the my-leads toggle structurally narrow-only because both paths add the identical exists clause; M2 ('for update' removed from allocateReferenceSequence, SQL grep 2->1, sha-proven, restored to 0fb996...) deterministically killed the 20-parallel-create uniqueness test — proving the ref allocation genuinely rides the row lock, and the three-statement insert-on-conflict/select-for-update/update sequence runs on the caller's transaction executor so the lock survives to COMMIT (pooler-safe, R-3). Bulk reassign verified: dedicated leads.reassign guard (matching LeadEndpoints.cs), mandatory note 422 at the schema layer, one audit row PER LEAD each carrying the note and the lead-id list (the reference's shape; V-059's 'one audit entry contains the note and the affected lead ids' is satisfied per entry), all-or-nothing rollback proven by the mixed-batch test. Tenant isolation: cross-tenant GET/PUT/bulk-reassign all 404 with no side effects, cross-tenant reference values fail with the same code as inactive ones, and the M6 precedent (seeded FK-violating broker reference) keeps the LEFT JOIN honest. Pins: flags [] pinned (leads-list:852); availableOperations [] NOT pinned — new minor finding T-024-F8 (one-line fix, foldable into T-025's brief). GATES RE-RUN BY THE EVALUATOR, SERIAL: own suites 131/131; parties+auth-wiring 98/98; typecheck 0; lint 0; db:types:check clean; FULL suite 71 files / 1473 passed / exit 0 matching the orchestrator's floor. Taken on trust (spot-checked consistent, not re-executed): M3-M6 individual kill runs, the RED-first observation, and the isolation-residue queries."
+    }
+  ]
+}

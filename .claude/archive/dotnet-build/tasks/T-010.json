@@ -1,0 +1,118 @@
+{
+  "id": "T-010",
+  "title": "Tenant settings / business rules backend (incl. display currency and attachment cap)",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-006"],
+  "objective": "Every tenant business rule from spec FR-11 is stored on a typed tenant_settings row with defaults, retrievable and updatable via the Settings API, including display currency (A-3) and per-tenant attachment cap (A-4).",
+  "scope": [
+    "tenant_settings table (partitioned, one row per tenant) with all columns from spec §11.2",
+    "GET/PUT /api/v1/settings/business-rules",
+    "Reference-format template validation ({PREFIX},{YYYY},{SEQ:n})",
+    "Default row creation at tenant creation (provisioning hook)"
+  ],
+  "out_of_scope": ["Consumers of the settings (workflow, alerts, dashboards)"],
+  "implementation_details": [
+    "Liquibase 050-settings: tenant_settings columns exactly per spec §11.2: currency_code text default 'BWP', currency_symbol text default 'BWP', max_attachment_mb int default 10, high_value_threshold numeric(18,2) null, quote_expiry_alert_days int default 7, follow_up_overdue_grace_days int default 0, aging_amber_days int default 8, aging_red_days int default 15, unassigned_lead_hours int default 24, stalled_lead_days int default 7, stalled_quote_days int default 7, duplicate_check_days int default 30, lead_ref_format text default 'L-{YYYY}-{SEQ:4}', quote_ref_format text default 'Q-{YYYY}-{SEQ:4}', lead_inactivity_expiry_days int default 60, pricing_approval_target_days int default 3, sla_assignment_days int default 1, sla_underwriting_days int default 3, sla_received_to_sent_days int default 5, require_pricing_approval_for_high_value bool default false, manual_external_ref_enabled bool default false; PK (tenant_id,id), unique(tenant_id)",
+    "Domain/Settings/ReferenceFormatTemplate.cs: Parse/Validate/Format — tokens {PREFIX} optional literal handled as plain text, {YYYY} year, {SEQ:n} zero-padded sequence; Validate rejects unknown tokens or missing {SEQ:n}",
+    "Features/BusinessRules: GetBusinessRulesQuery, UpdateBusinessRulesCommand with FluentValidation (currency_code ISO-4217 3 letters, thresholds > 0, amber < red, formats valid via ReferenceFormatTemplate.Validate); audited with before/after diff",
+    "TenantSettingsProvisioningHook creating the default row inside tenant creation (coordinates with T-009 hook ordering)",
+    "Application/Abstractions/ITenantSettingsProvider.cs: cached per-request accessor used by later tasks"
+  ],
+  "files": [
+    "src/api/db/changelog/050-settings/*.xml",
+    "src/api/QuoteIQ.Domain/Entities/TenantSettings.cs",
+    "src/api/QuoteIQ.Domain/Settings/ReferenceFormatTemplate.cs",
+    "src/api/QuoteIQ.Application/Features/BusinessRules/**/*.cs",
+    "src/api/QuoteIQ.Application/Abstractions/ITenantSettingsProvider.cs",
+    "src/api/QuoteIQ.Infrastructure/Provisioning/TenantSettingsProvisioningHook.cs",
+    "src/api/QuoteIQ.Api/Endpoints/BusinessRuleEndpoints.cs",
+    "src/api/tests/QuoteIQ.Domain.Tests/Settings/ReferenceFormatTemplateTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/BusinessRules/BusinessRuleEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "ReferenceFormatTemplate_Format_WhenSeq4_ShouldZeroPad",
+      "ReferenceFormatTemplate_Validate_WhenUnknownToken_ShouldFail",
+      "ReferenceFormatTemplate_Validate_WhenNoSeq_ShouldFail"
+    ],
+    "integration": [
+      "CreateTenant_ShouldCreateDefaultSettingsRow",
+      "UpdateBusinessRules_WhenValid_ShouldPersistAndAudit",
+      "UpdateBusinessRules_WhenAmberGteRed_ShouldReturnValidationError",
+      "UpdateBusinessRules_WhenBadCurrencyCode_ShouldReturnValidationError",
+      "Settings_ShouldBeTenantIsolated"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-010", "AC-074"],
+  "verification_ids": ["V-010", "V-074"],
+  "findings": [
+    {
+      "id": "F-023",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "The audit assertion in UpdateBusinessRules_WhenValid_ShouldPersistAndAudit does not verify the before/after diff. The task's implementation_details require the update to be 'audited with before/after diff', and UpdateBusinessRulesCommandHandler does write { Before, After } into audit_log.details — but the test's GetAuditActionsAsync selects only the action column and asserts Assert.Contains(\"tenant_settings.updated\", actions). If the diff payload regressed (details written as null, Before/After swapped, empty objects, or the serialized DTO losing fields), the test would still pass. The behavior AC-010 depends on for audit review is therefore unpinned.",
+      "evidence": "src/api/tests/QuoteIQ.Api.Tests/BusinessRules/BusinessRuleEndpointsTests.cs — GetAuditActionsAsync (SELECT action FROM audit_log ... only) and the single Assert.Contains at the end of UpdateBusinessRules_WhenValid_ShouldPersistAndAudit; src/api/QuoteIQ.Application/Features/BusinessRules/UpdateBusinessRules/UpdateBusinessRulesCommandHandler.cs lines 74-80 (the diff that is never asserted).",
+      "recommendation": "Extend the audit query to also read the details jsonb for the tenant_settings.updated row and assert the diff content, e.g. details Before.highValueThreshold is null and After.highValueThreshold == 1000000 (and/or Before.currencyCode == \"BWP\" vs After.currencyCode == \"ZAR\"), so the before/after contract is pinned by a failing test on regression.",
+      "status": "RESOLVED",
+      "resolution": "Verified: UpdateBusinessRules_WhenValid_ShouldPersistAndAudit now reads audit_log.details via GetAuditDetailsAsync (latest tenant_settings.updated row), Assert.NotNull on details, parses with JsonDocument, and asserts Before.HighValueThreshold is JSON null / After == 1000000 and Before.CurrencyCode == 'BWP' / After == 'ZAR'. Key casing matches AuditWriter's default JsonSerializer.Serialize (PascalCase). Fails on null details (DBNull -> null), swapped Before/After, empty objects (GetProperty throws), or lost fields — the before/after contract is now pinned.",
+      "resolved_at": "2026-07-12T16:20:00-04:00",
+      "created_at": "2026-07-12T15:05:00-04:00"
+    },
+    {
+      "id": "F-024",
+      "source": "tests-code-review",
+      "severity": "info",
+      "category": "test-gap",
+      "description": "Settings_ShouldBeTenantIsolated never asserts that tenant A's PUT succeeded (response discarded, no EnsureSuccessStatusCode) nor that A's row actually changed. If the update path broke (e.g. routing/permission regression returning 403), the test would pass vacuously because tenant B trivially still has defaults. The isolation property itself is still effectively covered (a genuine cross-tenant leak would change B's row and fail the assertion, and UpdateBusinessRules_WhenValid proves the PUT works elsewhere in the suite), so this is a test self-sufficiency advisory rather than a coverage hole.",
+      "evidence": "src/api/tests/QuoteIQ.Api.Tests/BusinessRules/BusinessRuleEndpointsTests.cs, Settings_ShouldBeTenantIsolated — 'await clientA.PutAsJsonAsync(...)' result unused; no assertion on tenant A's resulting state.",
+      "recommendation": "Capture the PUT response and assert 200 (or EnsureSuccessStatusCode), and optionally assert clientA's GET shows HighValueThreshold == 2500000 before asserting tenant B's row is untouched.",
+      "status": "RESOLVED",
+      "resolution": "Verified: Settings_ShouldBeTenantIsolated now captures updateResponseA, asserts HttpStatusCode.OK, and asserts tenant A's HighValueThreshold == 2500000 from the response body before asserting tenant B's row remains default (null threshold, amber 8). Test no longer passes vacuously if the PUT path regresses.",
+      "resolved_at": "2026-07-12T16:20:00-04:00",
+      "created_at": "2026-07-12T15:05:00-04:00"
+    },
+    {
+      "id": "F-025",
+      "source": "security",
+      "severity": "info",
+      "category": "security",
+      "description": "TenantSettingsProvisioningHook's temporary context flip is broader than it needs to be: it sets both TenantId = tenantId AND IsCrossTenant = true. Setting TenantId alone already satisfies QuoteIqDbContext.GuardTenantScopedEntities (the new TenantSettings row's TenantId matches), whereas IsCrossTenant = true short-circuits the guard entirely for every tracked ITenantScoped entity during that SaveChangesAsync — a wider bypass than the single intended insert. The pattern is otherwise sound: the flip is confined to the insert, exception-safe (try/finally restores both prior values), and cannot leak across requests because TenantContext is registered scoped and the hook runs on the request's own scope. Not exploitable today (the only tracked tenant-scoped entity at that point is the settings row itself and the enclosing transaction rolls everything back on failure), but the narrower flip keeps the write guard active as tenant provisioning grows more steps.",
+      "evidence": "src/api/QuoteIQ.Infrastructure/Provisioning/TenantSettingsProvisioningHook.cs lines 31-46 (sets both fields); src/api/QuoteIQ.Infrastructure/Persistence/QuoteIqDbContext.cs GuardTenantScopedEntities (early return when IsCrossTenant; TenantId match otherwise suffices); src/api/QuoteIQ.Infrastructure/Tenancy/TenancyServiceCollectionExtensions.cs (scoped TenantContext).",
+      "recommendation": "Drop the IsCrossTenant = true assignment (flip TenantId only), or document explicitly why the full guard bypass is required. Consider the same narrowing next time a provisioning step needs ambient-context surgery.",
+      "status": "RESOLVED",
+      "resolution": "Verified: TenantSettingsProvisioningHook now flips only TenantContext.TenantId inside try/finally (IsCrossTenant assignment removed; doc comment explains the narrowing). GuardTenantScopedEntities stays active and is satisfied because the settings row's TenantId matches the flipped ambient value; the only ITenantScoped entity tracked during the hook's SaveChangesAsync is that row (Tenant and AuditLog are not ITenantScoped). Restore semantics unchanged, so the subsequent tenant.created audit row still records TenantId = null as before. Full suite (incl. tenant creation tests) green after the change.",
+      "resolved_at": "2026-07-12T16:20:00-04:00",
+      "created_at": "2026-07-12T15:05:00-04:00"
+    },
+    {
+      "id": "F-026",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "verification-gap",
+      "description": "The fixme Playwright specs deviate slightly from the verification.json plans they encode. V-074's plan includes 'Export a list; assert header metadata shows ZAR' — the spec 'changing tenant currency updates prefixes, footers, and formatting (V-074)' omits the export step entirely. V-010's plan says 'assert aging colors follow new thresholds' — the spec only asserts the age-cell is visible, not that its color reflects the new 5/10 amber/red values. Inert today (both specs are test.fixme pending T-013/T-016 per the accepted T-008 precedent), but if un-skipped as-is at T-016 the weakened assertions could pass without proving V-010/V-074.",
+      "evidence": "e2e_tests/tests/settings.spec.ts lines 86-122 vs .claude/verification.json V-010 (steps[2]) and V-074 (steps[4]).",
+      "recommendation": "When T-016/T-013 un-skip these specs, add the export-header currency assertion to the V-074 spec and a color/class assertion on the age cell (e.g. data-severity attribute or computed class) to the V-010 spec. Track via this finding so the gap is not lost at un-skip time.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T15:05:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-11, §11.2, A-3, A-4)" },
+    { "timestamp": "2026-07-12T12:20:00-04:00", "event": "task_started", "message": "T-010 IN_PROGRESS; delegated to Implementor (iteration 1/10)" },
+    { "timestamp": "2026-07-12T13:40:00-04:00", "event": "tests_written", "message": "Domain unit tests (ReferenceFormatTemplateTests, 9 cases) and integration tests (BusinessRuleEndpointsTests, 8 cases incl. tenant isolation + cross-tenant Internal-caller variant per F-020) written before production code." },
+    { "timestamp": "2026-07-12T14:10:00-04:00", "event": "implementation_written", "message": "050-settings Liquibase changeset (tenant_settings, partitioned, registered in create_tenant_partitions, verified live+idempotent against compose postgres); Domain TenantSettings entity + ReferenceFormatTemplate; Application Features/BusinessRules (Get/UpdateBusinessRules, validator, errors) + ITenantSettingsStore/ITenantSettingsProvider/ITenantSettingsProvisioningHook abstractions; Infrastructure TenantSettingsStore/Provider/ProvisioningHook wired into CreateTenantCommandHandler's existing transactional callback; Api BusinessRuleEndpoints (GET/PUT /api/v1/settings/business-rules) registered in EndpointRegistration." },
+    { "timestamp": "2026-07-12T14:15:00-04:00", "event": "e2e_tests_written", "message": "V-010/V-074 Playwright specs added to e2e_tests/tests/settings.spec.ts, marked test.fixme (Settings UI is T-016, shell currency surfaces are T-013; neither exists yet), per the T-008 precedent; backend contract proven by BusinessRuleEndpointsTests instead." },
+    { "timestamp": "2026-07-12T14:20:00-04:00", "event": "tests_run", "message": "dotnet test QuoteIQ.slnx run twice: 108/108 passed both runs (Domain 9, Application 0 [empty project], Infrastructure 38, Api 61), 0 failures, identical outcomes." },
+    { "timestamp": "2026-07-12T14:25:00-04:00", "event": "handed_to_evaluator", "message": "T-010 IMPLEMENTED; handed to Evaluator." },
+    { "timestamp": "2026-07-12T14:30:00-04:00", "event": "evaluation_started", "message": "T-010 EVALUATING; Evaluator launched (iteration 1/10)" },
+    { "timestamp": "2026-07-12T15:05:00-04:00", "event": "findings_added", "message": "Evaluator verdict NEEDS_FIXES (iteration 1/10). Independently verified: live tenant_settings schema matches spec §11.2 exactly (all 21 business-rule columns, defaults, LIST partitioning, PK (tenant_id,id), unique(tenant_id)); registered in create_tenant_partitions; Liquibase re-run idempotent (0 run / 20 previously run); settings row provisioned inside TenantStore.CreateAsync's transaction (hook failure rolls tenant creation back); endpoints permission-gated (business_rules.view/manage) and tenant-scoped; TenantSettingsStore carries explicit TenantId predicates; full suite 108/108 passed (Domain 9, Infrastructure 38, Api 61); e2e tsc clean. Blocking: F-023 (audit test does not assert the before/after diff). Advisories: F-024 (isolation test PUT status unasserted), F-025 (IsCrossTenant flip broader than needed), F-026 (fixme specs omit V-074 export step and V-010 aging-color assertion)." },
+    { "timestamp": "2026-07-12T15:10:00-04:00", "event": "fix_iteration_started", "message": "T-010 NEEDS_FIXES; fix iteration 2/10 delegated to Implementor for F-023 (blocking) plus low-cost advisories F-024/F-025; F-026 tracked for T-016/T-013 un-skip time" },
+    { "timestamp": "2026-07-12T15:45:00-04:00", "event": "implementation_written", "message": "T-010 fix iteration 2/10: F-023 fixed (audit test asserts Before/After diff from audit_log.details jsonb - HighValueThreshold null->1000000, CurrencyCode BWP->ZAR - via GetAuditDetailsAsync helper); F-024 fixed (isolation test asserts PUT 200 and tenant A's changed state); F-025 fixed (provisioning hook narrowed to TenantId-only flip, IsCrossTenant removed, doc comment updated); F-026 untouched per instruction. Full suite twice: 108/108 both runs. No schema changes, no tests weakened. Handed to Evaluator." },
+    { "timestamp": "2026-07-12T16:20:00-04:00", "event": "evaluation_completed", "message": "Evaluator re-audit (fix iteration 2/10) verdict PASS. Independently verified all three fixes: F-023 RESOLVED (audit test parses audit_log.details jsonb and pins Before/After diff — HighValueThreshold null->1000000, CurrencyCode BWP->ZAR — PascalCase keys match AuditWriter's default serializer; assertions fail on null/swapped/empty/lossy diff); F-024 RESOLVED (isolation test asserts PUT 200 and tenant A's 2500000 before checking tenant B untouched); F-025 RESOLVED (hook flips TenantId only, IsCrossTenant bypass removed, guard stays active; only tracked ITenantScoped entity during the hook save is the settings row itself; tenant.created audit tenant_id semantics unchanged). No regressions introduced. Full suite run by Evaluator: 108/108 passed, 0 failed (Domain 9, Infrastructure 38, Api 61; Application.Tests empty project). F-026 remains OPEN by design, non-blocking, deferred to T-016/T-013 un-skip. No new findings." },
+    { "timestamp": "2026-07-12T16:25:00-04:00", "event": "task_passed", "message": "T-010 marked PASS (iteration 2/10) by orchestrator per evaluator verdict. Carried item: F-026 export-header currency and aging-color assertions when T-016/T-013 un-skip V-010/V-074 specs." }
+  ]
+}

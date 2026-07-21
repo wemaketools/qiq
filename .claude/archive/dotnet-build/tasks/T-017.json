@@ -1,0 +1,51 @@
+{
+  "id": "T-017",
+  "title": "Parties backend: schema and CRUD",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-008"],
+  "objective": "Party records exist as standalone tenant-scoped entities with CRUD, duplicate-name warning, optional region (Q-9), and no deletion (spec FR-26..FR-28 backend portion, PRD 12.9).",
+  "scope": [
+    "parties table (partitioned)",
+    "Create/Update/Get/List endpoints with filters and type-ahead search",
+    "Non-blocking duplicate-name warning payload on create/update"
+  ],
+  "out_of_scope": ["Lead counts on the list and /parties/{id}/leads (T-018, needs leads table)", "Parties UI (T-025)"],
+  "implementation_details": [
+    "Liquibase 080-parties: parties (tenant_id, id identity, name text not null, party_type_id bigint not null FK reference_items, segment_id bigint null, industry_id bigint null, region_id bigint null, is_strategic bool default false, contact_name text null, contact_email text null, contact_phone text null, last_activity_at timestamptz null, audit cols, PK (tenant_id,id)); trigram index on name for type-ahead (pg_trgm)",
+    "Features/Parties: CreatePartyCommand{Name (required, <=200, trimmed), PartyTypeId (required, active PartyType), SegmentId?, IndustryId?, RegionId? (optional per Q-9), IsStrategic, ContactName?, ContactEmail? (format), ContactPhone? (format)} -> returns {party, warnings:[{code:'DUPLICATE_NAME', matches:[{id,name}]}]} using case-insensitive similarity match against tenant parties; UpdatePartyCommand same shape/warnings; GetPartyQuery; ListPartiesQuery{search, partyTypeId, segmentId, industryId, regionId, strategic, sort, page} default alphabetical",
+    "No delete endpoint (PRD 12.9); reference values validated as active tenant items",
+    "Endpoints: GET/POST /api/v1/parties, GET/PUT /api/v1/parties/{id} — RequirePermission(Parties.View/Create/Update); audited"
+  ],
+  "files": [
+    "src/api/db/changelog/080-parties/*.xml",
+    "src/api/QuoteIQ.Domain/Entities/Party.cs",
+    "src/api/QuoteIQ.Application/Features/Parties/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/PartyEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Parties/PartyEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "CreateParty_WhenValid_ShouldPersist",
+      "CreateParty_WithoutRegion_ShouldSucceed (Q-9)",
+      "CreateParty_WhenSimilarNameExists_ShouldReturnNonBlockingWarning",
+      "CreateParty_WhenInvalidEmail_ShouldReturnValidationError",
+      "ListParties_WithTypeAheadSearch_ShouldMatch",
+      "Parties_ShouldBeTenantIsolated",
+      "NoDeleteEndpoint_Exists"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-027"],
+  "verification_ids": ["V-027"],
+  "findings": [],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-26..FR-28, PRD 12.9, Q-9)" },
+    { "timestamp": "2026-07-13T08:25:00-04:00", "event": "task_started", "message": "T-017 IN_PROGRESS; delegated to Implementor (iteration 1/10). Dep T-008 (reference data) PASS. Backend task, test-first (integration real Postgres + Keycloak Testcontainers, no mocks, AAA): Liquibase 080-parties partitioned parties table + pg_trgm trigram index on name for type-ahead; Features/Parties Create/Update/Get/List with non-blocking DUPLICATE_NAME warning (case-insensitive similarity vs tenant parties), optional region (Q-9), active-reference-item validation, NO delete endpoint (PRD 12.9); Parties.View/Create/Update gated; audited. Back to backend-first flow after the UI wave." },
+    { "timestamp": "2026-07-13T09:15:00-04:00", "event": "implementation_written", "message": "T-017 IMPLEMENTED (iteration 1/10), test-first, integration-only (real Postgres+Keycloak Testcontainers, no mocks), mirroring T-011/T-012. Liquibase 080-parties.xml: pg_trgm extension changeset, parties LIST-partitioned table + default partition, trigram GIN index ix_parties_name_trgm on name; registered parties in create_tenant_partitions runOnChange + master changelog; applied live twice (Run1 4 changesets, Run2 0 - idempotent), \\d parties + \\dx pg_trgm verified. Domain Party.cs. Added IReferenceDataStore.IsActivePartyType/PartySegment/Industry/Region Async (mirror IsActiveBrokerTypeAsync). IPartyStore/PartyStore + DI; QuoteIqDbContext DbSet+ConfigureParties. Features/Parties Create/Update/Get/List + PartyDto/PartyErrors/PartyContactValidation. PartyEndpoints GET/POST /api/v1/parties + GET/PUT /{id} gated Parties.View/Create/Update, registered. PermissionCatalog.Parties.Create/View/Update already existed (no change). Duplicate-name: pg_trgm similarity() via EF.Functions.TrigramsSimilarity, thresholds 0.3 type-ahead (+ILIKE) / 0.4 duplicate-warning, top-5 cap. 13 red-first tests (all test_plan items + name-missing + inactive/wrong-list-type party-type + foreign-tenant-region-same-as-invalid + default-alpha-sort + 403-lacks-create + Mutations_ShouldWriteAudit). NO delete endpoint (NoDeleteEndpoint_Exists asserts). V-027 Playwright parties.spec.ts test.fixme (Parties UI is T-025). FLAGGED FOR EVALUATOR: (1) DEVIATION from brief literal wording - foreign-tenant referenced segment/industry/region id returns 422 PARTY_INVALID_SEGMENT/INDUSTRY/REGION (SAME code as inactive/wrong-type), NOT literal 404; rationale: matches evaluator-approved T-012 Brokers precedent (BROKER_INVALID_BROKER_TYPE 422) and spec 14 groups reference-value-must-be-active-and-in-tenant under the 422 validation-catalog paragraph, not the 404-for-cross-tenant-path-ids paragraph; the F-035 security intent is fully met - foreign-tenant and invalid are byte-for-byte indistinguishable (proven by CreateParty_WhenForeignTenantReferencedRegion_ShouldReturnSameErrorAsAnInvalidRegion). (2) Contact phone regex ^[+]?[0-9()\\-.\\s]{7,20}$ - no spec-defined pattern exists (broker contacts only max-length), judgment call. (3) Sort only name/-name (no other fields specified). (4) Similarity thresholds 0.3/0.4 are product judgment calls. Full suite twice: Domain 10/10, Infrastructure 45/45, Api 179/179 = 234/234, 0 warnings/errors, no flakes. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T09:25:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS, no findings. Independent suite (Docker live, no flakes): Domain 10/10, Infrastructure 45/45, Api 179/179 = 234/234. 422-vs-404 DEVIATION RULED ACCEPTABLE: spec 14 validation catalog enumerates 'reference values must be active and belong to the active tenant' as a VALIDATION rule (422 channel); the 404-for-cross-tenant clause governs the PRIMARY resource id in the path, not referenced body values; AC-065/FR-66 is decisive ('inactive or foreign-tenant reference values rejected with structured errors, nothing persists' = 422); T-012 BROKER_INVALID_BROKER_TYPE->422 precedent confirmed real; F-035 indistinguishability holds (IsActive*Async tenant-scoped so foreign-tenant id and nonexistent id both fail the same predicate -> same 422 + same code; the only body diff is the caller's own echoed input, not a leak). PATH-ID foreign access still correctly 404s (FindAsync explicit TenantId&&Id predicate -> PARTY_NOT_FOUND; Parties_ShouldBeTenantIsolated asserts both GET and PUT foreign -> 404). Tenant isolation via explicit TenantId predicates (F-020); duplicate-name genuinely non-blocking (party persisted 201 BEFORE FindSimilarByNameAsync; warning attached; tenant-scoped case/whitespace-insensitive). Schema conforming (identity PK, composite PK, LIST partition + default, registered in create_tenant_partitions, trigram GIN on parent, CREATE EXTENSION IF NOT EXISTS pg_trgm idempotent, no EF/JSONB). 13 real integration tests meaningful/non-tautological (per-test Guid tenants, order-independent). Judgment calls all acceptable: phone regex (no spec pattern), sort name/-name (full sorting verified under AC-025/T-025 - advisory), thresholds 0.3/0.4+top-5 documented. Playwright parties.spec.ts legit test.fixme (Parties UI T-025). No existing test weakened. Recommend PASS." },
+    { "timestamp": "2026-07-13T09:27:00-04:00", "event": "task_passed", "message": "T-017 PASS (iteration 1/10, no findings). Backend suite 234/234 (Domain 10, Infrastructure 45, Api 179). AC-027 satisfied; V-027 Playwright carried as test.fixme until T-025 Parties UI. Parties backend: partitioned table + pg_trgm type-ahead, CRUD, non-blocking duplicate-name warning, optional region (Q-9), no-delete, 422-uniform referenced-id validation (F-035-safe), path-id 404 confinement. T-017 PASS UNBLOCKS T-018 (Leads backend core; deps T-017+T-010+T-011 all PASS) and T-025 (Parties UI; deps T-013+T-017 both PASS) to READY. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

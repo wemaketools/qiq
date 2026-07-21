@@ -1,0 +1,152 @@
+{
+  "id": "T-014",
+  "title": "Data API lockdown: pin that anon/authenticated cannot reach tenant data (RLS NOT adopted)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-013"
+  ],
+  "objective": "Pin the grant-level lockdown that keeps the browser-exposed anon key away from tenant data. Q-10 was resolved NOT-ADOPTED by the human on 2026-07-20: Postgres RLS is not used anywhere in this application. Tenant isolation and authorization are enforced solely in the app layer (tenant-context middleware + repository tenant predicates, N-01). This task no longer adopts RLS, creates no policies, and creates no app database role; it converts an already-true property into a guarded one.",
+  "scope": [
+    "Regression test enumerating every privilege held by the anon and authenticated roles on every table in schema public, asserting no SELECT/INSERT/UPDATE/DELETE appears (inventory-driven from the live catalog, not a hardcoded table list)",
+    "Security test driving the real PostgREST endpoint with the browser-exposed anon key against seeded tenant tables, asserting no tenant rows come back",
+    "Documentation: record in docs/ and the env catalog that the Data API lockdown is grant-based and is the only database-level protection of tenant data, so a stray GRANT in a future migration silently removes it"
+  ],
+  "out_of_scope": [
+    "Enabling RLS, creating policies, or ENABLE ROW LEVEL SECURITY on any table (Q-10: NOT adopted, human decision 2026-07-20)",
+    "Creating a dedicated non-service-role app database role, or any role hardening",
+    "SET LOCAL tenant/user context in the data path",
+    "Changing create_tenant_partitions, its SECURITY INVOKER setting, or the tenant-creation path in any way",
+    "Any change to the app connection, pool.ts, or DATABASE_URL"
+  ],
+  "implementation_details": [
+    "Enumerate grants via information_schema.role_table_grants filtered to table_schema=public and grantee in (anon, authenticated). Baseline observed 2026-07-20: both roles hold ONLY REFERENCES, TRIGGER, TRUNCATE across all 37 non-partition tables in public (15 plain + 22 partitioned parents; the partitioned parents are the tenant-scoped tables, so an earlier 'all 37 non-partition tables in public (15 plain + 22 partitioned parents; the partitioned parents are the tenant-scoped tables, so an earlier 'all 15 public tables' figure recorded here was WRONG — it used relkind='r' only and silently excluded every partitioned tenant table, i.e. exactly the ones that matter most. The DML-absence property holds across all 37, verified; only the orchestrator's evidence was narrower than claimed)' figure recorded here was WRONG — it used relkind='r' only and silently excluded every partitioned tenant table, i.e. exactly the ones that matter most. The DML-absence property holds across all 37, verified; only the orchestrator's evidence was narrower than claimed) — no DML. The test asserts the DML absence, not the exact incidental privilege set, so Supabase default-privilege changes do not cause false failures.",
+    "Derive the table list from the catalog so a table added by a later migration is covered automatically; exclude partitions (relispartition) consistently with the existing generator/query convention.",
+    "PostgREST probe: GET {SUPABASE_URL}/rest/v1/{table} with the anon key as both apikey and bearer. Baseline: HTTP 401, code 42501, \"permission denied for table leads\" — denial is at the GRANT level because no policies exist.",
+    "Mutation proof required (this task is a guard, so an unfalsifiable test is worthless): GRANT SELECT on one tenant-scoped table to anon, assert the test fails and names that table, then REVOKE. Assert the mutation actually applied before trusting the result.",
+    "CORRECTED PRIOR ERROR — do not reinstate: an earlier version of this task carried an \"OBLIGATION FROM T-016\" stating that create_tenant_partitions is SECURITY INVOKER so the app role MUST retain CREATE on schema public after role hardening. That claim is FALSE: PostgreSQL requires OWNERSHIP of the parent table to attach a partition, and no grantable privilege confers partition-attach rights. It was proven false empirically (role built exactly as described, has_schema_privilege CREATE true, then \"ERROR: must be owner of table alerts\"). It is now doubly moot because no role hardening happens at all. Do not re-derive it."
+  ],
+  "files": [
+    "src/server/tests/integration/data-api-lockdown.test.ts (new — grant inventory + PostgREST denial guard)",
+    "docs/environment-variables.md (new section: why the anon key is safe; lockdown is grant-based, a stray GRANT silently removes it)"
+  ],
+  "test_plan": {
+    "unit": [
+      "None (database privilege state — integration level)"
+    ],
+    "integration": [
+      "anon and authenticated hold no SELECT/INSERT/UPDATE/DELETE on any public table (catalog-driven inventory)",
+      "Granting SELECT to anon on a tenant table makes the inventory test fail naming that table (mutation proof), revoked afterwards"
+    ],
+    "e2e": [
+      "None — no user-facing surface"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-023"
+  ],
+  "verification_ids": [
+    "V-029",
+    "V-030"
+  ],
+  "findings": [
+    {
+      "id": "F-T014-001",
+      "severity": "blocker",
+      "summary": "Hard constraint is technically unsatisfiable: CREATE on schema public does NOT let a non-owner role create partitions. SECURITY INVOKER create_tenant_partitions + least-privilege app role cannot coexist.",
+      "detail": "Empirically proven against the running local stack (postgres 17, supabase_db_quoteiq). A role created with LOGIN/NOSUPERUSER/NOBYPASSRLS and granted USAGE+CREATE on schema public, SELECT/INSERT/UPDATE/DELETE on all tables, USAGE+SELECT on all sequences and EXECUTE on all functions fails at the first partition: ERROR: must be owner of table alerts / CONTEXT: create table if not exists public.alerts_p999999 partition of public.alerts ... / PL/pgSQL function public.create_tenant_partitions(bigint) line 23 at EXECUTE. PostgreSQL requires OWNERSHIP of the parent table to attach a partition; no grantable privilege (including CREATE on the schema) confers it, and no partition-attach privilege exists in PG17. Therefore preserving SECURITY INVOKER *and* granting CREATE on public, as the T-016 obligation prescribes, still leaves tenant creation broken on a hardened app role. Three resolutions were probed; all three deviate from the recorded obligation, so the choice is escalated rather than made silently:\n(A) App role is a member of a non-superuser owner role that owns the tenant tables, plus ALTER TABLE ... FORCE ROW LEVEL SECURITY. PROVEN: RLS stays effective through owner membership (0 rows with no context, 1 row with SET LOCAL app.tenant_id inside a transaction). PROVEN DOWNSIDE: the app role can execute ALTER TABLE ... NO FORCE ROW LEVEL SECURITY and disable its own guard in a single statement, and can DROP POLICY/DROP TABLE. Keeps SECURITY INVOKER; materially hollows out the defense-in-depth claim of AC-023.\n(B) create_tenant_partitions becomes SECURITY DEFINER (owner-owned, search_path='' already pinned, sole argument is a bigint, identifiers come from the catalog via %I, EXECUTE revoked from PUBLIC and granted only to the app role). PROVEN to work for a non-owner caller. App role keeps pure DML + EXECUTE, cannot disable RLS, cannot drop tables — genuine least privilege and the strongest AC-023 posture. COST: contradicts the literal 'create_tenant_partitions is SECURITY INVOKER' constraint and the header rationale in 20260718001500_partition_function.sql.\n(C) Tenant creation runs deliberately on the owner/DIRECT connection (permitted by the task's own implementation_details for job/admin paths). Keeps SECURITY INVOKER and the app role least-privileged, but routes an interactive API request off the Supavisor pooled path, contradicting M-09/pool.ts discipline, and means the T-016 partition regression test does NOT exercise the app role.\nRecommendation: (B). It is the only option that satisfies AC-023's substance (RLS actually effective against a role that cannot switch it off) while keeping tenant creation on the pooled app path. No repository files were modified; all probe roles/objects were dropped and the database was verified back at baseline (create_tenant_partitions prosecdef=false, 0 leftover partitions, 0 RLS-enabled tables in public).",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T00:00:00-04:00",
+      "resolution": "Dissolved by the human decision of 2026-07-20 that Postgres RLS is NOT adopted (Q-10 amended, superseding its earlier \"adopted as defense-in-depth\" wording). The blocker existed only under approach (a) — hardening the app database role so policies would apply to app queries. With no role hardening, nothing needs to attach partitions as a non-owner, so the ownership constraint never binds. The implementor was CORRECT to stop rather than pick one of the three workarounds: all three traded away security posture to satisfy a constraint that turned out to be unnecessary. Note the finding also correctly established a fact worth keeping: the \"app role MUST retain CREATE on public\" obligation it was handed was false, and that false claim has now been removed from this task and corrected in src/server/domains/tenants/repository.ts."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to Q-10 (+implementation note), spec 16 Supabase key discipline, R-5 mitigation."
+    },
+    {
+      "timestamp": "2026-07-19T23:30:00-04:00",
+      "event": "obligation_recorded",
+      "message": "Evaluator (T-015/T-016 review): recorded the T-016 obligation in implementation_details — create_tenant_partitions is SECURITY INVOKER, so role hardening must preserve the app role's CREATE on public (and EXECUTE on the function) or tenant creation breaks at the partition step. Also note the T-016 fault-injection tests install/replace shared DB objects (the partition function, default_reference_items rows, triggers); T-014's SET LOCAL/app-role changes must keep those suites runnable, and T-014 was already sequenced to run ALONE for this reason."
+    },
+    {
+      "timestamp": "2026-07-19T00:00:00-04:00",
+      "event": "blocked",
+      "message": "Implementor halted before writing code. Investigation proved the recorded T-016 obligation rests on a false premise: CREATE on schema public does not permit a non-owner role to attach partitions (PostgreSQL requires parent-table ownership), so 'keep SECURITY INVOKER + grant CREATE on public' still breaks tenant creation on a hardened app role. Options A/B/C probed empirically against the local stack and recorded in finding F-T014-001; recommendation is (B) SECURITY DEFINER. Escalating because all three resolutions deviate from an explicit hard constraint and they differ materially in security posture. No repo files changed; database restored to baseline. No gates run (nothing to test yet)."
+    },
+    {
+      "timestamp": "2026-07-20T05:30:00-04:00",
+      "event": "rescoped",
+      "message": "BLOCKED -> READY, rescoped by the human decision that Postgres RLS is NOT to be used. The human reviewed the escalation and confirmed RLS \"crept into the spec without me noticing\" during the open-questions round — their intent was always app-layer enforcement. spec.md Q-10 rewritten NOT-ADOPTED with 6 dependent references realigned (§9.3, §13, §16, N-01, R-5, and the withdrawn residual implementation note); AC-023 rewritten from \"RLS active and effective\" to the grant-level Data API lockdown; V-029 repointed from RLS effectiveness to the grant inventory (with an explicit warning that asserting relrowsecurity is now WRONG) and V-030 kept but rebased on grant-level denial. What survives is genuinely load-bearing and was verified already true rather than assumed: anon/authenticated hold only REFERENCES/TRIGGER/TRUNCATE on all 37 non-partition tables in public (15 plain + 22 partitioned parents; the partitioned parents are the tenant-scoped tables, so an earlier 'all 15 public tables' figure recorded here was WRONG — it used relkind='r' only and silently excluded every partitioned tenant table, i.e. exactly the ones that matter most. The DML-absence property holds across all 37, verified; only the orchestrator's evidence was narrower than claimed), and PostgREST denies with 42501 at the grant level. R-5 (loss of EF global query filters) is explicitly RAISED to the highest-consequence residual risk in the migration, because per-query tenant predicates now have no database-level net beneath them — the per-endpoint isolation tests are load-bearing, not supplementary. The false CREATE-on-public obligation is removed here and corrected at its second site in repository.ts."
+    },
+    {
+      "timestamp": "2026-07-20T09:20:00-04:00",
+      "event": "implemented",
+      "message": "Implemented the rescoped guard. NEW FILE src/server/tests/integration/data-api-lockdown.test.ts, 14 tests in two suites. Suite 1 (V-029, integration): derives the public-table list from the live catalog (pg_class relkind in r,p, relispartition=false, matching scripts/db/generate-types.ts) and asserts (a) information_schema.role_table_grants yields no SELECT/INSERT/UPDATE/DELETE for anon or authenticated on any of them, and (b) has_table_privilege() reports no effective DML for either role on any table - the second check also covers privileges reachable via role membership or PUBLIC grants rather than a direct grant. Absence of DML is asserted, NOT equality with the incidental set, so Supabase default-privilege changes cannot cause false failures. A cardinality assertion (roles x tables x privileges) stops the probe degenerating to zero rows. Suite 2 (V-030, security): seeds its own tenants + roles rows over the direct connection, asserts they exist, then drives the real PostgREST endpoint at {apiUrl}/rest/v1/{table} for tenants, roles, leads, quotes, users - once with the browser-exposed anon key and once with a real end-user access token from TestAuthFixtures.createTestUserWithSession. Config comes from probeLocalStack(); nothing is hardcoded. Rows are seeded by the suite rather than assumed from supabase/seed.sql so it cannot pass on an empty table. No RLS was enabled, no policy created, no role created; create_tenant_partitions, pool.ts and the app connection were not touched."
+    },
+    {
+      "timestamp": "2026-07-20T09:20:30-04:00",
+      "event": "mutation_proof",
+      "message": "GRANT SELECT ON public.leads TO anon. Mutation confirmed APPLIED before trusting the result by querying it back: has_table_privilege('anon','public.leads','SELECT')=true AND 1 matching row in information_schema.role_table_grants. Suite then FAILED, exit code 1, 3 of 14 tests red, each naming the table: the grants test and the has_table_privilege test both reported [\"anon has SELECT on public.leads\"], and the anon PostgREST probe for public.leads failed. Correctly, the authenticated-token probe for leads stayed green (the grant was to anon only) - the guard discriminates rather than failing wholesale. REVOKE SELECT ON public.leads FROM anon then verified applied the same way (has_table_privilege=false, 0 grant rows) and the suite returned 14/14 green, exit 0. Database left exactly as found; re-verified green again after npm run db:validate reset it twice."
+    },
+    {
+      "timestamp": "2026-07-20T09:21:00-04:00",
+      "event": "gates_run",
+      "message": "Directly captured exit codes: npm test EXIT=1 (894 tests, 892 passed, 2 failed); npm run typecheck EXIT=0 (run AFTER the full npm test, as required); npm run lint EXIT=0; npm run db:types:check EXIT=0; npm run db:validate EXIT=0. THE 2 FAILURES ARE NOT FROM T-014 and are not in T-014's files: jobs-layering.test.ts 'contains no reference to the job secrets' and supabase-server-only.test.ts 'never names the service-role key...' both fail on src/ui/src/auth/browserClientBoundary.test.ts, an UNTRACKED file created by a concurrently running task at 09:13 during this run. It lists 'SUPABASE_SERVICE_ROLE_KEY', 'CRON_SECRET' and 'INTERNAL_JOB_SECRET' as literal strings, which trips the SPA source-scan guards. T-014 changed no UI file. Reproduced in isolation (those 2 files alone: 2 failed / 37 passed), so it is deterministic, not flake, and belongs to the concurrent task. Test count: +14 backend tests. Suite total is now 894; the package.json --min-tests floor of 880 was DELIBERATELY NOT EDITED because T-017/T-018 run concurrently on that line - the orchestrator sets it once."
+    },
+    {
+      "timestamp": "2026-07-20T11:15:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator verdict: PASS. Clean sequential baseline reproduced first-hand: backend 58 files/938 passed/0 skipped EXIT=0; SPA 102 files/547 passed EXIT=0; typecheck EXIT=0 (after full npm test); lint EXIT=0; db:types:check EXIT=0; db:validate EXIT=0; ci:test EXIT=0 (938>=938, 0 skipped); ci:test:ui EXIT=0 (547>=547). Live DB verified: 0 RLS-enabled tables, 0 policies, create_tenant_partitions prosecdef=false, no custom roles, 37 non-partition public tables (15 plain + 22 partitioned parents, the parents being exactly the tenant-scoped tables) — rescope constraints honoured; db:validate schema-snapshot diff clean proves no migration touched grants (git useless, src/server untracked). Suite alone: 14/14 EXIT=0. THREE mutations re-run with application proven in both directions: (1) GRANT SELECT ON leads TO anon — verified applied via has_table_privilege=true + 1 role_table_grants row; suite EXIT=1, 3/14 red, both inventory tests naming 'anon has SELECT on public.leads', anon PostgREST probe red while the authenticated probe stayed green (guard discriminates); REVOKE verified, 14/14 green. (2) NEW TABLE t014_eval_probe created + GRANT SELECT TO authenticated — suite EXIT=1 naming the table that did not exist when the test was written: catalog derivation proven empirically, not by reading the SQL. (3) Privilege routed via role membership only (intermediate role granted to anon, 0 direct grant rows) — direct-grants test stayed green but the has_table_privilege test AND the live PostgREST quotes probe went red: the effective-privilege check is load-bearing, not redundant. Cardinality assertion (roles x tables x privileges) present at line 135 plus a populated-catalog assertion, so zero-row vacuous passes are excluded; the describe.skip stack-down path is caught by ci:test's 0-skipped floor. Docs deliverable present in docs/environment-variables.md (grant-based, stray-GRANT warning). DB restored to baseline and re-verified (0 DML grants, no leftover roles/tables)."
+    },
+    {
+      "timestamp": "2026-07-19T20:20:00-04:00",
+      "event": "record_migrated",
+      "message": "Schema conformance (CLAUDE.md: all generated JSON must conform to .claude/schemas/). These blocks were written by the implementor/evaluator as TOP-LEVEL keys the task schema does not allow. They are substantive audit records, so they are PRESERVED VERBATIM here rather than deleted. Moved: implementation_notes, test_plan.security, test_results.",
+      "migrated_top_level": {
+        "test_results": {
+          "new_tests": 14,
+          "suite_total": 894,
+          "commands": [
+            {
+              "command": "npm test",
+              "exit_code": 1,
+              "note": "892 passed / 2 failed; both failures caused by a concurrent task's untracked src/ui/src/auth/browserClientBoundary.test.ts, not by T-014"
+            },
+            {
+              "command": "npm run typecheck",
+              "exit_code": 0,
+              "note": "run after a full npm test, per the known ordering defect"
+            },
+            {
+              "command": "npm run lint",
+              "exit_code": 0
+            },
+            {
+              "command": "npm run db:types:check",
+              "exit_code": 0
+            },
+            {
+              "command": "npm run db:validate",
+              "exit_code": 0
+            }
+          ]
+        },
+        "implementation_notes": [
+          "BASELINE CORRECTION: the task file and V-029 record 'all 15 public tables'. The live catalog now has 37 non-partition tables in public, and both anon and authenticated hold exactly REFERENCES/TRIGGER/TRUNCATE on all 37 - no DML. The '15' figure was stale (schema grew after it was recorded), not a discrepancy in the property. The test derives the count from the catalog, so it does not encode either number.",
+          "PostgREST status codes differ by role and both are asserted explicitly: anon gets HTTP 401, a real end-user token gets HTTP 403. Both carry code 42501 and 'permission denied for table <t>', i.e. the same grant-level denial; the 403 simply reflects that the request was authenticated but the `authenticated` role lacks the privilege. The task file's baseline mentions only the 401 anon case.",
+          "The tests are read-only with respect to grants and do not assert relrowsecurity or pg_policies anywhere, per the V-029 warning."
+        ]
+      },
+      "migrated_test_plan": {
+        "security": [
+          "PostgREST with the anon key returns no tenant rows from seeded tenant-scoped tables"
+        ]
+      }
+    }
+  ]
+}

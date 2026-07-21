@@ -1,0 +1,103 @@
+{
+  "id": "T-028",
+  "title": "Frontend attachment flow: signed-URL upload/download components",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-027",
+    "T-018"
+  ],
+  "objective": "Update the SPA attachment components to the signed-URL envelope flow (request -> authorize/validate -> signed URL -> direct-to-storage transfer -> confirm), including progress and error states, while keeping validation UX (type/size messages) unchanged (A-7, M-25, spec 10 change 4).",
+  "scope": [
+    "Upload component: call request-upload, PUT the file to the signed URL with progress, then confirm; render validation errors (type/size) exactly as before; handle signed-URL expiry and confirm failures with retry affordance",
+    "Download: call the download endpoint, navigate/fetch the signed URL (attachment disposition); error states for expired URLs",
+    "Remove flow unchanged against the soft-remove endpoint",
+    "API-client layer additions for the envelope DTOs"
+  ],
+  "out_of_scope": [
+    "Any other UI change (frontend-minimal posture)",
+    "Backend endpoints (T-027)"
+  ],
+  "implementation_details": [
+    "Use fetch/XHR PUT directly to the signed URL (bytes bypass /api/v1 and the Vercel body cap); do not attach the app bearer token to storage requests.",
+    "Progress states via upload progress events; keep existing design-system components for progress/error rendering.",
+    "10MB client-side pre-check mirrors the server cap for UX only (server remains authoritative).",
+    "Component tests (Vitest) for the new flow per spec 17 frontend row — the only new component tests required by the migration."
+  ],
+  "files": [
+    "src/ui/src/features/quotes/attachments/UploadAttachment.tsx",
+    "src/ui/src/features/quotes/attachments/AttachmentList.tsx",
+    "src/ui/src/api/attachments.ts",
+    "src/ui/src/features/quotes/attachments/__tests__/upload-flow.test.tsx"
+  ],
+  "test_plan": {
+    "unit": [
+      "Component tests: request->PUT->confirm sequencing; progress rendering; server 422 (type/size) rendered with unchanged messages; signed-URL failure path"
+    ],
+    "integration": [
+      "Manual/dev verification against local stack: 10MB file uploads successfully end-to-end (exceeds the 4.5MB function cap, proving the bypass)"
+    ],
+    "e2e": [
+      "Attachment upload/download Playwright coverage adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-059"
+  ],
+  "verification_ids": [
+    "V-075"
+  ],
+  "findings": [
+    {
+      "id": "F-028-1",
+      "severity": "minor",
+      "summary": "The task file's assumed file paths (features/quotes/attachments/UploadAttachment.tsx, AttachmentList.tsx, attachments/__tests__/upload-flow.test.tsx) do not exist; the SPA has a single AttachmentsSection.tsx and its co-located test. Implemented in the ACTUAL locations rather than inventing a new directory.",
+      "detail": "The migration SPA renders quote attachments from one component, src/ui/src/features/quotes/AttachmentsSection.tsx (mounted by QuoteDetailPanel.tsx), with its test at src/ui/src/features/quotes/__tests__/AttachmentsSection.test.tsx. There is no attachments/ subdirectory and no split Upload/List components. Creating the task file's speculative paths would have duplicated a component that already exists and left the real render path on the old multipart flow. The envelope orchestration and its dedicated behaviour tests were added as quotesApi.attachments.test.ts and api/client.signedUrl.test.ts alongside the existing convention. Recorded as a deviation from the task file's file list, not a scope change.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T16:30:00-04:00"
+    },
+    {
+      "id": "F-028-2",
+      "severity": "minor",
+      "summary": "uploadToken from the request-upload envelope is not sent as a separate value on the direct PUT; the token is embedded in the fully-qualified uploadUrl (matching T-027's measured wire and its own integration test).",
+      "detail": "T-027 returns uploadUrl = Supabase createSignedUploadUrl's signedUrl (a fully-qualified https URL with the token already in the query string, asserted /^https?:\\/\\// in attachments.test.ts) plus uploadToken separately. T-027's OWN integration test transfers with fetch(envelope.uploadUrl, { method: 'PUT', headers: { 'content-type': ... }, body }) and never uses uploadToken. The SPA client (putFileToSignedUrl) does exactly that PUT — url, content-type header, raw bytes, NO app bearer token. uploadToken is kept on the DTO type for contract parity but is not needed for the direct PUT. This matches T-027 exactly; flagged only because the DTO carries a field the client does not consume.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T16:30:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to A-7/Q-22 frontend pairing, M-25, spec 10 change 4."
+    },
+    {
+      "timestamp": "2026-07-20T16:32:00-04:00",
+      "event": "implemented",
+      "message": "SPA attachment flow migrated to the A-7 signed-URL envelope, FRONTEND ONLY (no backend/DB touched).\n\nT-027 CONTRACT MATCHED (source of truth, read from the actual routes/schemas/errors, not designed):\n  request-upload  POST /quotes/{id}/attachments  -> 202 AttachmentUploadEnvelopeDto { attachmentId, quoteId, fileName, contentType, uploadUrl, uploadToken, expiresInSeconds }; body { fileName, contentType, declaredSizeBytes }.\n  direct transfer PUT envelope.uploadUrl with content-type header + raw bytes, NO app token (matches T-027's own integration transfer()).\n  confirm         POST /attachments/{id}/confirm -> 201 QuoteAttachmentDto (server-observed sizeBytes; magic-number check here, R-8).\n  download        GET /attachments/{id}          -> AttachmentDownloadEnvelopeDto { downloadUrl (attachment disposition), ... }; follow the URL.\n  remove          DELETE /attachments/{id}       -> 204, UNCHANGED.\n  Error codes surfaced via existing NormalizedError.title: ATTACHMENT_DISALLOWED_TYPE/OVER_SIZE_CAP (422 at request), ATTACHMENT_SIGNATURE_MISMATCH/OBJECT_MISSING (422 at confirm), ATTACHMENT_ALREADY_CONFIRMED (409). Client-side type pre-check message kept UNCHANGED (UX-only).\n\nFILES CHANGED:\n  src/ui/src/api/client.ts — added putFileToSignedUrl (XHR PUT, upload-progress events, no bearer token, rejects NormalizedError on 4xx/expiry/abort) and navigateToSignedUrl (anchor click for the disposition URL); REMOVED now-dead apiPostMultipart (apiGetBlob/triggerBrowserDownload kept — still used by exportsApi).\n  src/ui/src/features/quotes/quotesApi.ts — added envelope DTOs + requestAttachmentUpload/confirmAttachmentUpload/getAttachmentDownloadEnvelope and the uploadAttachment (request->PUT->confirm) / downloadAttachment (envelope->navigate) orchestrators; removeAttachment unchanged.\n  src/ui/src/features/quotes/AttachmentsSection.tsx — upload progress (percent + <progress>), retry affordance retaining the pending file on failure, download now follows the signed URL.\n\nTESTS ADDED (test-first; RED observed 16 failed before impl):\n  src/ui/src/features/quotes/__tests__/quotesApi.attachments.test.ts — drives the REAL orchestration (mocks only the client layer): request->PUT->confirm sequencing+ordering, PUT targets the server URL, derived content-type for empty File.type, PUT-fail => no confirm, confirm-422 propagates (not swallowed), onProgress forwarded, download navigates to server URL / rejects without navigating.\n  src/ui/src/api/client.signedUrl.test.ts — putFileToSignedUrl via a fake XHR: PUT to url, content-type, NO authorization header, progress fractions, 400 (expiry) rejects, network error rejects; navigateToSignedUrl clicks an anchor at the URL.\n  src/ui/src/features/quotes/__tests__/AttachmentsSection.test.tsx — rewritten to drive the flow: onUploaded on success, in-flight progress render, error+retry surfaces server message and re-attempts with the same file, download requests the envelope, closed-quote gating preserved.\n\nFAILURE MODES (each tested + user-visible): signed-URL expiry mid-PUT -> putFileToSignedUrl rejects 4xx/0 -> error alert + Retry; confirm 422 magic-number -> uploadAttachment rejects, propagates -> error alert + Retry; PUT network failure -> reject -> error alert + Retry. Retry re-runs the whole envelope (fresh URL), which is the correct remedy for expiry and for a confirm-deleted object.\n\nMUTATION TESTING (quotesApi.ts, baseline sha256 cd1d7010; cp-based restore after a git-checkout restore WIPED the working file once — caught by hash, re-applied, re-verified byte-identical):\n  M1 skip confirm after PUT      APPLIED edd4b162 -> 2 tests failed -> KILLED; restore cd1d7010 OK\n  M2 PUT to hardcoded URL        APPLIED 06685205 -> 2 tests failed -> KILLED; restore cd1d7010 OK\n  M3 swallow confirm 422         APPLIED 811c9209 -> 1 test failed  -> KILLED; restore cd1d7010 OK\n  Final file sha256 cd1d7010 (== baseline).\n\nGATES (serial): SPA vitest 564 passed / 104 files, exit 0 (baseline was 547/102 -> +17 tests, count moved, tests confirmed running); typecheck:ui 0; lint:ui 0 errors (6 pre-existing warnings, none in changed files). Backend npm test NOT run (sibling T-041 owns the DB). No shared/backend file touched. E2E (>4.5MB, storage-host network capture, forced-failure no-phantom) is T-043/V-075."
+    },
+    {
+      "timestamp": "2026-07-20T17:15:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS (iteration 0). Evaluated as a frontend-only SPA task; ran only SPA gates (no backend npm test, db:validate, or supabase:reset — the concurrent T-041 DB-heavy sibling was left untouched).\n\nCONTRACT PARITY VERIFIED FIRST-HAND against T-027's actual routes/schemas/errors (not the task file's designed contract): read attachments.routes.ts, attachments.schemas.ts, attachments.errors.ts in full. POST /quotes/{id}/attachments -> 202 AttachmentUploadEnvelopeDto{attachmentId,quoteId,fileName,contentType,uploadUrl,uploadToken,expiresInSeconds}, body {fileName,contentType,declaredSizeBytes} - matches quotesApi.ts exactly, field for field. POST /attachments/{id}/confirm -> 201 QuoteAttachmentDto - matches. GET /attachments/{id} -> AttachmentDownloadEnvelopeDto{downloadUrl,...} - matches. DELETE /attachments/{id} -> 204 - unchanged, matches. Error codes: ATTACHMENT_DISALLOWED_TYPE/OVER_SIZE_CAP both 422 at request (attachments.errors.ts), ATTACHMENT_SIGNATURE_MISMATCH 422 and ATTACHMENT_OBJECT_MISSING 422 at confirm, ATTACHMENT_ALREADY_CONFIRMED 409 (not 422) at confirm - the SPA's history message correctly states 409 for already-confirmed, matching the real code exactly.\n\nPUT-TO-STORAGE SECURITY PROPERTY VERIFIED BY READING client.ts: putFileToSignedUrl uses a fresh XMLHttpRequest with ONLY a Content-Type header set (xhr.setRequestHeader('Content-Type', ...)) — no Authorization header, no X-Tenant-Id — confirmed by the client.signedUrl.test.ts assertion `expect(xhr?.requestHeaders['authorization']).toBeUndefined()`. No app-token leak to the storage origin. Ruling: no security regression.\n\nF-028-1 RULING: verified. AttachmentsSection.tsx (grep-confirmed as the sole render path, mounted by QuoteDetailPanel.tsx) is the real, pre-existing component location; the task file's speculative UploadAttachment.tsx/AttachmentList.tsx paths do not and never did exist. Building in the real location rather than a duplicate directory was correct. RESOLVED, no action needed.\n\nF-028-2 RULING: verified against T-027's schemas.ts header comment and the adapter's own behavior — uploadUrl is the fully-qualified Supabase signed URL with the token embedded in the query string; uploadToken is a redundant field on the DTO (present because supabase-js's own uploadToSignedUrl helper takes it as a separate argument, an API the SPA does not use since it PUTs directly via XHR instead). Confirmed the client's PUT never needs a second token value. Not a bug: an unused-but-present DTO field, not a missing-but-required one. RESOLVED, no action needed.\n\nFAILURE-MODE TESTS VERIFIED AS BEHAVIOR-DRIVEN, NOT RENDER-ONLY: read quotesApi.attachments.test.ts and client.signedUrl.test.ts in full. Confirmed real call-sequencing assertions: request->PUT->confirm ordering via invocationCallOrder, the PUT target asserted to be the ENVELOPE's server-returned uploadUrl (not hardcoded), PUT-fail => confirm never called (apiPost toHaveBeenCalledTimes(1)), confirm-422 propagates via rejects.toBe (not swallowed), download rejects without navigating. AttachmentsSection.test.tsx additionally drives retry end-to-end: uploadAttachment mocked to fail once then succeed, Retry click re-invokes uploadAttachment a second time with the SAME File object (mock.calls[1][1] === file) - since uploadAttachment always starts from requestAttachmentUpload, this proves Retry re-runs the whole envelope with a fresh URL, the correct remedy for both mid-PUT expiry and a confirm-deleted object. Signed-URL expiry (400 from storage), confirm 422, and PUT network failure are each independently tested and each drives an error alert + Retry affordance in the component test.\n\nMUTATION TESTING REPRODUCED INDEPENDENTLY, NOT TAKEN ON TRUST: backed up quotesApi.ts (sha256 cd1d7010ff287c168455b298d0dc9d2ab30c1ffb36740f4b61acbec1300299b4, confirmed full match to the implementor's stated prefix) via `cp` (not git checkout, to avoid the implementor's own reported wipe hazard). Applied and ran all three mutants myself: M1 (skip confirm, return a locally-built DTO instead) -> 2 tests failed, KILLED. M2 (PUT to a hardcoded URL) -> 2 tests failed, KILLED. M3 (swallow confirm's 422 via try/catch) -> exactly 1 test failed, KILLED. Restored via `cp` after each mutant and verified sha256 byte-identical to the backup every time. Final restored file re-verified: sha256 cd1d7010... exact match, full SPA suite re-run afterward: 564/564 passed, exit 0. The implementor's disclosed restore-drama (a git-checkout restore silently wiping their own work, caught only by hashing) did not recur here since cp was used throughout, and the final artifact is provably the intact implementation, not a reverted one.\n\nGATES RE-RUN, NOT JUST TRUSTED: `npm run test -w src/ui -- --run` -> 104 files / 564 tests passed, exit 0, matching the claimed baseline (547->564, +17) exactly. `npm run typecheck:ui` -> exit 0. `npm run lint:ui` -> exit 0, 6 warnings in the same 4 pre-existing files (Toast.tsx x2, ExportTargetContext.tsx x2, BusinessRulesTab.tsx, GroupDetailPage.tsx) — none in any T-028 file, confirming no new lint debt and no existing-test suppression. No SPA test hoisting/silent-disable hazard reproduced: the new test files (quotesApi.attachments.test.ts, client.signedUrl.test.ts, plus the rewritten AttachmentsSection.test.tsx) execute and fail meaningfully under mutation, which is direct proof they run (a hoisted-out or skipped test cannot go red under a mutant).\n\nVALIDATION UX UNCHANGED: diffed AttachmentsSection.tsx against the last commit (4b5226e) — the disallowed-file-type message ('\"{name}\" is not an allowed file type. Allowed types: PNG, JPG, PDF, DOC, DOCX.') and the size-hint text are untouched by the diff; only the progress/retry additions and the upload-orchestration internals changed. Confirmed via change_WhenDisallowedFileTypeSelected_... test asserting the same message text.\n\nSCOPE/DEPENDENCY CHECKS: `git status --porcelain -- src/server src/ui/src/api src/ui/src/features/quotes` shows only src/ui files as modified (client.ts, client.test.ts, AttachmentsSection.tsx, AttachmentsSection.test.tsx, quotesApi.ts) plus new untracked SPA test files; src/server/ appears only as a pre-existing untracked tree from prior backend tasks, with no diff attributable to T-028. No new dependency added (package.json untouched by this task's diff). T-027 (dependency) is PASS. V-075's >4.5MB browser upload, real storage-host network capture, and forced-failure/no-phantom-attachment assertions are explicitly `method: e2e` in verification.json, jointly owned by T-028/T-043, and correctly deferred — not a T-028 gap.\n\nCARRY FORWARD TO T-043 (E2E LAYER): V-075 in full (5 MB PDF upload via real browser exceeding the 4.5 MB Vercel cap; network capture proving bytes go to the storage host and not /api/v1; a forced storage-request failure asserting no phantom attachment row survives a reload; disallowed/oversize file rejection through the real server; download opening via a real signed URL). T-043 should also exercise the fixed 2h upload-token TTL / short-lived download URL boundary at least once if practical, though that is already covered at the integration level in T-027.\n\nFINDINGS: F-028-1 and F-028-2 confirmed correctly RESOLVED with no residual action; no new findings raised. No open findings remain on this task.",
+      "verified_first_hand": [
+        "T-027's actual routes.ts/schemas.ts/errors.ts read in full and diffed field-for-field against quotesApi.ts's envelope DTOs, endpoints, methods, status codes (including the 409 for ALREADY_CONFIRMED vs 422 for the other confirm failures)",
+        "client.ts's putFileToSignedUrl sends only a Content-Type header (no Authorization, no X-Tenant-Id) to the storage host, both by reading the code and by the FakeXhr-based test asserting requestHeaders.authorization is undefined",
+        "AttachmentsSection.tsx is genuinely mounted (grep + QuoteDetailPanel.tsx reference), not orphaned",
+        "quotesApi.attachments.test.ts and AttachmentsSection.test.tsx assert call sequencing/ordering and error propagation, not just render presence",
+        "Retry re-runs the whole envelope with the same file via a fresh uploadAttachment call (proven by the component test's mock.calls[1][1] === file assertion plus quotesApi's request-first orchestration)",
+        "Independently reproduced all three load-bearing mutants (skip-confirm, hardcoded-PUT-URL, swallow-422) against a cp-based backup of quotesApi.ts, each killed by the exact test count claimed, restored to a verified byte-identical sha256 (cd1d7010...) after each, full 564-test suite green afterward",
+        "SPA vitest (104/564, exit 0), typecheck:ui (0), lint:ui (0 errors, 6 pre-existing warnings outside changed files) all re-run directly, matching the claimed baseline exactly",
+        "Validation UX text (disallowed-type message, size hint) diffed against the pre-T-028 commit and confirmed unchanged",
+        "git status confined to src/ui files for this task; no backend file touched, no new dependency added"
+      ],
+      "taken_on_trust": [
+        "The implementor's own RED-first (test-first) development sequence and its intermediate git-checkout restore mishap narrative",
+        "T-027's own integration-test assertions about uploadToken being unused there (relied on the schemas.ts header comment and code-level confirmation rather than re-running T-027's suite, per the DB-isolation instruction not to touch the backend/Supabase stack)"
+      ]
+    }
+  ]
+}

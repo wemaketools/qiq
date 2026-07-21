@@ -1,0 +1,129 @@
+{
+  "id": "T-010",
+  "title": "CI pipeline: typecheck, lint, unit + integration (local Supabase in CI), migration-from-clean validation, frontend build",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-006",
+    "T-008",
+    "T-009"
+  ],
+  "objective": "Establish the CI pipeline early so every subsequent task's tests run automatically: backend+frontend typecheck, lint, unit tests, integration tests against a Supabase stack started in CI, migration-from-clean validation, and the SPA production build (M-24, G-7, N-06).",
+  "scope": [
+    "CI workflow (GitHub Actions or the repo's existing CI system — detect and reuse) with jobs/steps: install (Node 22, npm ci), typecheck (server + ui), lint, unit tests, supabase start (CLI in CI) -> db reset + baseline seed -> integration tests, migration validation script (T-005), frontend build",
+    "CI-safe test invocation: deterministic, isolated, order-independent; integration tests get local-stack env vars from the CI-started Supabase",
+    "Deployment automation placeholders documented (VERCEL_TOKEN etc.) but not required (M-24)",
+    "Badge/status doc note in README or docs"
+  ],
+  "out_of_scope": [
+    "Playwright e2e in CI (added/decided in T-043 — runtime cost decision)",
+    "Vercel deploy automation (documented placeholder only)",
+    "Publishing artifacts"
+  ],
+  "implementation_details": [
+    "Use supabase/setup-cli action (or documented equivalent) then supabase start in the runner; capture printed anon/service-role keys into env for integration tests (script helper that parses supabase status -o json).",
+    "Order gates fast-to-slow: typecheck/lint -> unit -> integration -> migration validation -> ui build. Fail fast.",
+    "Migration-from-clean: run scripts/db/validate-migrations against a scratch database in CI; also run db:seed twice and assert convergence (M-11/N-06).",
+    "Cache npm; do not cache the Supabase data volume (clean state each run).",
+    "Repository currently has git operations prohibited for agents — CI config files are ordinary source files; committing/pushing remains human-owned."
+  ],
+  "files": [
+    ".github/workflows/ci.yml (or existing CI config location)",
+    "scripts/ci/supabase-env.ts (status -> env helper)",
+    "package.json (ci-oriented script aliases)",
+    "docs/local-development.md (CI notes)"
+  ],
+  "test_plan": {
+    "unit": [
+      "None (pipeline config)"
+    ],
+    "integration": [
+      "CI run on a branch executes all gates green with the current codebase state",
+      "Deliberate failure check during development of the pipeline: a failing unit test and a broken migration each fail the pipeline (verified once, then reverted)"
+    ],
+    "e2e": [
+      "None (see T-043 for e2e-in-CI decision)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-004",
+    "AC-015",
+    "AC-086"
+  ],
+  "verification_ids": [
+    "V-005",
+    "V-018",
+    "V-110"
+  ],
+  "findings": [
+    {
+      "id": "F-010-1",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "testing",
+      "description": "Backend ci:test floor is stale (--min-tests 595) against the current 655-test suite: a single silently-uncollected backend test file survives the gate green. The floor design is ratified; the unbumped floor is the defect.",
+      "evidence": "Demonstrated by the evaluator: with src/server/tests/unit/problem.test.ts renamed out of collection, npm run ci:test printed '[assert-test-run] backend: OK (634 tests >= floor 595, 0 skipped)' and exited 0 despite 21 tests missing. Control: the tight UI floor caught the same mutation (485 < 492, exit 1). File restored byte-identical (sha256 3a1dd449 verified before/after).",
+      "suggested_fix": "Raise ci:test --min-tests to 655 (current backend count) in package.json, and bump the floor in the same commit whenever a task lands tests. Optionally strengthen scripts/ci/assert-test-run.ts to also compare test files on disk (glob of *.test.ts/tsx under the suite roots) against report.testResults length, which eliminates the headroom class entirely without going red on legitimate additions.",
+      "status": "resolved",
+      "created_at": "2026-07-19T02:00:14-04:00",
+      "resolution": "Fixed two ways. (1) Backend floor bumped 595 -> 655 (package.json ci:test), so the demonstrated survivor now fails: with problem.test.ts removed, ci:test exits 1 'collected only 634 tests, below the floor of 655'. (2) Added a permanent disk-vs-report cross-check (discoverTestFiles + missing-file assertion in scripts/ci/assert-test-run.ts) that walks src/server/tests/{unit,integration} (or src/ui/src for the ui label) for *.test.ts(x) and fails naming any file present on disk that the vitest JSON report never collected. This has no staleness and never goes red on legitimate additions, unlike an exact count. VERIFIED BOTH CLASSES SEPARATELY: file DELETED from disk -> caught by the bumped floor (exit 1); file PRESENT but not collected (simulated via a vitest exclude) -> caught by the cross-check, exit 1, naming src/server/tests/unit/problem.test.ts. Baseline green: total=655 >= floor 655, 0 skipped, exit 0. Note the cross-check does not fire for a deleted file (correctly - that is the floor's job); the two mechanisms are complementary and both were needed.",
+      "summary": "Backend ci:test floor is stale (--min-tests 595) against the current 655-test suite:"
+    },
+    {
+      "id": "F-010-2",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "testing",
+      "description": "The F-001-6 fix's eslint ignore **/*.tmp.ts is broader than .gitignore's src/server/**/*.tmp.ts: a *.tmp.ts file OUTSIDE src/server is invisible to repo-wide lint yet committable, so an `any` in such a file passes every gate (tsc does not flag `any`).",
+      "evidence": "Demonstrated by the evaluator: api/mask-probe.evaluator.tmp.ts containing `export const mask: any = 1;` -> npm run lint exit 0 AND git check-ignore exit 1 (not ignored, i.e. committable). Probe file removed. Inside src/server the mask is harmless because .gitignore blocks the commit; the gap is only the api/ and scripts/ trees.",
+      "suggested_fix": "Narrow the eslint ignore to 'src/server/**/*.tmp.ts' (exactly mirroring .gitignore; the lint-no-any test writes its fixture only under src/server/lib/errors/), or broaden .gitignore to **/*.tmp.ts so a masked file can never be committed. Either restores lint-gate/commit-gate symmetry.",
+      "status": "resolved",
+      "created_at": "2026-07-19T02:00:14-04:00",
+      "resolution": "Narrowed the eslint ignore from '**/*.tmp.ts' to 'src/server/**/*.tmp.ts' (eslint.config.js), matching .gitignore's scope exactly. VERIFIED: an `any` in api/mask-probe.tmp.ts is now caught by repo-wide lint (exit 1) where it was previously invisible; a fixture under src/server/lib/errors/ is still ignored repo-wide (exit 0, which is the intended F-001-6 concurrency fix); and explicit-path `lint:path --no-ignore` still catches it (exit 1), so the no-explicit-any gate remains unweakened.",
+      "summary": "The F-001-6 fix's eslint ignore **/*.tmp.ts is broader than .gitignore's src/server/**/*.tmp.ts:"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to M-24, M-10 (CI migration validation), G-7, N-06."
+    },
+    {
+      "timestamp": "2026-07-18T22:55:00-04:00",
+      "event": "note",
+      "message": "Evaluator flag from T-003/T-007 review: the vitest suite is NOT safe to run concurrently with itself - lint-no-any.test.ts (T-001, see the open F-001 finding raised 2026-07-18T22:55:00-04:00) writes a fixed-name fixture into src/server/lib/errors/ while other tests run repo-wide lint. CI must either serialize all vitest invocations or the fixture must be made per-run unique before parallel CI lanes are added. Also inherited from T-003: wire migration-from-clean validation AND the reset-twice pg_dump --schema-only convergence diff (normalize the per-run pg_dump restrict-token line) into CI per AC-004/V-005."
+    },
+    {
+      "timestamp": "2026-07-19T01:30:00-04:00",
+      "event": "note",
+      "message": "ROOT CAUSE for F-001-6 identified by T-005's implementor: src/server/lib/errors/lint-any-fixture.tmp.ts IS gitignored, but ESLint does not honour .gitignore by default, so `npm run lint` lints the transient fixture whenever a concurrent lint-no-any.test.ts run has it on disk. Observed twice this session (T-005 and T-011 both hit it in concurrent full runs; both passed on isolated re-run). Fix options: add the fixture path to eslint's ignores, give it a unique per-run filename, or serialize vitest invocations in CI."
+    },
+    {
+      "timestamp": "2026-07-19T09:20:00-04:00",
+      "event": "started",
+      "message": "Delegated to Implementor. T-010 and T-012 run in parallel (CI config + lint-fixture fix vs src/server/domains/rbac + lib/auth). Orchestrator owns harness JSON."
+    },
+    {
+      "timestamp": "2026-07-19T10:30:00-04:00",
+      "event": "implemented",
+      "message": "GitHub Actions CI added (.github/workflows/ci.yml, single verify job): install Node 22 -> typecheck backend+SPA -> lint backend+SPA -> SPA tests -> SPA build -> supabase:start -> supabase:reset -> backend unit+integration -> db:validate -> stop stack (if: always()). Cheap gates first, Docker-free work before the slow phase. Supabase CLI from the pinned devDependency rather than setup-cli, so CI and laptops run an identical CLI. SKIP-AS-FALSE-GREEN CLOSED with proof: scripts/ci/assert-test-run.ts parses vitest JSON and fails on ANY skipped/todo test; demonstrated on byte-identical trees that plain vitest exits 0 with 'Tests 422 passed | 197 skipped' (a false green) while the CI gate exits 1 - zero failing tests in that run, so it is purely the skip check firing. DELIBERATE DEVIATION ACCEPTED BY ORCHESTRATOR: the orchestrator asked for an exact test-count assertion; the implementor implemented it, watched it go red for the WRONG reason as T-012 landed tests concurrently (595->625->641->655), and switched to a FLOOR (--min-tests: backend 595, UI 492) plus the zero-skip assertion. Reasoning accepted: an exact count would go red on every legitimate test addition, and a gate that cries wolf gets deleted, leaving the real hazard unguarded. The floor still catches a suite that stops being collected (the jsdom 492->0 bug). NODE 22 STILL NOT EXERCISED: this machine has only v24.16.0 and no nvm/fnm/volta, so the AC-001 'clean checkout on Node 22 LTS' clause remains unverified until the first real CI run - the pin is in place and that is exactly where failures should surface. Deployment placeholders documented, not required (M-24). NOT VERIFIED: no actual CI run is possible from here (no push, no git operations) - checkout/setup-node/npm ci on a clean runner, Docker-in-runner supabase start (~3-4GB pull, the main timeout risk), and fresh-runner signing-key generation are all unproven. Minor: implementor deleted an untracked scratch file spec_extract.tmp.txt while cleaning temp files; orchestrator confirmed it was NEVER git-tracked and spec.md is intact at 480 lines, so it is a trivially regenerable derived extract - no loss. Also flagged: README.md is still the legacy .NET one and says 'Node.js 24+', contradicting engines >=22 and vercel.json nodejs22.x."
+    },
+    {
+      "timestamp": "2026-07-19T02:00:14-04:00",
+      "event": "evaluated",
+      "message": "Evaluator verdict: NEEDS_FIXES (2 minor findings, both one-line fixes; everything else verified). RULING - floor-vs-exact-count deviation RATIFIED: floor + zero-skip satisfies AC-015/V-018 intent. Reproduced by the evaluator on this tree: with probeLocalStack forced unavailable, plain npx vitest run exited 0 showing '428 passed | 227 skipped' (false green) while npm run ci:test exited 1 firing on the skip assertion (total=655 counts skipped tests, so it is the ZERO-SKIP check, not the floor, that catches an unavailable stack - as claimed). Floor half verified separately: hiding one UI test file left plain vitest green (485 passed, exit 0) and failed ci:test:ui on the floor (485 < 492, exit 1) - the jsdom 492->0 class is caught. local-stack.ts restored byte-identical (sha256 fdd7283f verified). BUT the stale backend floor (595 vs 655) demonstrably passes a single-file silent loss -> F-010-1. F-001-6 fix verified NOT weakened: with an `any` fixture on disk under src/server/lib/errors/, repo-wide npm run lint exit 0 AND npm run lint:path -- <fixture> (--no-ignore) exit 1 citing @typescript-eslint/no-explicit-any; however the **/*.tmp.ts ignore is broader than .gitignore outside src/server -> F-010-2. Gates re-run with directly captured exit codes: npm test 655/655 exit 0; ci:test 655>=595 0 skipped exit 0; ci:test:ui 492/492 exit 0; typecheck exit 0; lint exit 0; db:validate exit 0 (20 migrations, two clean resets, identical schema, snapshot match) and the full suite passed immediately after that reset with zero manual steps (V-110). NOT CREDITED (recorded limits): no real CI run is possible locally (checkout/npm ci/Docker-in-runner unproven); Node 22 unexercised (machine is v24.16.0) - AC-001 Node-22 clause stays open until the first real CI run. README 'Node.js 24+' contradiction with engines>=22/nodejs22.x assigned to T-042 docs as an obligation, not a T-010 finding."
+    },
+    {
+      "timestamp": "2026-07-19T12:15:00-04:00",
+      "event": "finding_resolved",
+      "message": "Orchestrator resolved F-010-1 and F-010-2. F-010-1 needed BOTH a floor bump and a new disk-vs-report cross-check: the orchestrator's first attempt added only the cross-check and the evaluator's exact scenario (file moved off disk) still passed, because a deleted file is not 'on disk but uncollected' - that is the floor's job. Both mechanisms verified independently. F-010-2 narrowed the eslint ignore to match .gitignore scope, verified in all three directions. Returned for iteration-1 re-review."
+    },
+    {
+      "timestamp": "2026-07-19T02:24:24-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator verdict: PASS at iteration 1. Both findings independently re-verified as resolved. F-010-1 all four scenarios reproduced first-hand with directly captured exit codes: baseline ci:test exit 0 (total=655 passed=655 skipped=0, floor 655); problem.test.ts moved off disk -> exit 1 attributed to the FLOOR ('collected only 634 tests, below the floor of 655') with the cross-check correctly silent; file restored sha256-identical (3a1dd449) then made present-but-uncollected via a temporary vitest exclude -> exit 1 attributed to the CROSS-CHECK, naming src/server/tests/unit/problem.test.ts (cross-check runs before the floor, so attribution is unambiguous); vitest.config.ts restored sha256-identical (d7d3a505). F-010-2 all three directions reproduced: any in api/mask-probe.tmp.ts -> repo-wide lint exit 1 citing @typescript-eslint/no-explicit-any (previously invisible); fixture under src/server/lib/errors/*.tmp.ts on disk -> repo-wide lint exit 0 (F-001-6 concurrency protection intact); lint:path --no-ignore on that fixture -> exit 1 (gate unweakened). DEFEAT ATTEMPTS ON THE CROSS-CHECK ALL FAILED: (a) the ui label does NOT no-op - excluding src/ui/src/api/client.test.ts from the UI vitest config made ci:test:ui exit 1 with the cross-check naming that exact file (resolve(options.cwd,'src') resolves correctly because npm always runs scripts from the repo root; ci.yml invokes only npm scripts), then src/ui/vite.config.ts restored sha256-identical (aa035906) and ci:test:ui baseline green 492/492 exit 0; (b) a legitimate test file added in a NESTED backend directory stayed green (exit 0, total=656 >= floor 655) - walker and vitest include remain in lockstep for subdirectories, no false red; probe removed; (c) backend *.test.tsx: walker matches it, backend include ('src/server/tests/{unit,integration}/**/*.test.ts') does not -> the cross-check would fire RED (fail-safe direction, not a false green; no jsx tests exist on the backend); (d) no *.spec.ts(x) files exist anywhere in src/server or src/ui/src, so the walker's .test-only regex has no live blind spot; (e) baseline green itself proves the Windows path normalization in the report-vs-disk comparison matches (a mismatch would have flagged all 42 files as missing). Regression gates, exit codes captured directly with no pipes on the exit path: npm test 42 files / 655 passed / 0 skipped exit 0; ci:test exit 0; ci:test:ui exit 0 (492/492); typecheck exit 0; lint exit 0; db:validate exit 0 (20 migrations, two clean resets, identical schema, snapshot match); ci:test re-run immediately after db:validate's destructive reset exit 0 with 0 skipped, proving the integration suites genuinely ran against the freshly reset stack with zero manual steps (V-110). RESIDUAL CONCERNS, ALL NOTES/OBLIGATIONS, NOT FINDINGS: a .test.ts file placed OUTSIDE the configured include roots (e.g. src/server/tests/foo.test.ts or a domain dir) is neither collected nor walked - an authoring error outside the gate's contract (future-maintenance note); running assert-test-run.ts directly from a non-root cwd would mis-resolve the ui walker root and silently skip the cross-check - unreachable via npm scripts/ci.yml (note); STANDING LIMITS unchanged: no actual CI run possible locally (checkout/npm ci/Docker-in-runner unproven), Node 22 unexercised (machine v24.16.0) so AC-001's Node-22 clause stays open until the first real CI run, V-018's deliberate-failure-per-gate canaries are a first-real-run obligation, README 'Node.js 24+' is a T-042 docs obligation, and the api/v1 catch-all's fail-closed 500 wiring is a T-013/T-017 obligation. Supabase stack and legacy reference Postgres left running, healthy, seeded."
+    }
+  ]
+}

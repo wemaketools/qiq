@@ -1,0 +1,379 @@
+{
+  "id": "T-020",
+  "title": "Business rules (tenant settings) and business-assignment slots backend",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-017",
+    "T-019"
+  ],
+  "objective": "Port the tenant business-rules API (high-value threshold, SLA targets, expiry/stall/aging/duplicate thresholds, ref formats, display currency, max attachment MB, pricing-approval gate) and the fixed two-slot business-assignments API (rm/underwriter, one role each) (P-04, section 12 Settings).",
+  "scope": [
+    "GET/PUT business rules endpoints per the reference contract (tenant-scoped, permission-bound, audited)",
+    "Validation: thresholds positive, SLA targets sane ranges, ref-format templates valid (tokens per reference), display currency ISO code, max attachment MB bounded, toggle types",
+    "Business assignments: GET/PUT the two fixed slots — each maps to exactly one role per tenant; no applies_to lists; assignment changes audited",
+    "Settings consumed downstream (leads/quotes/jobs) exposed through a typed settings reader service",
+    "GET /settings/business-assignments/eligible-users and /eligible-approvers (the picker reads the two slots drive) - SCOPE AMENDMENT 2026-07-20 by the orchestrator, closing a planning gap T-020 itself surfaced: BusinessAssignmentEndpoints.cs maps FOUR routes and the task captured only the two slot-config ones. The other two appeared in neither scope nor out_of_scope, no other task file mentions them, and the SPA calls both (leadsApi.ts:394,549,559 via AssigneeSelect and BulkReassignDialog), so the leads Assign dialog would 404 in production. Permission rationale mirrors the picker-read precedent already ratified for reference-data and brokers: the config read/write is Manage-gated while the picker read is deliberately wider, per the endpoint file header.",
+    "GET /settings/business-assignments/eligible-users (assignmentId + optional search) and GET /settings/business-assignments/eligible-approvers (optional search) - the two picker routes of the same endpoint group, amended into T-020 by the orchestrator on 2026-07-19 after the first pass flagged them as unowned"
+  ],
+  "out_of_scope": [
+    "Reference-data lists (T-019)",
+    "UI (exists; unchanged)",
+    "Consumers of the rules (leads/workflow/jobs tasks) - EXCEPT the two eligible-* picker routes, which were amended into scope 2026-07-19"
+  ],
+  "implementation_details": [
+    "Mirror .NET BusinessRules and BusinessAssignments endpoints (paths, DTO field names).",
+    "business_assignments: slot column constrained rm|underwriter (T-004); PUT validates the role exists, is active, and belongs to the tenant scope; accountable owner = rm slot semantics preserved for workflow (P-07).",
+    "Settings reader: getTenantSettings(db, tenantId) typed accessor with defaults per reference; no in-memory cross-request caching (N-02).",
+    "Ref-format templates validated with the same token grammar the lead-ref generator uses (shared module with T-024's generator).",
+    "Audit before/after on every settings change."
+  ],
+  "files": [
+    "src/server/domains/business-rules/reference-format.ts",
+    "src/server/domains/business-rules/errors.ts",
+    "src/server/domains/business-rules/schemas.ts",
+    "src/server/domains/business-rules/repository.ts",
+    "src/server/domains/business-rules/service.ts",
+    "src/server/domains/business-rules/routes.ts",
+    "src/server/domains/business-rules/index.ts",
+    "src/server/domains/assignments/errors.ts",
+    "src/server/domains/assignments/schemas.ts",
+    "src/server/domains/assignments/repository.ts",
+    "src/server/domains/assignments/service.ts",
+    "src/server/domains/assignments/routes.ts",
+    "src/server/domains/assignments/index.ts",
+    "src/server/lib/router/app.ts (SHARED: two new slots + route registration)",
+    "api/v1/[[...segments]].ts (SHARED: wiring)",
+    "scripts/dev/serve-api.ts (SHARED: wiring)",
+    "src/server/tests/unit/reference-format.test.ts",
+    "src/server/tests/integration/business-rules.test.ts",
+    "src/server/tests/integration/business-assignments.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts (SHARED: two new it.each pins)",
+    "src/server/domains/assignments/eligible-repository.ts (NEW - the reverse role/permission lookup)"
+  ],
+  "test_plan": {
+    "unit": [
+      "Ref-format template grammar validation cases",
+      "Settings defaults resolution (missing row -> defaults) as pure logic if extracted"
+    ],
+    "integration": [
+      "GET/PUT roundtrip with validation failures (negative threshold, bad currency, oversized attachment cap) -> 422 with reference codes",
+      "Slot PUT: assigning a role to rm and underwriter slots works; second role in one slot rejected; cross-tenant role rejected; audit rows written",
+      "Tenant isolation + permission matrix on both endpoints"
+    ],
+    "e2e": [
+      "Settings business-rules spec adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-024",
+    "AC-037",
+    "AC-038"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-031",
+    "V-048",
+    "V-049"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-04 (business rules + assignment slots), memory note on fixed slots, P-13."
+    },
+    {
+      "timestamp": "2026-07-19T12:00:00-04:00",
+      "event": "implemented",
+      "message": "T-020 implemented test-first. Business rules (GET/PUT /settings/business-rules) and the two fixed business-assignment slots (GET/PUT /settings/business-assignments): tenant-scoped with app-layer-only isolation, permission-bound, and audited in the same transaction as the change. Shared {YYYY}/{SEQ:n} reference-format grammar module exported for T-024. 109 tests added; 13 mutations, all proven applied, all caught, all restored byte-identical. typecheck / lint / db:types:check clean; db:validate inconclusive under cross-task DB concurrency (no SQL changed)."
+    },
+    {
+      "timestamp": "2026-07-20T14:10:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator amended scope to add the two eligible-* picker endpoints and returned the task to the implementor BEFORE evaluation, rather than filing a new task. Rationale: they live in the same .NET endpoint group, the same domain module already exists, and T-020 has not been evaluated yet - so there is no PASS to reopen and no artificial task boundary through one endpoint group. The gap was found by the implementor grepping every task file for an owner rather than assuming its brief was complete, which is the behaviour that caught it."
+    },
+    {
+      "timestamp": "2026-07-19T13:00:00-04:00",
+      "event": "scope amended and implemented",
+      "message": "Orchestrator amended GET /settings/business-assignments/eligible-users and /eligible-approvers into T-020. Both implemented test-first with a new eligible-repository.ts porting EligibleAssigneeReader's reverse role/permission lookup. Measured: both routes are membership-only (no RequirePermission at BusinessAssignmentEndpoints.cs:36-37), pinned from both directions incl. a reverse over-gating mutation; DTO is a bare array of {userId,firstName,lastName,email} with no pagination envelope. Corrected a first-pass error: BUSINESS_ASSIGNMENTS_NOT_FOUND is NOT dead - GetEligibleAssigneesQueryHandler.cs:28-32 emits it, and it is a tenant-isolation boundary. 31 new tests (140 total for T-020); 9 new mutations, 8 caught, 1 recorded as an equivalent mutant with a replacement that is caught. All gates green incl. db:validate exit 0 serially; --min-tests floor raised 1247 -> 1278."
+    },
+    {
+      "timestamp": "2026-07-19T13:15:00-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator PASS at iteration 0/10, no findings. BASELINE INDEPENDENTLY REPRODUCED (all serial): npm test 66 files / 1278 passed / 0 skipped exit 0; typecheck 0 RUN AFTER the full suite; lint 0; db:types:check 0; db:validate 0 (22 migrations from empty twice, no drift, snapshot match); ci:test floor 1278 confirmed against package.json --min-tests and the observed 1278. RULING 1 (test-first deviation, disclosed unprompted): M14 ACCEPTED as sufficient evidence; the 31 amendment tests need NOT be re-derived. The point of a red-first cycle is proving the tests can fail for the right reason, and M14 reproduces the exact pre-implementation state (route unregistered). Evaluator re-ran it first-hand: application proven (mutated path present 1 / original 0, md5 delta), 18 failed / 49 passed, restored byte-identical (md5 2c976cbf). The 13 tests M14 does not redden are the eligible-approvers set, whose falsifiability is inherent (they assert 200s and member inclusion against the live route; an unregistered route 404s them all). M21 also re-run first-hand: over-gating eligible-users kills exactly 'is MEMBERSHIP-ONLY: a member with no business-assignments grant gets 200' (1 failed / 66 passed); M15 re-run first-hand: dropping the user_tenants membership narrowing kills exactly the isolation test. All restores md5-verified byte-identical. RULING 2 (membership-only eligible-* routes): CONFIRMED against the reference route table read first-hand - BusinessAssignmentEndpoints.cs:34-37 is the whole table, only :35 (PUT) carries RequirePermission, and the :14-26 header records the 2026-07-13 gate removal with rationale. The pin is two-directional by construction and by the reproduced M21. RULING 3 (M20 equivalent mutant): CONFIRMED EQUIVALENT analytically - the pattern is built from search.trim() (eligible-repository.ts:96), so with the guard gone a whitespace-only term yields '%%'; users.first_name/last_name/email are all NOT NULL (users migration :52-54), so ILIKE '%%' matches every candidate row - behaviourally identical to no filter. M20b covers the load-bearing .trim() and its killing test ('trims the search term before matching') exists at business-assignments.test.ts:1009. RULING 4 (retracted claim): CONFIRMED - BUSINESS_ASSIGNMENTS_NOT_FOUND IS emitted at GetEligibleAssigneesQueryHandler.cs:28-32, and because the port resolves the slot from tenant-scoped listSlots first (service.ts:213-215), another tenant's assignmentId yields the SAME 404 as a nonexistent one - a genuine tenant-isolation boundary, pinned by two tests. RULING 5 (missing tenant_settings row THROWS, contradicting the task file's test_plan wording): CORRECT AND ACCEPTED - TenantSettingsProvider.cs:25-26 throws identically, and a defaults fallback would let a tenant whose provisioning silently failed run on thresholds different from what its (404ing) Settings screen reports. The task-file wording was guidance, not an acceptance criterion; AC-037 does not mandate a fallback; deviation was flagged, not silent. RULING 6 (int32-ceiling 422): CONFIRMED SAFE - every capped field maps to an integer column (tenant_settings migration :46-73) on which the reference 500'd above the ceiling, so nothing that previously fully succeeded now fails; highValueThreshold (numeric 18,2) is correctly NOT capped. Ledger entry at T-043/T-044 stands. Tests judged meaningful: per-branch fixture users for all grant paths, both gating directions, cross-tenant checks throughout, audit before/after content asserted. auth-wiring pins for businessRules and assignments slots present per the F-016-3 convention. RESIDUAL OBLIGATIONS UNCHANGED: AC-037/V-048 behavioural half lands with T-024+ consumers; AC-038/V-049 slot-consumption half lands with the leads assign operation; e2e at T-043; AC-095 deviation ledger entries (int32 ceiling, eligible-users 400-not-422 binding)."
+    },
+    {
+      "timestamp": "2026-07-19T20:20:00-04:00",
+      "event": "record_migrated",
+      "message": "Schema conformance (CLAUDE.md: all generated JSON must conform to .claude/schemas/). These blocks were written by the implementor/evaluator as TOP-LEVEL keys the task schema does not allow. They are substantive audit records, so they are PRESERVED VERBATIM here rather than deleted. Moved: corrections_to_first_pass, eligible_endpoints_measured_facts, flagged_for_orchestrator, mutation_testing, notes, reference_parity_notes, test_results.",
+      "migrated_top_level": {
+        "test_results": {
+          "tests_added": 140,
+          "breakdown": {
+            "unit/reference-format.test.ts": 26,
+            "integration/business-rules.test.ts": 43,
+            "integration/business-assignments.test.ts": "67 (36 slot-config + 31 eligible-picker)",
+            "integration/auth-wiring.test.ts": "+4 (2 new it.each pins x 2 composition roots); file total 22 -> 26"
+          },
+          "gates": [
+            {
+              "command": "npx vitest run --project unit src/server/tests/unit/reference-format.test.ts",
+              "exit_code": 0,
+              "result": "26 passed"
+            },
+            {
+              "command": "npx vitest run --project integration <business-rules + business-assignments + auth-wiring>",
+              "exit_code": 0,
+              "result": "136 passed (3 files), re-verified AFTER the db:validate reset"
+            },
+            {
+              "command": "npm test",
+              "exit_code": 0,
+              "result": "66 files, 1278 passed, 0 failed, 0 skipped - fully green now that T-021/T-023 have landed and the run is serial"
+            },
+            {
+              "command": "npm run typecheck",
+              "exit_code": 0,
+              "result": "clean (run AFTER npm test)"
+            },
+            {
+              "command": "npm run lint",
+              "exit_code": 0,
+              "result": "clean"
+            },
+            {
+              "command": "npm run db:types:check",
+              "exit_code": 0,
+              "result": "generated DB types up to date"
+            },
+            {
+              "command": "npm run ci:test",
+              "exit_code": 0,
+              "result": "total=1278 passed=1278 failed=0 skipped=0; OK against the new floor of 1278"
+            },
+            {
+              "command": "npm run db:validate",
+              "exit_code": 0,
+              "result": "RUN LAST AND SERIALLY: 22 migrations apply from empty twice, both resets identical, matches the checked-in snapshot. Confirms the earlier exit-1 was the concurrency artifact - the clean dump is 2380 lines, which was the 'actual' side of the earlier mismatch, so the 3936-line side was the one polluted by the parallel tasks' per-tenant partitions."
+            }
+          ],
+          "min_tests_floor": {
+            "previous": 1247,
+            "set_to": 1278,
+            "verified_by": "npm run ci:test exit 0 - total=1278 passed=1278 failed=0 skipped=0",
+            "note": "Raised only because T-020 is the sole running task, per the orchestrator's explicit authorisation."
+          }
+        },
+        "mutation_testing": {
+          "method": "Every mutation was PROVEN APPLIED before its result was trusted: semantic grep for the mutated text (present) AND the original text (absent) AND an md5 delta. A line-count delta was used ONLY for the four deleted wiring lines, where it is a valid proof for a deletion. Every mutation was restored and re-verified byte-identical by md5.",
+          "mutations": [
+            {
+              "id": "M1",
+              "target": "business-rules/repository.ts findSettings: forTenant -> raw executor",
+              "proof": "semantic grep (mutated present, original absent) + md5 delta",
+              "result": "RED - 4 tests, incl. 'serves each tenant its own values' and 'scopes the settings reader by tenant'",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M2",
+              "target": "business-rules/repository.ts updateSettings: forTenant -> raw executor",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 3 tests; the byte-for-byte stored-row check caught tenant A's write rewriting tenant B's stalled_quote_days 11 -> 21. NOTE: the first harness run misreported this as '43 skipped' from an output-capture bug; re-run with file capture gave the real RED. The misreport was investigated rather than trusted.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M3",
+              "target": "business-rules/routes.ts requirePermission manage -> view (the code the control user actually holds)",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 34 tests",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M4",
+              "target": "BUSINESS_RULES_VALIDATION_FAILED constant -> 'VALIDATION_FAILED' (error CODE only; status stays 422)",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 11 tests. Confirms the suite asserts CODES and MESSAGES, not just status - the exact gap called out for this session.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M5",
+              "target": "business-rules/schemas.ts amber<red cross-field rule disabled",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 1 test",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M6",
+              "target": "assignments/schemas.ts .strict() removed (a third slot key would be silently stripped and answered 200)",
+              "proof": "semantic grep + md5 delta; the FIRST attempt PROOF-FAILED on a wrong regex and was reported MEANINGLESS rather than as a pass, then retried correctly",
+              "result": "RED - 'rejects a third slot, offered as an extra key (AC-038)'",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M7",
+              "target": "assignments/service.ts role tenant-confinement clause -> true",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - \"rejects another tenant's role with ROLE_INVALID and stores nothing\"",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M8",
+              "target": "assignments/repository.ts hasLiveAssignments: forTenant scope -> raw executor",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - \"does not let another tenant's assignee block a slot clear\"",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M9",
+              "target": "assignments/service.ts 409 in-use guard bypassed",
+              "proof": "semantic grep + md5 delta; first attempt PROOF-FAILED on a non-MULTILINE regex and was reported MEANINGLESS, then retried",
+              "result": "RED - both the LEAD-assignee and QUOTE-assignee in-use tests",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M10-M13",
+              "target": "the four buildApp wiring lines (businessRules + assignments, x api/v1/[[...segments]].ts + scripts/dev/serve-api.ts), deleted one at a time",
+              "proof": "line-count delta of exactly 1 AND text absent - a valid proof for a DELETED line",
+              "result": "each deletion turned EXACTLY ONE test red, and it was the matching new pin naming the correct root",
+              "restored": "all four byte-identical"
+            },
+            {
+              "id": "M14",
+              "target": "assignments/routes.ts - eligible-users route path renamed so it is effectively unregistered (reproduces the PRE-implementation state)",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 18 tests. This is what establishes the 31 new tests are not vacuous: I appended the tests and implemented before observing a red run, so this mutation supplies the missing evidence that they genuinely exercise the new routes.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M15",
+              "target": "eligible-repository.ts - user_tenants membership narrowing removed",
+              "proof": "semantic grep + md5 delta; the FIRST attempt PROOF-FAILED because the anchor omitted an intervening comment line and was reported MEANINGLESS, then retried with the comment included",
+              "result": "RED - 'excludes a role holder who is NOT a member of this tenant (isolation)'. The highest-stakes mutation in this batch: without that predicate the Assign dialog of tenant A offers a member of tenant B as the accountable owner of tenant A's leads.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M16",
+              "target": "eligible-repository.ts - users.is_active filter removed",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 'excludes a DEACTIVATED user who holds the role'",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M17",
+              "target": "assignments/service.ts - slot resolved by id alone instead of from the tenant-scoped listSlots",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - \"answers 404 for ANOTHER TENANT's assignment id, not that tenant's users\". Without it the endpoint becomes a cross-tenant member enumerator driven by guessing slot ids.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M18",
+              "target": "eligible-repository.ts - via-group branch of the ROLE candidate union dropped",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 2 tests, incl. 'includes users holding the slot role VIA AN ACTIVE GROUP'",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M19",
+              "target": "eligible-repository.ts - group-permission branch of the APPROVER union dropped",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 'includes a user holding pricing.approve via a GROUP carrying the permission DIRECTLY'. Each of the four union branches has its own fixture precisely so a dropped branch cannot hide behind a user who holds the permission two ways.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M20",
+              "target": "eligible-repository.ts - IsNullOrWhiteSpace guard on the search term removed",
+              "proof": "semantic grep + md5 delta",
+              "result": "GREEN - NOT CAUGHT, and INVESTIGATED RATHER THAN RECORDED AS A GAP OR A PASS. It is an EQUIVALENT MUTANT: with the guard gone the pattern is still built from `search.trim()`, so a whitespace-only term becomes '%%', which matches everything - behaviourally identical to applying no filter. The guard is a cost optimisation, not a behaviour. The load-bearing part is the .trim() itself, which M20b mutates instead.",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M20b",
+              "target": "eligible-repository.ts - .trim() removed from the ILIKE pattern construction",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 'trims the search term before matching' ('  Dinah  ' becomes '%  Dinah  %' and matches nothing)",
+              "restored": "byte-identical"
+            },
+            {
+              "id": "M21",
+              "target": "assignments/routes.ts - requirePermission('business_assignments.manage') wrongly ADDED to eligible-users",
+              "proof": "semantic grep + md5 delta",
+              "result": "RED - 'is MEMBERSHIP-ONLY: a member with no business-assignments grant gets 200'. The REVERSE direction of the permission pin, reproducing the exact 2026-07-13 regression the reference recorded; it means the pin cannot be satisfied by over-gating any more than by under-gating.",
+              "restored": "byte-identical"
+            }
+          ]
+        },
+        "notes": [
+          "PERMISSIONS MEASURED, NOT ASSUMED: GET on both endpoints is MEMBERSHIP-ONLY; only the PUTs are gated (business_rules.manage / business_assignments.manage). BusinessRuleEndpoints.cs:13-22 and BusinessAssignmentEndpoints.cs:14-25 both record that the GET gate was REMOVED on 2026-07-13 because it 403'd the lead form, aging badges and the Assign dialog for every non-admin role. Re-adding it would re-break those, so each suite pins a plain member's 200 on GET beside their 403 on PUT.",
+          "T-016 CONTRACT EXTENDED, NOT CONTRADICTED: tenants/service.ts provisions the tenant_settings row from column defaults only. This task reads and updates that same row and never creates one - a missing row stays a 404 (BUSINESS_RULES_NOT_FOUND), matching the reference, which calls it a provisioning alarm rather than a caller error. The suite provisions its fixture tenants exactly as tenants/service.ts does, so the defaults assertion tests the MIGRATION rather than the fixture.",
+          "MISSING-ROW SEMANTICS DIVERGE FROM THE TASK FILE'S WORDING, DELIBERATELY: test_plan.unit suggested 'missing row -> defaults'. The reference (TenantSettingsProvider.cs:24-25) THROWS instead, and that is what getTenantSettings does. A defaults fallback would let a tenant whose provisioning silently failed keep running on different thresholds from the ones its Settings screen reports (which 404s) - a data-correctness bug wearing a working system's clothes. DEFAULT_TENANT_SETTINGS is exported and asserted against a real provisioned row, but deliberately NOT wired as a fallback. FLAGGED as a decision made without explicit guidance.",
+          "SETTINGS READER DOES NO CROSS-REQUEST CACHING (N-02): the reference cached per request scope, which has no Vercel equivalent - a module-level cache would outlive the request on a warm function instance and serve one tenant's thresholds to the next.",
+          "SHARED REFERENCE-FORMAT GRAMMAR: business-rules/reference-format.ts is the single module for the {YYYY}/{SEQ:n} template grammar, exported for T-024's lead/quote reference generator. The validator and the renderer MUST agree - a template accepted at settings-save time but unrenderable would fail at every subsequent lead insert, surfacing in a different feature from the one that caused it. The unit suite renders every template it accepts, for exactly that reason.",
+          "TEST-FIRST DEVIATION, DISCLOSED: for the two eligible routes I appended the 31 tests before writing the implementation, but did not observe a RED run in between - the first execution after implementing was already green. Mutation M14 (unregistering the eligible-users route, which reproduces the pre-implementation state) supplies the missing evidence: it turns 18 of them red. Recording this rather than claiming a red-green cycle I did not watch.",
+          "The eligible reader canNOT use forTenant(): users, user_roles, user_permissions, user_groups, group_members, group_roles and group_permissions are global/unpartitioned. Four carry a NULLABLE tenant_id (a grant may be global or tenant-scoped) and three carry none at all - group_roles and group_permissions inherit tenant scope from the owning group, so their predicate is written against user_groups.tenant_id. Every predicate is therefore explicit, exactly as rbac/admin-repository.ts documents, and with RLS not adopted (spec Q-10) there is nothing beneath them. M15 and M17 are the tests that make that safe rather than merely intended."
+        ],
+        "flagged_for_orchestrator": [
+          "RESOLVED 2026-07-19 (was: ownership gap): the orchestrator amended eligible-users and eligible-approvers into T-020's scope rather than filing a separate task. Both are now implemented, tested and mutation-verified. The leads Assign dialog and the pricing-approval approver picker have backing endpoints.",
+          "RESOLVED 2026-07-19 (was: confirm the int32-ceiling hardening): CONFIRMED ACCEPTABLE by the orchestrator - the reference accepted those values and then 500'd in Postgres, so nothing that previously succeeded now fails, and a 422 is the correct typed error. TO BE RECORDED IN THE AC-095 DEVIATION LEDGER AT T-043/T-044 as a deliberate divergence.",
+          "RESOLVED 2026-07-19 (was: db:validate inconclusive): re-run serially, exit 0 - migrations apply from empty twice, both resets identical, snapshot matches. The clean dump is 2380 lines, which was the 'actual' side of the earlier mismatch, confirming the 3936-line side was polluted by the parallel tasks' per-tenant partitions and that 'inconclusive, not a pass' was the right call.",
+          "RESOLVED 2026-07-19 (was: 3 job-endpoints failures): the full suite is now 66 files / 1278 passed / 0 failed / 0 skipped on a serial run. Those failures were pgmq queue-state contention, as reported.",
+          "STILL OPEN - AC-037 / V-048 BEHAVIOURAL HALF: V-048 asks that changing a rule observably changes behaviour in the governed feature (high-value flagging, upload rejection boundary, pricing-gate legality, SLA/alert outcomes, rendered lead refs). Those consumers still do not exist. T-020 pins the half it owns; the behavioural assertions must land with T-024+ against these same settings.",
+          "STILL OPEN - AC-038 / V-049 SLOT-CONSUMPTION HALF: 'the assign/reassign operation resolves eligible users from these slots' needs POST /leads/{id}/operations/assign. T-020 now supplies the ELIGIBILITY half that operation will consume (getEligibleAssignees resolves by slot), but the operation itself is still a leads/workflow task. The seam is exported from domains/assignments/index.ts so that task does not need to re-derive it.",
+          "NOTE FOR THE EVALUATOR - one equivalent mutant is recorded honestly as GREEN (M20). It is not a test gap: dropping the IsNullOrWhiteSpace guard leaves the pattern built from search.trim(), so a blank term becomes '%%' and matches everything, which is what 'no filter' means. M20b mutates the load-bearing .trim() instead and is caught."
+        ],
+        "reference_parity_notes": [
+          "ReferenceFormatTemplate's doc comment says a template must contain EXACTLY ONE {SEQ:n} token; its CODE uses Any(...) (at least one). The CODE is preserved as the contract - tightening it would 422 a template a tenant may already have stored. Pinned by a unit test.",
+          "BUSINESS_ASSIGNMENTS_NOT_FOUND (404) is declared by the reference mapper but emitted by NO handler: an unconfigured slot is null, not an error, and that is the normal state of every freshly created tenant. The constant is exported for documentation but has no constructor, so no handler can start emitting a 404 the SPA has never had to handle.",
+          "Currency validation is SHAPE-ONLY (three uppercase letters), not the ISO-4217 registry - the reference validator's own comment calls this an explicit scope boundary. 'ZZZ' is accepted by both; a test pins it so a later 'improvement' cannot silently reject codes an existing tenant already stores.",
+          "tenant_settings.expire_lead_when_last_quote_expires is NOT on the wire (the reference DTO omits it and the write shape does not accept it). It is exposed only to server-side consumers through getTenantSettings, whose return type is deliberately separate from BusinessRulesDto so a consumer cannot reach it by widening the wire DTO.",
+          "Unknown body keys: STRIPPED on business-rules (C# record binding ignores them, and there is nothing to smuggle since the update writes 21 named columns) but REJECTED on business-assignments (there an unknown key IS the attempted third slot, and stripping it would answer 200 to a request that did nothing). The asymmetry is deliberate and documented in both schema files.",
+          "toBusinessRulesDto is an EXPLICIT 21-field projection rather than a spread-with-omit, so a column added by a later migration cannot silently widen the wire contract (spec A-3).",
+          "A missing X-Tenant-Id answers 403 with the uniform denial message, not 400 - the tenancy middleware makes missing/malformed/nonexistent/non-member indistinguishable to prevent tenant enumeration. Measured, after an initial assumption of 400 was proven wrong by a failing test.",
+          "Audit entity_id is the TENANT ID on both endpoints (matching the reference): there is exactly one settings row per tenant, and a slot replace may create, update and delete rows at once, so the tenant is the identity of the changed configuration.",
+          "Both mutations audit inside the SAME transaction as the write, which is strictly stronger than the reference (it wrote the audit row after SaveChangesAsync, so a crash in between changed a tenant's SLA targets - or repointed who owns every lead - with no record of who did it).",
+          "PORTED ASYMMETRY, FLAGGED: GetUsersHoldingRoleAsync does NOT check the role's own is_active (EligibleAssigneeReader.cs:28-40), while GetUsersHoldingPermissionAsync checks r.IsActive on every path (:57,:70). So a role deactivated AFTER being configured into a slot still yields its holders in the picker. Only reachable by deactivating an already-slotted role (the slot PUT rejects inactive roles). Preserved rather than silently tightened - tightening it would empty a tenant's Assign dialog with no error to explain why. Documented in eligible-repository.ts.",
+          "The reference's `.Distinct()` (:112) is a no-op in the ported query shape, because the candidate set is applied as an `IN (subquery)` rather than a JOIN, which cannot duplicate a users row. Deliberately not reproduced as a keyword; instead the OUTCOME ('returns each eligible user ONCE when several grant paths apply') is pinned by a test for both routes, so a future rewrite that reintroduces a join must keep it true.",
+          "`%` and `_` inside a search term keep their LIKE-wildcard meaning, exactly as the reference's `$\"%{search.Trim()}%\"` did. Preserved quirk, not an injection risk - the term is a bound parameter throughout.",
+          "eligible-users answers 400 (not 422, not 404) for a missing or unparseable assignmentId, because `long assignmentId` is a REQUIRED minimal-API query binding and fails model binding before the handler runs. Deliberately not routed through the domain's *_VALIDATION_FAILED mapper, which would report the wrong class of failure."
+        ],
+        "eligible_endpoints_measured_facts": {
+          "permission_gating": {
+            "measurement": "BusinessAssignmentEndpoints.cs:34-37 is the whole route table. :35 (the PUT) carries `.RequirePermission(PermissionCatalog.BusinessAssignments.Manage)`. :34 (config GET), :36 (eligible-users) and :37 (eligible-approvers) carry NO RequirePermission at all.",
+            "conclusion": "Both picker routes are TENANT-MEMBERSHIP-ONLY. This is the route table's plain text, not an inference from route names.",
+            "rationale_in_source": "BusinessAssignmentEndpoints.cs:14-25 records that the reads were gated by `business_assignments.view` (a Settings-admin permission) until 2026-07-13, when the gate was removed because it 403'd the Owner filter and the Assign dialog for every leads user.",
+            "pinned_both_directions": [
+              "ALLOWED: a tenant member holding NO business-assignments grant gets 200 on both routes",
+              "REFUSED: a non-member of the named tenant gets 403 on both routes",
+              "REFUSED: an anonymous caller gets 401; a caller with no X-Tenant-Id gets 403",
+              "REVERSE MUTATION M21: ADDING requirePermission to eligible-users turns the 200 test red, so the pin cannot be satisfied by over-gating either"
+            ]
+          },
+          "dto_shape": {
+            "measurement": "EligibleAssigneeDto.cs:6 - `EligibleAssigneeDto(long UserId, string FirstName, string LastName, string Email)`; returned via `Results.Ok(result.Value)` where the value is `IReadOnlyList<EligibleAssigneeDto>` (BusinessAssignmentEndpoints.cs:71,80).",
+            "wire_shape": "a BARE JSON ARRAY of {userId, firstName, lastName, email}",
+            "total_vs_totalCount": "NEITHER APPLIES: these two routes have no pagination envelope of any kind, so there is no total/totalCount field to get wrong. Checked specifically because the orchestrator warned that two other tasks had a task-file/contract mismatch on that field name.",
+            "spa_agreement": "settingsApi.ts:166-171 (EligibleAssigneeApiDto) and leadsApi.ts:549,559 both declare the same bare array - both ends measured, and they agree.",
+            "query_params": "eligible-users: `assignmentId` (REQUIRED long) + `search` (optional). eligible-approvers: `search` only. Confirmed against the SPA's URLSearchParams construction at leadsApi.ts:387-390, 540-548, 556-559."
+          },
+          "what_eligible_means": {
+            "eligible_users": "GetEligibleAssigneesQueryHandler.cs:26-35 resolves the assignmentId within THIS TENANT's slot rows, then calls GetUsersHoldingRoleAsync(slot.RoleId, tenantId, search). Candidate paths (EligibleAssigneeReader.cs:28-40): (a) direct user_roles with tenant_id null-or-matching; (b) via an ACTIVE group's group_roles, tenant scope taken from user_groups.tenant_id since group_roles has no tenant_id column.",
+            "eligible_approvers": "GetEligibleApproversQueryHandler.cs:24-25 calls GetUsersHoldingPermissionAsync(PermissionCatalog.Pricing.Approve, ...). FOUR candidate paths (EligibleAssigneeReader.cs:46-79): direct user_permissions; via a role's role_permissions; via a group's role's role_permissions; via group_permissions directly. Each of the four has its own fixture user and its own test.",
+            "picked_by_permission_not_slot": "GetEligibleApproversQuery.cs:9-11 states approvers are picked by permission BECAUSE pricing approval is not itself an assignable slot role - so the approver list must not depend on slot configuration. Pinned by a test that clears both slots and still expects the approver.",
+            "common_narrowing": "ResolveEligibleUsersAsync (:86-116): users.is_active = true; membership in user_tenants for the requested tenant; optional ILIKE '%term%' over first_name/last_name/email; ORDER BY first_name, last_name.",
+            "active_only": "YES for users (u.IsActive, :96) and for GROUPS (g.IsActive on every group path). See the ported-asymmetry note below for ROLES."
+          }
+        },
+        "corrections_to_first_pass": [
+          {
+            "what": "T-020's first pass recorded BUSINESS_ASSIGNMENTS_NOT_FOUND as 'dead in the reference - declared by the mapper but emitted by no handler', and errors.ts deliberately shipped no constructor for it.",
+            "why_it_was_wrong": "The claim was true of the two CONFIG handlers I had measured, but NOT of the endpoint group as a whole: GetEligibleAssigneesQueryHandler.cs:28-32 emits it when the requested assignmentId is not one of this tenant's slot rows. The error was one of SCOPE - I generalised 'no handler I read emits this' into 'no handler emits this'.",
+            "fix": "errors.ts header rewritten with the correction called out explicitly, the constant's doc comment corrected, and businessAssignmentNotFoundError() added. Two tests now pin the 404 (unknown id, and another tenant's id).",
+            "wider_lesson": "It also turned out to be a tenant-isolation boundary rather than a mere lookup miss, which is exactly the kind of thing a 'this code is dead' note can bury."
+          }
+        ]
+      }
+    }
+  ]
+}

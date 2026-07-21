@@ -1,0 +1,135 @@
+{
+  "id": "T-035",
+  "title": "Metric definitions module and dashboard framework: shared filters, drill endpoint, currency formatting data",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-026"
+  ],
+  "objective": "Port the single-place metric-definitions module (conversion = won / decided quotes, quote-based Quote-to-Proposal denominator, executive escalation rule, all KPI formulas) plus the shared dashboard plumbing: tenant-scoped filter parsing (date range, product line, cover type, broker, RM/team, broker type, region, client type, segment, industry, statuses, aging bucket, SLA status, lost reason), the drill-through endpoint, and generatedAt/display-currency payload conventions (P-10 foundations).",
+  "scope": [
+    "domains/dashboards/metrics: pure TS metric definitions ported verbatim with shared test fixtures reusable by SQL aggregation tests (P-10 requirement)",
+    "Filter model: zod schema for the shared dashboard filter params (exact param names from the reference API); translation to Kysely query predicates via a shared filter-applier",
+    "Drill-through endpoint: given a metric/segment context + filters, returns underlying records per reference contract",
+    "Payload conventions: generatedAt timestamp, tenant display-currency metadata, direction-aware delta computation helpers",
+    "Framework consumed by T-036/T-037 dashboard endpoints"
+  ],
+  "out_of_scope": [
+    "The five dashboard endpoints themselves (T-036/T-037)",
+    "Dashboard UI (exists; unchanged — client-side filter persistence stays client-side)",
+    "Exports (T-039)"
+  ],
+  "implementation_details": [
+    "Port MetricDefinitions and ExecutiveEscalationRule from .NET as pure functions; formulas isolated per project convention (memory: isolate formulas); documented semantics tests shared as fixture files (JSON) that both unit tests and SQL integration tests assert against (spec P-10).",
+    "Filter applier: single module mapping each filter to tenant-safe SQL predicates; reused by dashboards, drill, and exports to guarantee filter correctness parity (P-12).",
+    "Aging buckets/SLA status derivations query-computed per section 11; define the canonical SQL fragments here.",
+    "Delta helpers: direction-aware (higher-is-better vs lower-is-better) per reference dashboard behavior.",
+    "No N+1: aggregation queries designed set-based (N-04)."
+  ],
+  "files": [
+    "src/server/domains/dashboards/metrics/index.ts",
+    "src/server/domains/dashboards/metrics/fixtures/*.json",
+    "src/server/domains/dashboards/filters.ts",
+    "src/server/domains/dashboards/drill.routes.ts",
+    "src/server/domains/dashboards/drill.service.ts",
+    "src/server/domains/dashboards/payload.ts",
+    "src/server/tests/unit/metric-definitions.test.ts",
+    "src/server/tests/integration/dashboard-filters.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Every metric formula against shared fixtures (conversion, quote-to-proposal denominator, escalation rule, deltas); boundary cases (zero denominators)"
+    ],
+    "integration": [
+      "Filter applier: each filter dimension narrows fixture data correctly and is always tenant-predicated",
+      "Drill endpoint returns the exact underlying record sets for representative metric contexts; tenant isolation"
+    ],
+    "e2e": [
+      "Dashboard filter + drill behavior via adapted suite (T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-073",
+    "AC-074",
+    "AC-075",
+    "AC-076"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-091",
+    "V-092",
+    "V-093",
+    "V-095"
+  ],
+  "findings": [
+    {
+      "id": "F-035-1",
+      "severity": "major",
+      "summary": "AC-075/V-093 and the task scope name 15 dashboard filter dimensions; the .NET reference implements 8. The 8 measured ones are ported; the other 7 are NOT invented.",
+      "detail": "DashboardFilter.cs:9-17 is a closed record of From, To, ProductLineId, BrokerId, RmUserId, RegionId, TeamOrRmId, BrokerTypeId. All five dashboard endpoints bind exactly those eight query params (DashboardEndpoints.cs:42-43, 55-56, 68-69, 81-82, 94-95) and the drill binds the same eight plus widget/page/pageSize (:107-108). There is no coverTypeId, clientTypeId, segmentId, industryId, lead/quote statusId, agingBucket, slaStatus or lostReasonId on the dashboard wire, and the SPA sends none. Adding 7 speculative query params with no consumer would be unvalidatable surface. DECISION NEEDED from orchestrator: either accept the 8-dimension wire contract (and amend AC-075/V-093), or scope the 7 as a follow-up with per-dimension acceptance criteria. Documented in the header of src/server/domains/dashboards/filters.ts. EVALUATOR (2026-07-20): CLAIM VERIFIED FIRST-HAND in both the reference and src/ui — DashboardFilter.cs:9-17 is the closed record of eight; all five dashboard endpoints and the drill bind exactly those eight (drill adds widget/page/pageSize); and the SPA's dashboardsApi.ts builds queries from only from/to/productLineId/brokerId/rmUserId/regionId (plus the RM filter-bar variant's teamOrRmId/brokerTypeId) — none of coverTypeId/clientTypeId/segmentId/industryId/statusId/agingBucket/slaStatus/lostReasonId appears anywhere under src/ui/src/features/dashboards. RECOMMENDATION TO THE HUMAN: amend AC-075/V-093 to the eight measured dimensions (the fourth amendment of this false-premise class, consistent with the three prior rulings), recording explicitly that the other seven do not exist on the dashboard wire; if any of the seven is genuinely wanted, scope it as a NEW task with per-dimension acceptance criteria and a consumer — it is new surface, not a T-035 fix. This ruling directly shapes T-036/T-037, which should build on the eight-dimension filters.ts contract as-is. LEFT OPEN pending the human's ruling; this is a criteria defect, not an implementation defect, and does not block T-035. | RULED 2026-07-20 by the human: amend AC-075/V-093 to the eight measured dimensions (the evaluator's recommendation). The seven absent dimensions were never dropped requirements - they do not exist in the system being migrated, on either side of the wire. No code change; T-035 stays PASS. V-093 was STRENGTHENED rather than merely narrowed: it now requires each dimension to measurably change the result set by exact value or id-set, so a filter that is accepted and then ignored FAILS, adds a cross-tenant filter-id case, and pins the contract at exactly eight so a future task cannot silently widen it.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:15:00-04:00"
+    },
+    {
+      "id": "F-035-2",
+      "severity": "minor",
+      "summary": "Task scope names a generatedAt dashboard payload field that the reference never implemented; only currencyCode exists.",
+      "detail": "Every dashboard DTO carries CurrencyCode (ExecutiveOverviewDto.cs:77, PipelineDashboardDto.cs:103, BrokerPerformanceDto.cs:85, RmPerformanceDto.cs:110, LossAnalysisDto.cs:78). GeneratedAt appears ONLY on export/report-view metadata (ExportDocument.cs:33), never on a dashboard payload, and no UI code reads it. currencyPayload() is implemented; generatedAt is flagged rather than invented. Documented in src/server/domains/dashboards/payload.ts. EVALUATOR RULING (2026-07-20): verified first-hand — grep over the reference shows GeneratedAt only on ExportDocument.cs/report-view metadata and CurrencyCode on all five dashboard DTOs; no AC mentions generatedAt (the premise lives only in the task-scope wording). Not inventing an unconsumed wire field is correct. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:15:00-04:00"
+    },
+    {
+      "id": "F-035-3",
+      "severity": "major",
+      "summary": "There is no single canonical aging-bucket scheme. The reference has TWO incompatible ones; both are ported under distinct names rather than merged.",
+      "detail": "Executive Overview and the pipeline aging report use FOUR buckets ending at '15+ days' (GetExecutiveOverviewQueryHandler.cs:230-233, PipelineAgingReportQueryHandler.cs:50-53). The Pipeline dashboard uses SIX ending at '60+' (GetPipelineDashboardQueryHandler.cs:273-281). Different count, different labels, different final boundary. The task said to define 'the canonical SQL fragments' (singular); unifying them would silently change what two shipped dashboards report. Exported as EXECUTIVE_AGING_BUCKETS/executiveAgingBucket(Sql) and PIPELINE_AGING_BUCKETS/pipelineAgingBucket(Sql), pinned apart by unit test. T-036/T-037 must pick the right one per dashboard. EVALUATOR RULING (2026-07-20): both schemes verified first-hand in the reference (GetExecutiveOverviewQueryHandler.cs:228-234 four buckets ending '15+ days'; GetPipelineDashboardQueryHandler.cs:273-284 six buckets ending '60+'). Porting both under distinct names is the correct call; merging would have changed two shipped dashboards. The pins genuinely prevent conflation: the unit suite asserts the exact label arrays of BOTH schemes, per-boundary tables for both, and the fixture distribution under both, and the exported SQL fragments are asserted equal to the pure functions in the integration parity test — a future task unifying them fails multiple tests immediately. T-036/T-037 must use executive* for Executive Overview/aging report and pipeline* for the Pipeline dashboard. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:15:00-04:00"
+    },
+    {
+      "id": "F-035-4",
+      "severity": "minor",
+      "summary": "SLA status has no reference enum; it is derived from the RM-performance breach rule (avgTurnaround > slaTarget, strictly).",
+      "detail": "AC-073/V-091 name 'SLA status' as a metric. The reference has no SlaStatus type; the only SLA grading is GetRmPerformanceQueryHandler.cs:291, r.AvgTurnaroundDays.Value > slaTarget (STRICTLY greater). Ported as slaStatus() returning on_track|breached|unknown, with 'unknown' for a null turnaround (an RM who has sent no quotes has no measurement, and reporting them green would hide that nothing is moving). The unknown state is a documented addition, not measured. EVALUATOR RULING (2026-07-20): verified first-hand — grep finds no SlaStatus type anywhere in the reference; the only grading is GetRmPerformanceQueryHandler.cs:291's 'AvgTurnaroundDays is not null && AvgTurnaroundDays.Value > slaTarget' (STRICTLY greater, boundary pinned by test). The tri-state with 'unknown' for a null turnaround is a sound, documented, purely additive derivation — reporting an unmeasured RM as on_track would hide inactivity. Nothing reaches the wire until T-036/T-037 choose how to surface it. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:15:00-04:00"
+    },
+    {
+      "id": "F-035-5",
+      "severity": "minor",
+      "summary": "SIBLING-TASK FAILURE, NOT MINE: npm run lint fails on src/server/lib/storage/supabase-adapter.ts (T-027).",
+      "detail": "eslint reports 'CreateSignedUploadOptions is defined but never used' (@typescript-eslint/no-unused-vars) in src/server/lib/storage/supabase-adapter.ts:36, whose header says T-027. Not touched by this task and not fixed here. Lint over every file T-035 touched exits 0. Reported for the orchestrator to route to T-027. EVALUATOR (2026-07-20): T-027 removed the unused import (supabase-adapter.ts no longer imports CreateSignedUploadOptions); orchestrator's serial baseline sweep confirms repo-wide lint exit 0. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:15:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-10 metric isolation + filters + drill, N-04."
+    },
+    {
+      "timestamp": "2026-07-19T09:15:00-04:00",
+      "event": "note",
+      "message": "OBLIGATION INHERITED FROM T-008 (evaluator, iteration 5, categorised as consumer-side not a T-008 finding): the money-type pins guarantee that `numeric` columns are typed string (never number) throughout the Kysely schema, on Select/Insert/Update. That guarantee is bypassable from consumer code via raw `sql<number>` casts. When this task reads, aggregates or writes premium/threshold values, do NOT cast money to number - keep it string and do arithmetic in SQL (numeric) or with an explicit decimal-safe path. The T-008 pin cannot catch a cast written here. Background: this pin was defeated SIX times during T-008 (three vacuity axes, sampling, nullability mismatch, write-path), so treat money typing as a known-fragile area and assert it in this task's own tests."
+    },
+    {
+      "timestamp": "2026-07-19T23:15:00-04:00",
+      "event": "implemented",
+      "message": "TEST-FIRST: unit suite written and RED run observed (Cannot find module metrics/index.js) before any production code. FILES ADDED: domains/dashboards/{money.ts, metrics/index.ts, metrics/fixtures/{dashboard-metrics.json, executive-escalation.json, load.ts}, payload.ts, filters.ts, drill.service.ts, drill.routes.ts, index.ts}; tests/unit/metric-definitions.test.ts; tests/integration/dashboard-filters.test.ts. FILES EDITED (shared, wiring pass done last): lib/router/app.ts (dashboards slot + mount), api/v1/[[...segments]].ts, scripts/dev/serve-api.ts, tests/integration/auth-wiring.test.ts (new pin). NO MIGRATION ADDED; no schema change, so db:types:check not required. MEASURED VS ASSUMED: ported MetricDefinitions.cs (10 formulas verbatim, all zero-denominator nulls preserved), ExecutiveEscalationRule.cs, KpiValue.cs (IsFavorableDelta is TRI-STATE: a delta of 0 => null), DashboardPeriod.cs (prior month/quarter/custom), and the drill framework (DrillWidgetRegistry, GetDrillQueryHandler, LeadFilterDrillRowQuery, DrillResultDto). Drill envelope is totalCount (measured; matches every other list DTO). Query param is 'widget'; page/pageSize default 1/25. Missing widget => 400, unregistered widget => 404 with code UNKNOWN_WIDGET. Drill gated on leads.view (measured - the widget returns lead rows), breadth resolved SERVER-SIDE and applied in the query. Missing X-Tenant-Id is 403 not 400 (measured in lib/tenancy/middleware.ts, porting TenantContextMiddleware.cs:50-55): my initial test asserted 400 and was WRONG, corrected to assert the measured 403 plus indistinguishability from a real-but-inaccessible tenant. MONEY: numeric(18,2) kept as decimal STRINGS end to end; exact bigint-cents arithmetic in money.ts; no multiply/divide exposed (money divided by money is a RATE, not money). All premium aggregation done IN SQL against numeric and compared as strings. MUTATION TESTING (git diff is blind under this untracked domain dir, so application was proved by sha256 delta plus line-count or semantic grep; every file restored byte-identical and re-verified green): M1 tenant predicate -> tautology '1 = 1' (sha 7a4c->de4c): KILLED, 3 tests, and a NUMBER changed (expected 5 to be 6 - tenant B's lead leaking into a tenant A aggregate). An earlier variant that emptied the predicate list killed only via SQL syntax error, so it was replaced by this valid-SQL variant to prove a number actually moves. M2 RM predicate drops la.user_id (252->251 lines): SURVIVED. INVESTIGATED - not equivalent, a genuine COVERAGE GAP: the drill filters RM through listLeads, so leadFilterPredicates' own RM branch (the path T-036/T-037 aggregates will use) was never reached. Added 7 predicate-builder tests covering every dimension; mutant REAPPLIED (sha 69a3, 251 lines) and KILLED, 3 tests, with real set changes (L1..L5 vs L1..L3). M3 slaStatus > -> >=: KILLED (boundary test). M4 escalation strategic paired with (stalled||overdue): KILLED (strategic-without-stall case). M5 boundPremium fallback -> '0.00': KILLED (expected '0.00' to be '1234.56'). M6 sumMoney via Number(): SURVIVED. INVESTIGATED - my own test was the weak link: 1000x'0.01' as doubles is 9.999999999999831 and toFixed(2) rounds it back to '10.00', so the assertion could not distinguish the bug from the fix. Searched 200k realistic-magnitude sets and found NO value-based discriminator below 2^52. Strengthened with two real discriminators - exactness at 4503599627370496.00 + 0.01 (where a double cannot represent a cent) and rejection of over-precision input (Number('1.005') silently becomes 1.01). Mutant re-verified still applied (sha 2efa) and KILLED, 2 tests. The weak test was kept with its limits documented, not deleted and not trusted. M7 canViewAllLeads -> true: KILLED, 3 tests, numbers moved (5 vs 3). M8 ratio guard <=0 -> <0: KILLED, 5 tests (all zero-denominator nulls). M9 wiring pin: deleted the dashboards line from EACH composition root in turn; each time exactly one test went red and nothing else. RESULTS: unit 98 passed; integration dashboard-filters 60 passed; auth-wiring 38 passed (196 total, isolated run exit 0). npm run typecheck exit 0. Lint over every file this task touched exit 0; repo-wide npm run lint fails ONLY on T-027's supabase-adapter.ts (see F-035-5). RESIDUE: zero rows in tenants/leads/quotes/quote_versions/lead_assignments/brokers/parties/reference_items for this run token. Tenant partitions are left for global-setup to purge at next run start, same convention as leads-list.test.ts. FLAGGED, NOT FILLED: F-035-1 (8 vs 15 filter dimensions), F-035-2 (generatedAt absent from reference), F-035-3 (two aging schemes, not one), F-035-4 (SLA 'unknown' state is an addition)."
+    },
+    {
+      "timestamp": "2026-07-20T00:45:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS (iteration 0). F-035-1 stays OPEN as a human escalation (criteria amendment, not an implementation defect); F-035-2/3/4/5 resolved with rulings. VERIFIED FIRST-HAND: (1) F-035-1 — DashboardFilter.cs:9-17 read directly: closed record of exactly eight (From, To, ProductLineId, BrokerId, RmUserId, RegionId, TeamOrRmId, BrokerTypeId); DashboardEndpoints.cs read in full: all five dashboards bind exactly those eight, drill adds widget/page/pageSize with page??1/pageSize??25 and the UNKNOWN_WIDGET 404 special-case; SPA grep: none of the seven absent dimensions appears anywhere under src/ui/src/features/dashboards. RECOMMENDATION: amend AC-075/V-093 to the eight (fourth amendment of this class), scope any of the seven as new tasks only with a real consumer. (2) F-035-3 — both aging schemes read in the reference handlers; the pin test asserts exact label arrays, boundary tables and fixture distributions for BOTH schemes and the SQL fragments are integration-tested equal to the pure functions, so conflation by a future task fails multiple tests. (3) MUTANTS REPRODUCED FIRST-HAND, application proofs matched to shape, restores verified byte-identical by sha256 (money.ts bcb505ec, filters.ts 7a4c530b — the pristine and mutant hashes I measured match the implementor's reported 7a4c/de4c/69a3 exactly): M6 Number()-based sumMoney applied (sha 612ff449) -> KILLED by exactly the 2 new discriminators (2^52-boundary exactness and over-precision rejection) while the weak 1000x'0.01' test PASSED under the mutant, confirming both the weakness claim and the repair; M2 la.user_id dropped (252->251 lines, sha 69a39b9d) -> KILLED by exactly 3 leadFilterPredicates tests, the previously-unreached path, so the coverage gap is genuinely closed; M1 tenant predicate -> '1 = 1' (sha de4c3f5a) -> KILLED by 3 tests including 'expected 5 to be 6' — a NUMBER MOVES under valid SQL, tenant B leaking into a tenant A aggregate, the distinction the syntax-error kill could not make. (4) MONEY RULING: the aggregate path is genuinely double-free end to end — premium is summed in SQL as numeric, transported ::text, asserted as strings; money.ts does exact bigint-cents arithmetic and parseMoney THROWS on non-2dp input; grep over the dashboards domain finds no Number()/parseFloat/sql<number> on money (the one Number() is a user id). The deliberate divergence from the leads/quotes toNullableAmount->Number() DTO widening is ACCEPTED: per-row display values are the shipped JSON contract; sums are where doubles accumulate error, and the T-008 obligation recorded on this task demanded exactly this. Rates as number via one division of two exact integers is sound. One noted micro-deviation, accepted: averagePriceGap truncates each gap to 12 digits before averaging (reference averaged full-precision decimals) — a documented choice that buys exact SQL parity at a difference below 1e-12, far under display precision. (5) METRIC DEFINITIONS verified against MetricDefinitions.cs read in full: all ten formulas one-for-one including zero-denominator nulls; boundPremium ?? currentPremium fallback confirmed at GetExecutiveOverviewQueryHandler.cs WonPremium; SLA strict-> confirmed at RmPerformance:291; METRIC_CATALOG labels distinguish Leads/Quotes/Quoted Premium/Bound Premium per CLAUDE.md with basis metadata, unit-asserted. (6) SUITES RE-RUN SERIALLY: metric-definitions 98/98, dashboard-filters 60/60 (no skips, stack live), restores re-verified green (158/158). Wiring pin (M9 target) present in auth-wiring.test.ts for both composition roots. Drill breadth resolved server-side via resolveAccess, fails CLOSED (500) on missing tenant/resolver; 403-not-400 on missing tenant header matches the measured middleware. No ORDER BY alias shadowing in any new SQL. TAKEN ON TRUST: the implementor's RED-first run, the 200k discriminator search, and M3/M4/M5/M7/M8/M9 kill details (their shapes are consistent with the two survivors-turned-kills I reproduced and with the reported hash chain I independently confirmed twice)."
+    }
+  ]
+}

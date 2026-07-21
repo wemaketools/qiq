@@ -1,0 +1,193 @@
+{
+  "id": "T-037",
+  "title": "Alerts center UI with badge behavior",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-024",
+    "T-028",
+    "T-013"
+  ],
+  "objective": "The Alerts & Escalation screen per spec FR-62/FR-63 / PRD 18.2: category cards, tabbed escalation queue with premium-at-risk rollup, contextual per-row actions opening workflow dialogs, and the per-user new-alert badge on nav + bell that resets on open.",
+  "scope": [
+    "Route /alerts with ?category= deep-link support (dashboards pre-filter into it)",
+    "Category summary cards activating queue tabs",
+    "Queue table with flags and contextual Action column",
+    "Badge: nav + bell count, reset on Alerts center open"
+  ],
+  "out_of_scope": [
+    "Alert rules/backend (T-024)"
+  ],
+  "implementation_details": [
+    "features/alerts/AlertsCenterPage.tsx: CategoryCards row (Escalated 'High-value & stalled', Stalled 'No activity 7+ days' (definition text rendered from tenant thresholds), Overdue, Expiring, SLA Breaches) — click activates matching tab; QueueHeader with rollup 'Premium at risk: {currency} {amount} · {n} quotes'; Tabs All/Escalated/Overdue/Expiring/SLA with counts",
+    "AlertsQueueTable: columns ref (monospace), client (product line beneath), broker or 'Direct', premium at risk (right-aligned), stage StatusChip, age (amber/red), owner, flag chips, Action; row click -> /leads/{id} with ?highlightQuote={quoteId} (Lead Detail highlights the alerting quote row — small addition to T-029 QuotesCard reading the param)",
+    "Action column: contextual link per alert type — unassigned_lead -> 'Assign & acknowledge' opens AssignDialog (from T-028); overdue_follow_up -> 'Follow up' opens LogFollowUpDialog; executive_escalation/high_value_stalled -> 'Executive review' opens a review dialog (comment + acknowledge, writes follow-up note); completing an action triggers alert refetch (backend targeted re-evaluation clears/downgrades)",
+    "Filters: standard bar + owner, product, cover type, region, priority, tenant (internal cross-tenant mode only)",
+    "Badge wiring: alertsBadge slice polling GET /alerts/badge (60s interval + on window focus); Sidebar Alerts item and TopBar bell render the count; entering /alerts fires POST /alerts/badge/reset then zeroes the slice",
+    "T-043 amendment (docs/ui-remediation/plan.md, AC-082): build every screen part of this task on the shared design-system layer from T-043 — src/ui/src/theme/components.css classes (.qiq-card, .qiq-btn, .qiq-chip, .qiq-table-wrap, .qiq-kpi-*, .qiq-menu) and components/common/Icon.tsx — never ad-hoc inline styling or new CSS files. Before marking IMPLEMENTED, do a side-by-side check against docs/prototype/screenshots/QuoteIQ - Alerts.png at ~1670px: layout regions, card composition, chart types, chip/color semantics must match the prototype (subject to the PRD's documented deviations for this screen, e.g. lead-vs-quote labeling, excluded prototype-only widgets). Record the comparison result in this task's history."
+  ],
+  "files": [
+    "src/ui/src/features/alerts/AlertsCenterPage.tsx",
+    "src/ui/src/features/alerts/CategoryCards.tsx",
+    "src/ui/src/features/alerts/AlertsQueueTable.tsx",
+    "src/ui/src/features/alerts/alertsApi.ts",
+    "src/ui/src/app/slices/alertsBadgeSlice.ts",
+    "e2e_tests/tests/alerts-center.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [],
+    "e2e": [
+      "alerts-center.spec.ts: category card click activates matching tab with counts; queue shows premium-at-risk rollup; 'Assign & acknowledge' on an unassigned lead opens the assign dialog and the alert clears after completion; row click opens Lead Detail with the alerting quote highlighted; badge shows new-alert count, opening the center resets it to zero, and it stays zero for that user after reload while another user still sees their own count"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-061",
+    "AC-062"
+  ],
+  "verification_ids": [
+    "V-061",
+    "V-062"
+  ],
+  "findings": [
+    {
+      "id": "F-037-01",
+      "severity": "info",
+      "type": "spec_ambiguity_flagged",
+      "status": "open",
+      "title": "Cross-tenant 'tenant' filter omitted — no backend support on the alerts list",
+      "detail": "implementation_details lists a 'tenant (internal cross-tenant mode only)' filter, but the T-024 ListAlerts endpoint (GET /api/v1/alerts) exposes only tab/ownerUserId/productLineId/coverTypeId/regionId/priority — alerts are strictly active-tenant-scoped via the X-Tenant-Id header (AlertEndpoints.cs TenantScopedGroup). There is no tenant query parameter and no cross-tenant alert aggregation server-side. Implemented owner/product/cover type/region/priority (all backend-supported) and deliberately did NOT invent a cross-tenant tenant filter (CLAUDE.md: do not silently fill gaps). Cross-tenant alert viewing today is via the shell tenant switcher (re-scopes the whole app). Recommended follow-up if a per-list tenant filter is truly required: add a tenant param + cross-tenant aggregation to ListAlerts guarded by the Internal global permission."
+    },
+    {
+      "id": "F-037-02",
+      "severity": "info",
+      "type": "prototype_deviation",
+      "status": "open",
+      "title": "Filter-bar set follows backend params, not the prototype's Date/Broker/RM",
+      "detail": "The prototype's Alerts filter bar shows Date Range, Product Line, Broker, RM, Region. The backend ListAlerts supports owner (=RM), product line, cover type, region, priority — no broker or date filter. Implemented the backend-supported set (owner/product/cover/region/priority) per the task's implementation_details rather than the prototype's Date/Broker set. Documented deviation."
+    },
+    {
+      "id": "F-037-03",
+      "severity": "info",
+      "type": "spec_ambiguity_flagged",
+      "status": "open",
+      "title": "Executive-review dialog writes a follow-up note; may 422 past Quote Sent",
+      "detail": "There is no dedicated 'acknowledge alert' backend endpoint, so the Executive-review action (executive_escalation / high_value_stalled) records its required comment via POST /leads/{id}/operations/log-follow-up with a null next-follow-up date (the task specifies it 'writes a follow-up note'). LogFollowUpCommandHandler requires a future next-follow-up date when the lead is open past Quote Sent, so a review on such a lead can return 422 — surfaced inline in the dialog error slot rather than swallowed. Recommended follow-up: either add a dedicated alert-acknowledge/executive-review backend operation, or have the review dialog collect a next-follow-up date when the alerting lead is past Quote Sent."
+    },
+    {
+      "id": "F-037-04",
+      "severity": "info",
+      "type": "cross_task_addition",
+      "status": "open",
+      "title": "Small additive highlightQuote read on Lead Detail / QuotesCard (T-029)",
+      "detail": "Per implementation_details ('row click -> /leads/{id} with ?highlightQuote={quoteId} ... small addition to T-029 QuotesCard reading the param'), added a ?highlightQuote= param read in LeadDetailPage and a highlightQuoteId prop on QuotesCard that auto-expands and marks (data-highlighted) the alerting quote row on load. No behavior change when the param is absent. Flagged as the sanctioned small T-029 addition."
+    },
+    {
+      "id": "F-037-05",
+      "severity": "info",
+      "type": "note",
+      "status": "open",
+      "title": "Per-user badge reset is server-persisted (AC-062)",
+      "detail": "The new-alert badge is reset by POST /api/v1/alerts/badge/reset, which T-024 persists per user (upserts the caller's last-opened timestamp); GET /api/v1/alerts/badge then counts only alerts created after that per-user timestamp. The frontend zeroes the local Redux slice optimistically on the reset thunk, but correctness across reloads and per-user independence (AC-062) come from the server persistence, not local state — so the badge stays zero for that user after reload while another user still sees their own count."
+    },
+    {
+      "id": "F-037-06",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "completeness",
+      "status": "resolved",
+      "evaluator_confirmation": "CONFIRMED RESOLVED by evaluator re-audit (iteration 2/10, 2026-07-14). Verified against actual files: ExecutiveReviewDialog.tsx renders a required next-follow-up date field when requiresNextFollowUpDate is set, client-side blocks submit when empty (field-error-exec-next-follow-up) or non-future (<= todayIso), and forwards the date via onConfirm(comment, nextFollowUpDate). AlertsCenterPage.beginAction now fetches the lead for the executive-review kind (early return removed) and the dialog gates on actionLead; requiresNextFollowUpDate = deriveLeadReportingCategory(actionLead.statusName) === 'quoted' — the SAME heuristic LogFollowUpDialog uses (both call deriveLeadReportingCategory on the LeadDetailDto statusName). handleExecutiveReviewConfirm forwards the date into logFollowUp(actionLead.id, today, comment, nextFollowUpDate). Not-past case preserved (no date field, null date). The 2 new tests are genuine and non-tautological: the past-Quote-Sent test asserts the date field appears, comment-only submit shows the error AND logFollowUp is NOT called, then a future date calls logFollowUp exactly once with (40, any, comment, futureDate); the not-past test asserts no date field + logFollowUp called with null. Gates re-run by evaluator: typecheck GREEN (exit 0), build GREEN (767 modules, only pre-existing chunk-size advisory), vitest GREEN 89 files/449 tests (+2), alerts suite 28 + AlertsCenterPage 9 all pass, V-070 raw-hex grep over features/alerts clean. Scope containment confirmed: only the 3 frontend files under features/alerts were modified (most-recent mtimes 06:00-06:01, cleanly separated from iteration-1 files); no backend .cs file touched — LogFollowUpCommandHandler remains the source of truth.",
+      "resolution": "Fixed frontend-only (iteration 2/10), no backend change. beginAction now fetches the lead for the executive-review kind too (removed the early return that skipped the lead prefetch), mirroring the assign/follow-up path. ExecutiveReviewDialog gained a requiresNextFollowUpDate prop and a next-follow-up date field: when the alerting lead's reporting category is Quoted (open past Quote Sent, derived via deriveLeadReportingCategory(actionLead.statusName) === 'quoted' — the same heuristic LogFollowUpDialog/LeadsTable use), the dialog REQUIRES a strictly-future next-follow-up date (client-side validation blocks submit before any backend round-trip) and passes it through onConfirm -> logFollowUp(leadId, today, comment, nextFollowUpDate). When the lead is NOT past Quote Sent, prior behavior is preserved (comment only, null date). handleExecutiveReviewConfirm now uses actionLead.id and forwards the date. The executive-review dialog now gates on actionLead being loaded (like assign/follow-up) so the required-date decision is accurate. Two genuine component tests added to AlertsCenterPage.test.tsx: (a) Quoted-category lead shows+requires the date, blocks submit with logFollowUp NOT called until a future date is provided, then submits with the date (does not dead-end); (b) not-past-Quote-Sent lead has no date field and submits comment-only with a null date. Backend LogFollowUpCommandHandler remains the source of truth.",
+      "description": "Ruling on the Implementor's F-037-03. The Executive-review action (executive_escalation / high_value_stalled alerts) calls handleExecutiveReviewConfirm -> logFollowUp(leadId, today, comment, null) with a null next-follow-up date. LogFollowUpCommandHandler (LogFollowUpCommandHandler.cs lines 41-54) returns a validation failure (surfaced as 4xx) whenever the lead's current status is in ReportingCategory.Quoted (open past Quote Sent) and NextFollowUpDate is null. This is NOT an edge case for these two alert types: HighValueStalledRule and ExecutiveEscalationRule both fire on leads with quotes — ExecutiveEscalationRule.IsStalled uses StalledQuoteDays for post-quote leads, and the ExecutiveEscalationRule 'expiring' branch requires an OPEN SENT quote (valid_until within the window), which only exists on leads at/past Quote Sent (Quoted category). So the dominant real-world executive-review target — a high-value quote that was sent and then stalled or is expiring — lands squarely on a Quoted-category lead and will hard-fail. The ExecutiveReviewDialog collects only a comment and exposes NO next-follow-up date field, so the reviewer sees the inline error 'A next follow-up date is required while the lead is open past Quote Sent' with no way to satisfy it: the required action path (AC-061: 'contextual actions ... clear/downgrade the alert on completion') dead-ends. Because the affected case is common rather than rare, this is a blocking functional defect, not an acceptable inline-surfaced limitation for this iteration.",
+      "evidence": "AlertsCenterPage.tsx handleExecutiveReviewConfirm (line 268-282) passes null nextFollowUpDate; ExecutiveReviewDialog.tsx collects only a comment (no date field); LogFollowUpCommandHandler.cs lines 41-54 reject null/non-future NextFollowUpDate when ReportingCategory == Quoted; ExecutiveEscalationRule.cs lines 37-45 (expiring requires an open sent quote) and IsStalled lines 60-70 (StalledQuoteDays for post-quote leads); HighValueStalledRule.cs lines 31-49.",
+      "suggested_fix": "Make the executive-review path able to complete on Quoted-category leads. Preferred: fetch the lead in beginAction for the executive-review kind (as assign/follow-up already do) and, when the lead's reporting category is Quoted, have ExecutiveReviewDialog require a future next-follow-up date and pass it through to logFollowUp. Acceptable alternatives: always collect an optional next-follow-up date in the review dialog and require it when the backend would demand it; or (best long-term, but out of this frontend task's scope) add a dedicated alert-acknowledge / executive-review backend operation that records the comment without the past-Quote-Sent follow-up constraint — if pursued, raise a backend task rather than blocking here. Add a component test proving the executive-review on a Quoted-category lead collects and submits a next-follow-up date and does not dead-end.",
+      "created_at": "2026-07-14T18:15:00-04:00"
+    },
+    {
+      "id": "F-037-07",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "verification_gap",
+      "status": "open",
+      "title": "AC-062 reload-persistence + multi-user independence is only expressible in e2e, which is describe.fixme",
+      "description": "The AC-062 guarantee that the badge stays zero for a user across a full reload while another user still sees their own count is a server-persistence property that the frontend unit tests (mocked alertsApi) cannot prove — they can only prove the reset thunk calls the server endpoint and zeroes local state. That end-to-end guarantee is captured in e2e_tests/tests/alerts-center.spec.ts (real body, correct assertions incl. pageA.reload() then badge count 0, plus user B independent) but is currently test.describe.fixme, deferred on T-041 seed data + live stack per the established precedent (dashboard-pipeline/lead-workflow specs). It is backstopped at the integration level by QuoteIQ.Api.Tests AlertEndpointsTests.Badge_ShouldResetToZeroForCallingUserOnly, so this is not blocking — but the browser-level reload-persistence assertion for this exact AC remains unproven in CI until the fixme is lifted. Track un-fixme with T-041.",
+      "evidence": "alerts-center.spec.ts lines 77-107 (describe.fixme, real assertions); AlertEndpointsTests.cs line 81 Badge_ShouldResetToZeroForCallingUserOnly; alertsBadgeSlice.test.ts (mocked, proves thunk calls server + zeroes local).",
+      "suggested_fix": "Lift the describe.fixme once T-041 provisions per-category alert conditions and a second badge persona and the compose stack is available; no code change required now.",
+      "created_at": "2026-07-14T18:15:00-04:00"
+    },
+    {
+      "id": "F-037-08",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "note",
+      "status": "open",
+      "title": "Evaluator rulings on F-037-01/02/04/05 — accepted",
+      "description": "F-037-01 (no cross-tenant tenant filter): ACCEPTED. The T-024 ListAlerts endpoint (AlertEndpoints.cs) exposes no tenant param and alerts are strictly X-Tenant-Id scoped; inventing a client-side cross-tenant filter would silently fill a backend gap (against CLAUDE.md). Non-blocking; recommended backend follow-up if a per-list tenant filter is truly required. F-037-02 (filter set owner/product/cover/region/priority vs prototype Date/Broker/RM): ACCEPTED. The implemented set matches the backend ListAlerts params; the prototype's Date/Broker filters have no backend support. Documented deviation, non-blocking. F-037-04 (highlightQuote read on Lead Detail/QuotesCard): ACCEPTED as additive + regression-free. QuotesCard.tsx lines 158-169 guard on `highlightQuoteId == null` early-return (no behavior change when the param is absent); the 157 lead+quote vitest tests all pass. F-037-05 (badge reset server-persisted): CONFIRMED ACCURATE. alertsBadgeSlice.ts relies on POST /alerts/badge/reset (resetAlertBadge) for correctness and does not fake per-user state locally; the slice test proves the reset thunk calls the server endpoint and zeroes local state.",
+      "evidence": "AlertEndpoints.cs lines 37-46 (no tenant param); AlertsCenterPage.tsx filters (owner/product/cover/region/priority); QuotesCard.tsx lines 158-169; alertsBadgeSlice.ts lines 33-36; alertsBadgeSlice.test.ts line 57-69.",
+      "created_at": "2026-07-14T18:15:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-62/FR-63, PRD 18.2)"
+    },
+    {
+      "timestamp": "2026-07-13T21:45:00-04:00",
+      "event": "amended",
+      "message": "Amended by T-043 (approved plan docs/ui-remediation/plan.md): must use the shared design-system layer and pass a per-screen prototype side-by-side fidelity check before IMPLEMENTED."
+    },
+    {
+      "timestamp": "2026-07-14T15:20:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1/10). Alerts center UI (FR-62/FR-63, PRD 18.2) on the T-024 alerts backend + T-028 workflow dialogs + T-043 design system: category cards, tabbed escalation queue with premium-at-risk rollup, contextual per-row actions (Assign/FollowUp/Executive-review) with post-action alert refetch, ?category= deep-link (dashboard/report pre-filter target), and the per-user new-alert badge on nav+bell that resets on open. Pure frontend. Critical-path: T-037 + T-030 are the last two T-042 dependencies. Frontend gates typecheck+build reported SEPARATELY from vitest per the tightened discipline."
+    },
+    {
+      "timestamp": "2026-07-14T16:05:00-04:00",
+      "event": "tests_written",
+      "message": "Component/integration tests written first (integration-first). New: src/ui/src/features/alerts/__tests__/alertsApi.test.ts (query building, category->tab map, action-for-type, tab narrowing), src/ui/src/app/slices/alertsBadgeSlice.test.ts (set/reset reducers + refreshAlertsBadge/openAlertsCenterBadgeReset thunks against mocked alertsApi), src/ui/src/features/alerts/__tests__/CategoryCards.test.tsx (names/definitions/counts, card-click activates tab, Stalled card disabled/not selectable, active-card marking), src/ui/src/features/alerts/__tests__/AlertsQueueTable.test.tsx (columns, Direct fallback, red age tone, row-click -> /leads/{id}?highlightQuote=, action stopPropagation, per-type action-label mapping), src/ui/src/features/alerts/__tests__/AlertsCenterPage.test.tsx (mount badge reset, category cards + premium-at-risk rollup, ?category deep-link -> Expiring tab, card-click -> tab + refetch, Assign action fetches lead + opens AssignDialog, empty state, row-click navigation). 30 new tests."
+    },
+    {
+      "timestamp": "2026-07-14T16:20:00-04:00",
+      "event": "implementation_written",
+      "message": "Implemented (pure frontend). New: features/alerts/alertsApi.ts (typed client for GET /alerts/summary, GET /alerts, GET /alerts/badge, POST /alerts/badge/reset + tab/category/action/label helpers, no any), features/alerts/CategoryCards.tsx, features/alerts/AlertsQueueTable.tsx, features/alerts/ExecutiveReviewDialog.tsx, features/alerts/AlertsCenterPage.tsx (route /alerts, ?category=/?tab= deep-link, category cards, tabs+counts, premium-at-risk rollup, owner/product/cover/region/priority filters, contextual actions reusing T-028 AssignDialog/LogFollowUpDialog + this task's ExecutiveReviewDialog, post-action summary+list+badge refetch), features/alerts/useAlertsBadgePolling.ts (60s + window-focus poll of GET /alerts/badge, gated on alerts.view). Extended: app/slices/alertsBadgeSlice.ts (refreshAlertsBadge + openAlertsCenterBadgeReset thunks), app/store already registers the slice; components/shell/AppShell.tsx mounts the polling hook (Sidebar + TopBar already render selectAlertsBadgeCount from T-013). app/router.tsx swaps the /alerts stub for AlertsCenterPage (removed now-unused StubPage/stub/lazy/Suspense imports). Small sanctioned T-029 addition: LeadDetailPage reads ?highlightQuote= and passes highlightQuoteId to QuotesCard, which auto-expands + marks (data-highlighted) the alerting quote row. e2e: e2e_tests/tests/alerts-center.spec.ts (V-061/V-062, describe.fixme per the established seed-data-forward-dependency convention)."
+    },
+    {
+      "timestamp": "2026-07-14T16:35:00-04:00",
+      "event": "gates_run",
+      "message": "Frontend gates (reported SEPARATELY per tightened discipline). typecheck: GREEN (tsc --noEmit -p tsconfig.app.json). build: GREEN (tsc -b && vite build — 767 modules, dist built; only the pre-existing >500kB chunk-size advisory). vitest: GREEN — 89 files, 447 tests passed (30 new). lint: pre-existing baseline unchanged — 1 error (TenantFormPage.tsx _removed) + 6 warnings, ALL in files this task did not touch; zero lint problems in any new/edited alerts/shell/router/quotes file. V-070 no-raw-hex grep: GREEN (no #hex outside theme/; all new components use var(--qiq-*) tokens + shared .qiq-* classes). Playwright --list: GREEN — both alerts-center.spec.ts tests discovered. Live e2e run: SKIPPED — compose stack not running (api:5080 and ui:5173 both unreachable), consistent with the describe.fixme convention. Backend: NOT touched (pure frontend), so dotnet test not run."
+    },
+    {
+      "timestamp": "2026-07-14T16:45:00-04:00",
+      "event": "prototype_fidelity_check",
+      "message": "Side-by-side vs docs/prototype/screenshots/QuoteIQ - Alerts.png (structural comparison of the prototype image against the built DOM; a rendered ~1670px capture needs the live stack, which is down). MATCH on layout regions and composition: title 'Alerts & Escalation' + 'Where to intervene'; filter bar row; five category cards (Escalated/Stalled/Overdue/Expiring/SLA Breaches) each with icon halo + big count + name + threshold-definition sub; 'Escalation Queue' card with the 'Premium at risk: {code} {amount} · {n} quotes' rollup sub-line on the left and the All/Escalated/Overdue/Expiring/SLA tab strip with counts on the right; queue table columns Ref(monospace, quote ref)/Client(+product line beneath)/Broker(or Direct)/Premium at risk(right-aligned)/Stage(reporting-category StatusChip)/Age(amber-red 'X days')/Owner/Flags(type chips)/Action(contextual link Assign & acknowledge / Follow up / Executive review). Built entirely on the T-043 .qiq-* layer (qiq-card/qiq-kpi-*/qiq-tabs/qiq-tab/qiq-table-wrap/qiq-chip/qiq-mono/qiq-btn/qiq-filterbar) + Icon.tsx; no ad-hoc hex, no new CSS files. Documented deviations honored: (a) filter set is owner/product/cover/region/priority (backend ListAlerts params) instead of the prototype's Date/Broker/RM — see F-037-02; (b) lead-vs-quote labeling — the ref column shows the alerting quote ref but row-click opens the lead (quotes are lead-subordinate, FR-45), and the top-bar action is the shell's '+ New Lead' not the prototype's 'New Quote'."
+    },
+    {
+      "timestamp": "2026-07-14T16:00:00-04:00",
+      "event": "evaluator_fail",
+      "message": "Evaluator returned NEEDS_FIXES (iteration 1/10). AC-062 badge server-persistence CONFIRMED genuine; all frontend gates green (typecheck+build separate, vitest 447); highlightQuote additive regression-free; F-037-01/02/04/05 accepted non-blocking; F-037-07 (AC-062 reload/multi-user only in describe.fixme e2e, integration-backstopped) minor non-blocking. ONE BLOCKING major (F-037-06): the Executive-review action posts log-follow-up with a null next-follow-up date, which the backend rejects for Quoted-category (past-Quote-Sent) leads - the COMMON case for executive_escalation/high_value_stalled alerts (a sent quote that stalled/expiring only exists past Quote Sent), and ExecutiveReviewDialog exposes no date field, so the required action path dead-ends with an unsatisfiable inline error."
+    },
+    {
+      "timestamp": "2026-07-14T16:02:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-037 NEEDS_FIXES -> fix iteration 2/10 (iteration_count 1->2). Routed back to Implementor for F-037-06 only (pure frontend): make the Executive-review path completable on Quoted-category leads - fetch the lead in beginAction for the executive-review kind (as assign/follow-up already do) and, when reporting category is Quoted, have ExecutiveReviewDialog require + submit a future next-follow-up date through logFollowUp; add a component test proving executive-review on a Quoted lead collects+submits the date and does not dead-end. F-037-01/02/04/05/07 accepted non-blocking (no change). Re-run frontend typecheck+build+vitest separately, then hand back to Evaluator."
+    },
+    {
+      "timestamp": "2026-07-14T18:45:00-04:00",
+      "event": "implementation_written",
+      "message": "F-037-06 fix (iteration 2/10, PURE FRONTEND — no backend file touched). Changed 3 files, all under src/ui/src/features/alerts/: (1) AlertsCenterPage.tsx — beginAction now fetches the lead for the executive-review kind too (removed the early return), imports deriveLeadReportingCategory, handleExecutiveReviewConfirm accepts+forwards nextFollowUpDate and uses actionLead.id, and the ExecutiveReviewDialog render gates on actionLead and passes requiresNextFollowUpDate={deriveLeadReportingCategory(actionLead.statusName) === 'quoted'}. (2) ExecutiveReviewDialog.tsx — new requiresNextFollowUpDate prop + a next-follow-up date field with client-side required+future validation mirroring LogFollowUpDialog (T-028); onConfirm signature now (comment, nextFollowUpDate: string | null). (3) __tests__/AlertsCenterPage.test.tsx — two new genuine tests: Quoted-category lead requires+submits a future date (blocks submit, logFollowUp NOT called, until provided; then submits with the date, no dead-end) and not-past-Quote-Sent lead submits comment-only with null date. Test-first not strictly ordered here (small delta) but assertions are non-tautological."
+    },
+    {
+      "timestamp": "2026-07-14T18:50:00-04:00",
+      "event": "gates_run",
+      "message": "Frontend gates re-run SEPARATELY. typecheck: GREEN (tsc --noEmit -p tsconfig.app.json, clean). build: GREEN (tsc -b && vite build — 767 modules, dist emitted; only the pre-existing >500kB chunk-size advisory). vitest: GREEN — 89 files, 449 tests passed (was 447; +2 new exec-review tests). lint: pre-existing baseline unchanged — 1 error (TenantFormPage.tsx _removed) + 6 warnings, ALL in files this fix did not touch; zero lint problems in the 3 changed alerts files. V-070 no-raw-hex grep over src/ui/src/features/alerts/: GREEN (NONE). No stray </content> artifact in any changed file. Backend NOT touched (confirmed: all edits under src/ui/src/features/alerts/), so dotnet test not run. F-037-06 resolved."
+    },
+    {
+      "timestamp": "2026-07-14T16:20:00-04:00",
+      "event": "task_passed",
+      "message": "T-037 PASS (fix iteration 2/10). Evaluator re-audit CONFIRMED F-037-06 resolved: the executive-review path now completes on Quoted-category (past-Quote-Sent) leads - ExecutiveReviewDialog renders a next-follow-up date field, blocks submit client-side until a strictly-future date is given (no backend round-trip, logFollowUp NOT called), then submits it; not-past leads preserved (comment-only, null date); reporting-category derivation identical to LogFollowUpDialog (leadStatusCategory.ts). The 2 new tests are genuine/non-tautological. Independently re-ran gates: typecheck GREEN, build GREEN (767 modules), vitest 449 (+2, AlertsCenterPage 9/9), V-070 green; frontend-only (LogFollowUpCommandHandler unchanged), no regression. F-037-01/02/04/05 accepted non-blocking; F-037-07 (AC-062 reload/multi-user only provable in describe.fixme e2e, integration-backstopped) the only other open minor item. Combined with the iteration-1 audit (AC-062 badge server-persistence genuine, category cards/tabs/rollup, highlightQuote additive), Alerts center UI is complete. 42 PASS, 0 FAIL. T-042 now needs only T-030."
+    }
+  ]
+}

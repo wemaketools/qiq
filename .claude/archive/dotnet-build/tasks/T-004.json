@@ -1,0 +1,80 @@
+{
+  "id": "T-004",
+  "title": "Keycloak authentication integration and admin API client",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-001", "T-002"],
+  "objective": "The API validates Keycloak-issued JWTs; a checked-in realm export makes local Keycloak reproducible; an admin client service can provision/disable users and confidential clients (spec §9.5, §13, FR-01..FR-05).",
+  "scope": [
+    "Keycloak realm export with SPA public client (PKCE) and API audience",
+    "JWT bearer authentication in the API; all endpoints require auth by default, /health and password-reset-related paths anonymous",
+    "IKeycloakAdminService for user and confidential-client lifecycle",
+    "Login/reset theming placeholder per PRD 12.11 (QuoteIQ wordmark)"
+  ],
+  "out_of_scope": ["SPA-side login flow (T-13)", "App RBAC (T-005)", "Credential provisioning endpoints (T-030)"],
+  "implementation_details": [
+    "infra/keycloak/quoteiq-realm.json: realm 'quoteiq'; public client 'quoteiq-ui' (standard flow + PKCE, redirect http://localhost:5173/*); audience mapper adding 'quoteiq-api'; email-as-username enabled; brute-force protection on; 'Forgot password' enabled",
+    "compose keycloak service imports the realm on start (--import-realm)",
+    "Api: AddAuthentication().AddJwtBearer with Authority from config (Keycloak:Authority), ValidAudience 'quoteiq-api', RequireHttpsMetadata false only for Local; FallbackPolicy = RequireAuthenticatedUser so anonymous is opt-in via AllowAnonymous",
+    "Application/Abstractions/IKeycloakAdminService.cs: CreateUserAsync(email, firstName, lastName) -> keycloakUserId; SetUserEnabledAsync(keycloakUserId, bool); SendResetPasswordEmailAsync(keycloakUserId); CreateConfidentialClientAsync(clientId, attributes) -> secret; RegenerateClientSecretAsync(clientId) -> secret; SetClientEnabledAsync(clientId, bool)",
+    "Infrastructure/Keycloak/KeycloakAdminService.cs: typed HttpClient against admin REST API, admin credentials from Vault-backed config, token caching with early refresh",
+    "Infrastructure/Keycloak/KeycloakTheme placeholder: infra/keycloak/themes/quoteiq login theme (wordmark 'QuoteIQ / Quotation Intelligence', accent #159AA6) mounted in compose",
+    "ICurrentUser (Application) + CurrentUser (Api) mapping JWT sub/email claims; app-user resolution completed in T-005"
+  ],
+  "files": [
+    "infra/keycloak/quoteiq-realm.json",
+    "infra/keycloak/themes/quoteiq/login/theme.properties",
+    "src/api/QuoteIQ.Api/Auth/AuthenticationSetup.cs",
+    "src/api/QuoteIQ.Api/Auth/CurrentUser.cs",
+    "src/api/QuoteIQ.Application/Abstractions/IKeycloakAdminService.cs",
+    "src/api/QuoteIQ.Application/Abstractions/ICurrentUser.cs",
+    "src/api/QuoteIQ.Infrastructure/Keycloak/KeycloakAdminService.cs",
+    "docker-compose.yml",
+    "src/api/tests/QuoteIQ.Api.Tests/Auth/AuthenticationTests.cs",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Keycloak/KeycloakAdminServiceTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "Endpoints_WhenNoToken_ShouldReturn401 (WebApplicationFactory with Keycloak Testcontainer or configurable test issuer)",
+      "Endpoints_WhenValidToken_ShouldReturn200",
+      "KeycloakAdminService_WhenCreateUser_ShouldReturnKeycloakId (Keycloak Testcontainer)",
+      "KeycloakAdminService_WhenDisableUser_ShouldBlockTokenIssuance",
+      "KeycloakAdminService_WhenCreateConfidentialClient_ShouldEnableClientCredentialsGrant"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-001", "AC-002", "AC-003", "AC-005"],
+  "verification_ids": ["V-001", "V-002", "V-003", "V-005"],
+  "findings": [
+    {
+      "id": "F-010",
+      "severity": "minor",
+      "status": "open",
+      "iteration": 1,
+      "blocking": false,
+      "deferred_to": "T-030",
+      "summary": "Admin token cache is per-instance on a transient service, so caching is largely ineffective across requests",
+      "detail": "KeycloakServiceCollectionExtensions.AddKeycloakAdminClient registers KeycloakAdminTokenProvider via AddHttpClient<IKeycloakAdminTokenProvider,...> (transient); _cachedToken/_expiresAt only cache within one resolution. Helps multi-call operations, never caches stale credentials - safe, just inefficient. Suggested fix in a later iteration or T-030: make the provider a singleton using IHttpClientFactory internally."
+    },
+    {
+      "id": "F-011",
+      "severity": "info",
+      "status": "resolved",
+      "resolution": "Stray directory deleted by orchestrator on 2026-07-11",
+      "iteration": 1,
+      "blocking": false,
+      "summary": "Stray empty directory infra/keycloak/'quoteiq-realm.json;C' left by Windows bind-mount path mangling",
+      "detail": "Harmless (empty dirs are not committed by git) but should be deleted for hygiene."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (§9.5, §13, FR-01..FR-05)" },
+    { "timestamp": "2026-07-11T16:12:00-04:00", "event": "task_started", "message": "Dependencies satisfied (T-001, T-002 PASS); marked IN_PROGRESS; delegated to Implementor (iteration 1), running in parallel with T-003" },
+    { "timestamp": "2026-07-11T18:00:00-04:00", "event": "implementor_stopped_by_user", "message": "Implementor iteration 1 was stopped mid-run. Partial work exists on disk (realm export, auth setup, KeycloakAdminService, tests); 3 KeycloakAdminServiceTests and 2 AuthenticationTests were failing with Keycloak testcontainer startup timeouts at last observation (via T-003's full-suite run). Task remains IN_PROGRESS." },
+    { "timestamp": "2026-07-11T18:01:00-04:00", "event": "implementor_resumed", "message": "Human resumed the workflow; fresh Implementor launched (still iteration 1) to assess on-disk T-004 work, keep what is good, and complete/fix the remainder incl. the 5 failing Keycloak-container-dependent tests." },
+    { "timestamp": "2026-07-11T18:35:00-04:00", "event": "implementation_written", "message": "Recovery Implementor completed T-004. Prior on-disk work kept (realm export, theme, compose wiring, AuthenticationSetup, CurrentUser, IKeycloakAdminService/ICurrentUser, KeycloakAdminService + token provider, all 5 integration tests + 2 container fixtures with bounded-poll pattern, MeEndpoint). Root causes of the 5 failing tests fixed: (1) realm import crash-loop - 290-char client description exceeded Keycloak VARCHAR(255), shortened; (2) JSON-imported realms lack built-in client scopes (basic/email/profile/roles/web-origins/offline_access) so tokens missed sub/email/aud - mirrored scope definitions into realm export + default scopes on realm and clients; (3) AuthenticationSetup eager config read evaluated before WebApplicationFactory config override - switched to lazy IOptions-based JwtBearerOptions binding + explicit ValidIssuer. Full suite 19/19 twice (Api 4/4, Infrastructure 15/15, Domain/Application 0 tests). Live compose: realm import IGNORE_EXISTING with old volume documented, quoteiq-ui present via admin API, disposable-container e2e (user create/token claims/disable-blocks-issuance/confidential-client CC grant). README updated. Frontend untouched. Status EVALUATING." },
+    { "timestamp": "2026-07-11T19:40:00-04:00", "event": "task_passed", "message": "Evaluator verdict PASS (iteration 1/10). Full suite 19/19. Live: realm import IGNORE_EXISTING documented behavior confirmed, realm settings verified via admin API (brute force, resetPwd, emailAsUsername, loginTheme), quoteiq-ui public client with S256 PKCE enforced live (request missing code_challenge_method rejected), redirects limited to localhost:5173/*, theme mounted and rendering wordmark/accent, no registration links. Security: fallback authn policy verified in code+test, RequireHttpsMetadata false only Local/Dev, no token/secret logging, Vault-sourced admin secret, sane early-refresh caching. AC-001/002/003/005 T-004 portions SATISFIED (UI portions deferred to T-013 per plan). Non-blocking findings F-010 (minor, transient token cache - deferred to T-030), F-011 (info, stray empty dir). Advisories: MeEndpoint is acceptable minimal auth-probe (T-006 should extend, not duplicate); quoteiq-test-direct-grant client ships enabled in realm export - strip for non-local realms or create dynamically in fixtures (future task); local-dev admin secret in realm export permitted with warnings present." }
+  ]
+}

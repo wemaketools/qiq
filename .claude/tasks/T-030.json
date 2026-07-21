@@ -1,0 +1,123 @@
+{
+  "id": "T-030",
+  "title": "Lead intake endpoint: POST /intake/leads with first-party API-key authentication",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-022",
+    "T-024"
+  ],
+  "objective": "Port the external intake endpoint: POST /intake/leads authenticated via the approved Q-19 first-party hashed API key, resolving tenant and broker unspoofably from the credential record, with owner optional, structured 422 errors, and duplicate warnings — request/response body contract otherwise unchanged (P-06, Q-19, section 12 Intake).",
+  "scope": [
+    "POST /api/v1/intake/leads: API-key auth (documented header), credential verification via T-022 verifyApiKey, tenant/broker from credential (never the payload), lead creation through the T-024 service path (validation catalog, ref generation, duplicate warnings), 201 response per reference DTO",
+    "Auth failures: 401 without enumeration; disabled credential rejected; last_used stamping",
+    "intake_credential_id + source recorded on the lead",
+    "Contract-deviation documentation: auth mechanism change (Keycloak client-credentials -> first-party key) recorded per M-07"
+  ],
+  "out_of_scope": [
+    "Credential admin (T-022)",
+    "Rate limiting (deferred per A-20)",
+    "SPA (not applicable — server-to-server)"
+  ],
+  "implementation_details": [
+    "Route bypasses the interactive-auth middleware chain: dedicated middleware apiKeyAuth() before validation; no X-Tenant-Id — tenant comes from the credential row (spec 9.2).",
+    "Broker-scoped credential forces the broker on the created lead; payload attempts to override the broker are rejected or ignored per reference behavior (verify and port — broker unspoofable).",
+    "Owner optional: defaulting rules per P-06 apply when absent.",
+    "Reuse the T-024 create service so validation/warnings/ref-generation stay single-sourced; intake-specific DTO mapping preserved byte-compatibly.",
+    "Structured 422 errors identical to the reference intake contract; audit/log with correlation id, credential key_id (never the key)."
+  ],
+  "files": [
+    "src/server/domains/intake/schemas.ts",
+    "src/server/domains/intake/auth.ts",
+    "src/server/domains/intake/service.ts",
+    "src/server/domains/intake/routes.ts",
+    "src/server/domains/intake/index.ts",
+    "src/server/domains/leads/service.ts",
+    "src/server/domains/leads/schemas.ts",
+    "src/server/domains/parties/repository.ts",
+    "src/server/lib/router/app.ts",
+    "src/server/lib/router/env.ts",
+    "api/v1/[[...segments]].ts",
+    "scripts/dev/serve-api.ts",
+    "src/server/tests/integration/intake.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts",
+    "src/server/tests/unit/api-keys.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new (key verification unit-tested in T-022)"
+    ],
+    "integration": [
+      "Valid tenant-scoped key creates a lead in the right tenant (201, reference DTO); broker-scoped key stamps its broker and cannot be spoofed by payload",
+      "Invalid/disabled/regenerated-away key -> 401 generic; wrong-tenant data never reachable",
+      "Validation catalog at the intake boundary (422 structured errors); duplicate warnings returned; owner optional path",
+      "last_used updated; intake_credential_id recorded; audit/log without key material"
+    ],
+    "e2e": [
+      "Intake spec (API-level) adapted in T-043 if present in the suite"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-061"
+  ],
+  "verification_ids": [
+    "V-077",
+    "V-078"
+  ],
+  "findings": [
+    {
+      "id": "T-030-N1",
+      "severity": "minor",
+      "summary": "FLAGGED: the intake endpoint is deliberately NOT idempotent, and has no idempotency key",
+      "detail": "CLAUDE.md requires handlers to tolerate duplicate delivery. This one tolerates it without deduplicating: a re-delivered POST creates a SECOND lead carrying a DUPLICATE_LEADS warning naming the first. That is the reference's contract rather than an oversight - a lead is a business event, and a genuine second enquiry from the same client for the same product line is normal, so swallowing a resubmission would lose it. The duplicate warning is how the ambiguity reaches a human instead of being guessed at. Asserted explicitly by the test 'is NOT idempotent under duplicate delivery'. A request-level Idempotency-Key header is NOT in the reference contract and was NOT invented here. If unattended retry storms are a real operational concern, that is a product decision needing its own task. EVALUATOR RULING (2026-07-19T17:12:00-04:00): ACCEPTED AS DELIBERATE. The reference contract is verified (IntakeLeadCommandHandler forces CreateAnyway and attaches duplicates to the 201), the non-idempotency is asserted by an explicit test, and the duplicate warning routes the ambiguity to a human. CLAUDE.md's duplicate-delivery rule is satisfied in the 'tolerate' sense: a re-POST cannot corrupt state, lose the original, or error - it creates a flagged second lead, which for a business-event ingress is the correct failure direction (silently deduplicating would eat genuine second enquiries). An Idempotency-Key header is new public API surface not in the reference and is correctly NOT invented here; if unattended retry storms become an operational concern it is a product decision needing its own task. Ruled wont_fix within T-030's scope.",
+      "status": "wont_fix",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T00:00:00-04:00"
+    },
+    {
+      "id": "T-030-N2",
+      "severity": "minor",
+      "summary": "FLAGGED: the header name X-API-Key was chosen, not inherited",
+      "detail": "spec.md:380 says the key is 'presented in a documented header' without naming it, and the Keycloak reference used Authorization: Bearer, which does not port to Q-19. Chose X-API-Key and documented the reasoning in intake/auth.ts: the bearer slot already means 'Supabase session' everywhere else in this app, so overloading it would make an expired session indistinguishable from a key presentation and would let a future refactor of the session middleware silently start consuming intake credentials. Authorization is IGNORED on this route - it is not a fallback, and a test pins that. The literal string is now pinned too. This is a published contract: if a partner-facing document names a different header it is a one-line change plus the pin, but it should be confirmed before any integrator onboards. EVALUATOR RULING (2026-07-19T17:12:00-04:00): CHOICE RULED SOUND: spec.md grants latitude ('a documented header'), the reasoning against overloading Authorization (bearer = Supabase session everywhere else; a session-middleware refactor must never start consuming intake credentials) is correct defensive design, Authorization-is-ignored is pinned by a test, and the literal 'X-API-Key' string is pinned (mutant reproduced: renaming the constant is killed by exactly that pin). KEPT OPEN for one outstanding action that is not the implementor's: the header name becomes a breaking change the moment an integrator onboards, so the partner-facing documentation must confirm 'X-API-Key' before first onboarding. Close on that confirmation.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T00:00:00-04:00"
+    },
+    {
+      "id": "T-030-N3",
+      "severity": "minor",
+      "summary": "Rate limiting deferred per Q-17/A-20 - the reference had it, this port does not",
+      "detail": "IntakeEndpoints.cs:29 applied RequireRateLimiting(IntakeRateLimitPolicy) per client id, and the .NET suite tested 429-on-excess plus per-client isolation. Deferred per the task's own out_of_scope and A-20, so it was NOT built and NOT faked. Consequence stated plainly: this is an externally reachable write ingress with no application-layer throttle, so key guessing and lead flooding are both currently unbounded. The 401 path is cheap by construction - a missing header short-circuits before any parse or query, and a malformed key never becomes a database round trip - which limits but does not remove the exposure. EVALUATOR RULING (2026-07-19T17:12:00-04:00): ACCEPTED TO CARRY, with conditions. The deferral is per approved A-20/Q-17 and honestly stated rather than faked. Exposure verified as limited: keys are high-entropy salted-hash credentials (guessing is cryptographically impractical), the 401 path is cheap by construction (missing header short-circuits before any parse or query; malformed keys never reach the database), and all failure modes are non-enumerating. Residual risk is 401-flood/DoS and lead flooding via a leaked key, for which the mitigation today is credential disable/regenerate (verified working). CONDITIONS: (1) this is an observable behavioral deviation from the reference (which returned 429 per IntakeEndpoints.cs:29 rate-limit policy) and MUST be recorded in AC-095's documented-deviation ledger when T-044 evaluates contract parity; (2) revisit before production cutover / first external integrator. KEPT OPEN as that carried-risk marker.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T00:00:00-04:00"
+    },
+    {
+      "id": "T-030-N4",
+      "severity": "minor",
+      "summary": "Sibling-task observations (T-025), NOT fixed by this task",
+      "detail": "During this work npm run typecheck twice reported errors in files owned by the concurrent T-025 (src/server/domains/leads/workflow/schemas.ts:42, and src/server/tests/integration/lead-workflow.test.ts:47 'ProblemBody is declared but never used'). T-025 fixed both mid-run; typecheck and lint are now 0 repo-wide. Recorded only so the evaluator knows those transient failures were not mine and were not ignored. T-025 also extended LeadCreationActor - the interface this task introduced - with an optional access field for availableOperations; the two edits composed cleanly with no conflict. EVALUATOR RULING (2026-07-19T17:12:00-04:00): Transient sibling-task observations; both T-025 items were fixed mid-run. Verified typecheck 0 and lint 0 repo-wide at evaluation time. No action.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T00:00:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-06 intake, Q-19, M-07 contract deviation, section 12 Intake."
+    },
+    {
+      "timestamp": "2026-07-19T00:00:00-04:00",
+      "event": "implemented",
+      "message": "Ported POST /api/v1/intake/leads with Q-19 first-party API-key auth. MEASURED AGAINST THE REFERENCE, which contradicted the task brief twice. (1) DUPLICATE POLICY: the brief asked me to decide and flag what an unattended caller should do with T-024's confirm gate (409 + createAnyway resubmit). No decision was needed — the reference answers it: IntakeLeadCommandHandler.cs:78 forces CreateAnyway:true and :93-102 attaches the duplicates to the 201 as a warning. Ported as measured, and implemented by asking createLead for the confirm envelope and then re-submitting with the confirmation, so the warning an integrator receives is computed by the same duplicate logic the browser uses rather than by a second copy of the window arithmetic that could quietly disagree with it. The gated first call persists nothing (the reference places that check before the transaction for exactly this reason). (2) WARNING CODE: intake emits DUPLICATE_LEADS (PLURAL, IntakeOutcomeDto.cs:24) while the browser surface emits DUPLICATE_LEAD (singular). Preserved rather than 'corrected'; asserted as an exact string. DELIBERATE DEVIATION (M-07, approved Q-19): credential failures answer 401, not the reference's 403. Under Keycloak the bearer token had already authenticated the caller before the credential lookup ran, so a failed lookup was an authorization verdict about an authenticated principal; under Q-19 the key IS the authentication. 401 is also what AC-061 and V-078 specify. SECURITY: every way to fail authentication - missing header, empty header, malformed key, unknown key, wrong secret, disabled credential, regenerated-away key - returns a BYTE-IDENTICAL 401 body modulo correlationId, asserted by comparing full response bodies rather than statuses. Nothing derived from the presented key is ever logged, not even the public key_id. Tenant and broker come from the credential row only, asserted by reading the stored leads row while the payload and the X-Tenant-Id header both name a different tenant. The router is mounted BEFORE the session-auth middleware with apiKeyAuth attached to the route itself, so neither 'accidentally behind session auth' nor 'accidentally unauthenticated' is reachable by an edit to app.ts alone. DEFECT FOUND AND FIXED: an API-ingested lead would have written an audit row with actor_user_id NULL and no actor_label - unattributable, and rejected outright by the shared assertAudited helper. Ported the reference's ICurrentUser.ActorLabel mechanism, the same one the background jobs use to record 'system': audit rows now carry actor_label 'api_credential:{id}'. The database row id, never the key_id, because audit_log is a widely-readable surface and key ids are guessable material. TESTS: 31 integration cases in intake.test.ts, 2 new structural unit pins, 1 new composition-root pin. 15 mutants, each PROVEN APPLIED (sha256 delta and/or line-count delta printed before every run), ALL 15 KILLED: broker mismatch silently overridden; intakeCredentialId nulled; source=browser; confirm gate not pre-answered; singular warning code; 401 message leaking the failure reason; last_used_at never stamped; header renamed; apiKeyAuth detached from the route; intake mounted inside the session group; owner-optional path removed; actorLabel dropped; unknown-key timing equalizer deleted (T-022-F1); field mapping removed; field mapping shuffled. Baseline restored byte-identical (sha256 verified) and green after every one. ONE SURVIVOR, INVESTIGATED AND FIXED RATHER THAN EXCUSED: renaming API_KEY_HEADER survived, because every test sent the constant, so the mutation renamed both sides at once while breaking every integrator already in production. Added a test that sends the LITERAL 'X-API-Key' header and pins the constant's value; the mutant now dies. T-022-F1 CLOSED: the unknown-key timing equalization is now pinned structurally in api-keys.test.ts, reusing the source-scan pattern the timingSafeEqual pin already uses. Two assertions - the decoy function still exists, and it is still invoked on the row===undefined branch BEFORE the unknown_key return, so ORDER is pinned and not merely presence. No statistical assertion, as directed. GATES: intake.test.ts + auth-wiring.test.ts + api-keys.test.ts run isolated = 88 passed, exit 0; npm run typecheck = 0; npm run lint = 0. No schema change, so db:types:check is not applicable. db:validate and supabase:reset deliberately NOT run - both are destructive against the database shared with the concurrent T-025. RESIDUE: verified by direct query after the run - zero t030-% tenants remaining, zero orphan rows across all 12 tables the suite writes, zero source='api' leads remaining anywhere."
+    },
+    {
+      "timestamp": "2026-07-19T17:12:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator: PASS (iteration 0). VERIFIED FIRST-HAND, all serial: intake.test.ts green in isolation (31), then the ORIGINAL FAILURE CONDITION reproduced end-to-end - db:validate (destructive reset, sequences restarted at low ids) followed by ci:test = 74 files / 2504 passed / 0 skipped exit 0, floor 2504 met; typecheck 0; lint 0. REFERENCE CLAIMS CHECKED IN SOURCE: DUPLICATE_LEADS plural at IntakeOutcomeDto.cs:24 (browser surface emits the singular - two-surface difference correctly preserved and exact-string-tested); the reference's 403 confirmed at IntakeEndpoints.cs:44/52/58/111-112 and its rate limiting at :29, so the 401 deviation is real, reasoned (under Q-19 the key IS the authentication), and matches AC-061/V-078 - ruled correct under M-07. ORCHESTRATOR'S TEST FIX RE-VERIFIED INDEPENDENTLY: (a) deep equality via rejectionShape is strictly STRONGER than the substring scan it replaced - the full problem body is pinned literal-for-literal with only per-request correlationId stripped, so any leak must surface as an added field or altered value, while substring scanning of small integers was unsound (1 collides with '\"status\":401', 91 with 'rfc9110'); substring scanning is correctly retained only for high-entropy clientId/secret. (b) BOTH leak mutants reproduced on the verifyApiKey-failure branch where the presented value is defined (avoiding the undefined-value trap the orchestrator caught itself in): presented-key-into-detail KILLED by 3 tests; literal-'1'-into-detail KILLED by 2 tests including the deep-equality leak test - the exact case the old scan could not catch. (c) The reason-key mutant equivalence CONFIRMED STRUCTURALLY: AppErrorOptions is closed (errors/index.ts:17-24) and AppError's constructor reads only code/fieldErrors/availableOperations/cause, so an arbitrary options key can never reach the body; detail is the load-bearing channel and it IS covered. (d) Fix holds under reset-then-ci:test, not merely in a passing state. SECURITY PROPERTIES VERIFIED IN SOURCE AND VIA THE SUITE: seven 401 variants compared as full bodies against one pinned literal; presented key/secret-half/public clientId asserted absent from logs; tenant and broker resolved only from the credential row (payload tenantId/source/intakeCredentialId inert - stripped by zod - and X-Tenant-Id ignored, asserted against the stored row); intake mounted at app.ts:315 BEFORE the session-auth group (:393) with apiKeyAuth attached to the route itself, both failure directions pinned functionally and the composition roots pinned by auth-wiring.test.ts:201; audit attribution label api_credential:{row id} constructed server-side from the credential lookup with no client-controllable path (unforgeable) and carrying no key material (row id is useless without clientId+secret; test pins exact label and clientId absence); last_used_at stamped on authentication, not on failures. HEADER-RENAME SURVIVOR PIN REPRODUCED: renaming API_KEY_HEADER killed by exactly the literal 'X-API-Key' test. All mutants applied with sha256/semantic-grep proof and restored byte-identical (cb2b7bf0 re-verified), suite re-run green. TAKEN ON TRUST: the implementor's other 12 mutants and the T-022-F1 timing-equalizer structural pin (read in api-keys.test.ts but not re-mutated). Findings normalized to task.schema.json (severity info -> minor, title -> summary)."
+    }
+  ]
+}

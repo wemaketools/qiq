@@ -1,2 +1,48 @@
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+
+# Node
 node_modules/
+dist/
+coverage/
+
+# Playwright
+e2e_tests/test-results/
+e2e_tests/playwright-report/
+e2e_tests/blob-report/
+e2e_tests/playwright/.cache/
+
+# Liquibase local overrides / logs
+src/api/db/liquibase.properties
+*.liquibase.log
+
+# Editors / OS
+.vs/
+.vscode/
+.idea/
 .DS_Store
+Thumbs.db
+
+# Env files with local secrets (never commit real secrets)
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Vercel
+.vercel/
+
+# Transient schema dump written by scripts/db/validate-migrations.ts. The DIFF BASELINE it is
+# compared against — supabase/schema.expected.sql — is committed on purpose.
+supabase/.schema.actual.sql
+
+# Logs and transient artifacts
+*.log
+logs/
+tmp/
+.tmp/
+node_modules/.tmp/
+src/server/**/*.tmp.ts

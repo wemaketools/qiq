@@ -1,0 +1,59 @@
+{
+  "id": "T-014",
+  "title": "Tenant Manager UI",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-013"],
+  "objective": "Permission-bound Tenant Manager screens: tenant list (incl. removed where permitted), add/view/edit forms, soft-remove and restore flows (spec FR-06/FR-07, PRD 5.5).",
+  "scope": [
+    "Routes /admin/tenants and /admin/tenants/{id}",
+    "List with status chips (Active/Removed) and include-removed filter (permission-gated)",
+    "Add/Edit form: tenant name, contact name, contact email, contact phone with validation per UI standards",
+    "Remove (danger dialog restating soft-delete consequence) and Restore actions"
+  ],
+  "out_of_scope": ["Tenant backend (T-006)", "Reference template management UI (covered by Settings global scope, T-016 if permitted)"],
+  "implementation_details": [
+    "features/tenantManager/TenantListPage.tsx: table (Name, Contact, Email, Phone, Status chip, actions), include-removed toggle only when tenants.view_removed permission, + New Tenant button",
+    "TenantFormPage.tsx shared for add/edit: required name, email format validation, inline errors on blur/submit, sticky footer Cancel/Save",
+    "RemoveTenantDialog (danger style: 'Remove tenant — {name}': restates soft delete and restorability); RestoreTenantDialog",
+    "RTK Query endpoints tenantsApi: list/get/create/update/remove/restore invalidating tags",
+    "Nav entry appears only with tenants.view permission (already gated by T-013 nav config)"
+  ],
+  "files": [
+    "src/ui/src/features/tenantManager/TenantListPage.tsx",
+    "src/ui/src/features/tenantManager/TenantFormPage.tsx",
+    "src/ui/src/features/tenantManager/RemoveTenantDialog.tsx",
+    "src/ui/src/features/tenantManager/tenantsApi.ts",
+    "e2e_tests/tests/tenant-manager.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [],
+    "e2e": [
+      "tenant-manager.spec.ts: internal user creates tenant -> appears with Active chip and seeded reference data visible under Settings; edit contact fields persists; remove -> disappears from default list, visible with include-removed, restore reactivates; user without tenant permissions sees no Tenant Manager nav and gets Forbidden on deep link"
+    ]
+  },
+  "acceptance_ids": ["AC-006"],
+  "verification_ids": ["V-006"],
+  "findings": [
+    {
+      "id": "F-047",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "The corrected handleBlur behavior (bug fix: undefined-valued keys no longer stored in fieldErrors, which previously inflated the 3+-error summary threshold and produced a phantom error-summary banner after three valid blurs) is not directly locked by a component test. None of the TenantFormPage tests blur three valid fields and assert form-error-summary does NOT appear. The fix is correct on inspection and indirectly exercised by the passing V-006 e2e (the Save click lands correctly), but a focused unit test would prevent silent reintroduction.",
+      "evidence": "TenantFormPage.tsx:144,150-166,241; __tests__/TenantFormPage.test.tsx (no threshold/valid-blur case).",
+      "recommendation": "Add a test that fills a valid name + valid email, blurs contact-name/phone/email, and asserts queryByTestId('form-error-summary') is null. Minor; non-blocking. Can be folded into a later frontend-hardening pass.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T04:10:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-06/FR-07, PRD 5.5)" },
+    { "timestamp": "2026-07-13T03:20:00-04:00", "event": "task_started", "message": "T-014 IN_PROGRESS; delegated to Implementor (iteration 1/10). Dep T-013 (frontend shell) PASS. UI task on the T-013 shell: routes /admin/tenants + /admin/tenants/{id}, TenantListPage (status chips Active/Removed, include-removed toggle gated by tenants.view_removed, +New Tenant), TenantFormPage (name/contact fields, email format validation, inline errors), RemoveTenantDialog (danger, restates soft-delete) + Restore, RTK Query tenantsApi (list/get/create/update/remove/restore) against T-006 tenant backend. Test surface: Playwright e2e (real flow: create->Active chip + seeded reference data visible, edit persists, remove->hidden from default list + visible with include-removed + restore reactivates, no-permission user sees no nav + Forbidden on deep link). Frontend typecheck must pass; component tests for form validation + permission gating." },
+    { "timestamp": "2026-07-13T04:00:00-04:00", "event": "implementation_written", "message": "T-014 IMPLEMENTED (iteration 1/10). No backend changes; wired against real T-006 endpoints (GET /api/v1/tenants?includeRemoved=, GET/{id}, POST create, PUT/{id}, POST /{id}/remove, POST /{id}/restore under the X-Tenant-Id-exempt /tenants group) and TenantDto(Id,Name,ContactName,ContactEmail,ContactPhone,Status active|removed,RemovedAt); real permission codes tenants.view/create/edit/deactivate(remove)/restore/view_removed. Created features/tenantManager/{tenantsApi (plain fetch-wrapper matching T-013 api/* pattern; no RTK Query exists yet in codebase), TenantListPage (table + Status chip, include-removed toggle gated tenants.view_removed, +New Tenant gated tenants.create, Skeleton/Empty/Error states), TenantFormPage (shared add/edit, required name + email-format validation, inline blur/submit errors + 3+-error summary, sticky footer, useUnsavedChanges), RemoveTenantDialog/RestoreTenantDialog (ConfirmDialog danger/non-danger)} + 16 component tests. Modified auth/permissions.ts (+tenants.* codes), app/router.tsx (real pages for /admin/tenants + /admin/tenants/:id + /new), components/common/ConfirmDialog.tsx (added optional testId - real fix: fixed-position overlay collapses a wrapping testid div to zero-size/hidden for Playwright). Found+fixed 2 real bugs: (1) ConfirmDialog testid positioning, (2) TenantFormPage handleBlur stored undefined keys in fieldErrors inflating the 3+-error summary threshold once 3 fields touched regardless of validity, causing a layout shift that misdirected Playwright's Save click - now only real messages stored/cleared. e2e tenant-manager.spec.ts: real non-fixme 'tenant manager - lifecycle (V-006)' block (create->Active chip, edit persists, remove->hidden from default, include-removed shows it, restore reactivates, no-permission user sees no nav + Forbidden on deep link); original V-007 scenario kept fixme, note updated that it is blocked only on T-016 (Settings>Reference data), NOT T-014. seed-shell-e2e.sh: e2e-internal granted full tenants.* set. RESULTS: frontend typecheck strict clean no any; unit 46/46 (31 baseline + 15 tenant-manager); Playwright tenant-manager 2 passed + 1 fixme(T-016) against live compose stack workers:1; shell/login/logout regression 11/11 green; backend full suite 220/220 (Domain 9, Infrastructure 45, Api 166), no backend changes. FLAG: V-007 (tenant creation -> seeded reference data visible under Settings) still not assertable e2e until T-016 Settings>Reference data UI exists - remains test.fixme, T-014 no longer the blocker. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T04:10:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS. AC-006 met, V-006 covered end-to-end vs the real stack, no critical/high/major security findings. Completeness: Active/Removed StatusChip (text always present, color not sole signal); include-removed toggle rendered only under tenants.view_removed AND listTenants passes canViewRemoved&&includeRemoved so a de-permissioned client never requests removed rows; form name-required + email-format + inline blur/submit errors; +New/Remove/Restore gated tenants.create/deactivate/restore; tenantsApi matches TenantDto + the six routes exactly, no invented fields. Permission-gating correctly UX-only: every TenantEndpoints route independently RequirePermission on the correct code under the X-Tenant-Id-exempt GlobalGroup; frontend codes documented UX-only, mirror PermissionCatalog.Tenants; nav gated + RouteGuard Forbidden; e2e no-permission (e2e-rm) confirms nav absent + /admin/tenants -> forbidden-page against the real stack; no cross-tenant leak. Both bug fixes GENUINE not test-hacks: ConfirmDialog testId on the position:fixed overlay (default preserved, only 2 consumers), handleBlur no longer stores undefined keys (real correctness fix for the phantom error-summary banner; validation + server problem+json mapping intact). 46 component tests meaningful (module-boundary mocked, appropriate for component level); V-006 Playwright drives create->Active, edited email persists, danger dialog restates soft-delete, remove->hidden, include-removed->Removed chip, restore->Active, plus AC-016 no-permission/Forbidden - all passing. V-007 fixme legit (its task_ids=[T-009]; needs T-016 Settings>Reference-data UI; backend seeding proven by TenantSeedingTests; AC-006/V-006 core fully covered without it). No regression (shell 11/11, backend 220/220, no any, ConfirmDialog default intact). Independent runs: typecheck clean, vitest 46/46, backend 220/220, tenant-manager e2e 2 pass + 1 fixme, shell 11/11. Non-blocking advisory F-047 (minor test-gap: add a valid-3-blur assertion that form-error-summary stays absent). Recommend PASS." },
+    { "timestamp": "2026-07-13T04:12:00-04:00", "event": "task_passed", "message": "T-014 PASS (iteration 1/10). Frontend typecheck clean, component 46/46, backend 220/220, Playwright V-006 lifecycle 2 pass + 1 legit T-016 fixme, shell regression 11/11. AC-006 satisfied; V-006 real passing e2e. Non-blocking advisory F-047 recorded OPEN (add a handleBlur regression-lock test). T-014 was a dependency only of T-042 (still blocked); no new task unblocks. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

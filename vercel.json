@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "npm run typecheck && npm run build:ui",
+  "outputDirectory": "src/ui/dist",
+  "functions": {
+    "api/v1/[[...segments]].ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 30
+    },
+    "api/cron/*.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 60
+    },
+    "api/queue/*.ts": {
+      "runtime": "nodejs22.x",
+      "maxDuration": 60
+    }
+  }
+}

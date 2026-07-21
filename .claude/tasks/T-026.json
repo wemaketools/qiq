@@ -1,0 +1,191 @@
+{
+  "id": "T-026",
+  "title": "Quotes backend: lead-subordinate creation, versioning, quote operations with cascades, closed-record corrections",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-025"
+  ],
+  "objective": "Port the quote domain: quotes exist only under a lead, version discipline with one current version, the full quote operation set (assign, send, revise, mark-won with sibling withdrawal + lead Closed Won, mark-lost, withdraw), draft-vs-revise editing rules, and read-only-after-close with audited corrections (P-07 quote side, P-09).",
+  "scope": [
+    "POST /api/v1/leads/{id}/quotes (create draft v1 — the quotes card is the sole creation point), GET quote list per lead, GET /api/v1/quotes/{id}, PUT draft update",
+    "POST /api/v1/quotes/{id}/operations/{op}: assign, send (valid-until + next-follow-up requirements), revise (new current version), mark-won (bound premium + decision date -> sibling open quotes withdrawn + lead Closed Won), mark-lost (structured reason, optional lead close), withdraw",
+    "Quote legality matrix (pure module, reporting category + canonical key) + availableOperations",
+    "quote_status_history append-only with actor/inputs; audit; automatic expiry excluded (job in T-032)",
+    "Closed-record read-only enforcement with audited corrections path per reference",
+    "Validation: valid-until > sent, sent >= received, decision >= sent unless exception recorded, premiums > 0, future next-follow-up while open past Quote Sent",
+    "Close the quotes.is_current invariant gap inherited from T-005 (evaluator ruling): add a NEW migration creating `unique index uq_quotes_current on quotes (tenant_id, lead_id) where is_current = true`, add the paired allow-list entry + target-only side-assertion in schema-business-dotnet-parity.test.ts, and refresh the db:validate snapshot via --update-snapshot. Never edit an already-applied migration - the snapshot enforces this.",
+    "Quote-side high-value pricing gate (re-scoped from AC-049/V-063 by human ruling on T-025-N1): quote Send requires pricing_approval_state=approved when the tenant gate is enabled AND the CURRENT QUOTE VERSION's quoted premium exceeds the tenant threshold; otherwise 422 PRICING_APPROVAL_REQUIRED with nothing persisted. Port from SendQuoteCommandHandler.cs:85-91 - measure it, do not infer it from this sentence."
+  ],
+  "out_of_scope": [
+    "Attachments (T-027)",
+    "Quote expiry job (T-032)",
+    "Timeline (T-029)",
+    "Alert hooks (T-034)"
+  ],
+  "implementation_details": [
+    "Port QuoteOperationExecutor: transactions cover quote mutation + version management + sibling cascade + lead transition + history (both quote and lead where cascades touch the lead) + audit.",
+    "Version discipline: revise-after-send creates a new current version; exactly one is_current per quote enforced (constraint from T-005 + service logic).",
+    "Closed Won reachable ONLY via quote-level mark-won (P-07) — lead legality matrix has no direct Closed Won operation.",
+    "Corrections: closed quotes/leads editable only through the audited corrections capability with its own permission (spec 13 sensitive operations).",
+    "Executor exposes the same domain-event seam as T-025 for T-034 targeted re-evaluation.",
+    "Quoted premium derivation (current version) stays query-computed per section 11.",
+    "quotes.is_current gap: the .NET reference enforces one-current-quote only in application code, so concurrent operations can commit two current quotes and double-count premium in every dashboard joining is_current (same class as uq_quote_versions_current, ratified in T-005). T-026 owns every code path writing quotes.is_current, so the guard belongs here. The backfill caveat documented in the quotes migration header is a no-op locally (A-1: no production data, clean resets) but must be honoured for any deployed environment created before this index lands."
+  ],
+  "files": [
+    "src/server/domains/quotes/routes.ts",
+    "src/server/domains/quotes/service.ts",
+    "src/server/domains/quotes/repository.ts",
+    "src/server/domains/quotes/schemas.ts",
+    "src/server/domains/quotes/workflow/legality.ts",
+    "src/server/domains/quotes/workflow/operations.ts",
+    "src/server/tests/unit/quote-legality-matrix.test.ts",
+    "src/server/tests/integration/quote-workflow.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Quote legality matrix table-driven parity; version-selection rule (one current)"
+    ],
+    "integration": [
+      "Create draft v1 under lead; draft edit allowed, post-send edit rejected (revise required); revise produces new current version",
+      "Send validations (valid-until, next-follow-up); mark-won cascades (siblings withdrawn, lead Closed Won, bound premium recorded); mark-lost with optional lead close; withdraw",
+      "History rows on quote and lead sides; audit entries; corrections path permission-bound + audited; illegal op 409 with hint",
+      "Tenant isolation; every quote belongs to exactly one lead (FK + API shape)"
+    ],
+    "e2e": [
+      "Quote panel/workflow specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-021",
+    "AC-022",
+    "AC-024",
+    "AC-050",
+    "AC-052",
+    "AC-053",
+    "AC-054",
+    "AC-055",
+    "AC-096",
+    "AC-049"
+  ],
+  "verification_ids": [
+    "V-026",
+    "V-027",
+    "V-031",
+    "V-064",
+    "V-065",
+    "V-067",
+    "V-068",
+    "V-069",
+    "V-070",
+    "V-124",
+    "V-063"
+  ],
+  "findings": [
+    {
+      "id": "T-026-N1",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "CONTRADICTION (task file vs reference): the scope's operation list omits set-current, but the reference has it as a seventh operation with its own dedicated route POST /quotes/{id}/set-current (NOT under /operations/, QuoteEndpoints.cs:47), its own permission quotes.set_current, and a matrix row. It is also the only writer of quotes.is_current besides create - the exact column whose new invariant this task was amended to own. Implemented per the reference; flagged rather than silently added or silently omitted. | RESOLVED by evaluator ruling: the reference wins. Verified QuoteEndpoints.cs:47 first-hand - POST /quotes/{id}/set-current is a dedicated route NOT under /operations/, permission quotes.set_current (PermissionCatalog.cs:119, seeded in seed.sql:101). The TS port registers the same non-/operations/ path with the same permission and pins the DB-level one-current-per-lead guarantee (tests at quote-workflow.test.ts:1052-1105). Implementing it was correct: it is the only writer of quotes.is_current besides create, the exact column the task was amended to guard."
+    },
+    {
+      "id": "T-026-N2",
+      "severity": "major",
+      "status": "open",
+      "summary": "CONTRADICTION (AC-055 vs reference): AC-055 says update attempts on a closed lead/quote via normal endpoints fail 409, and refers to a separate corrections route. Measured: UpdateDraftQuoteCommandHandler.cs:73-85 answers 403 QUOTE_CLOSED_REQUIRES_CORRECTION_PERMISSION for a closed quote when the caller lacks quotes.correct_closed, and SUCCEEDS when they hold it - the PUT route IS the audited corrections path, and no separate corrections endpoint exists anywhere in QuoteEndpoints. 409 QUOTE_DRAFT_EDIT_ONLY is the answer for a Sent/Revised (non-draft, non-closed) quote instead. Ported per the reference, which also keeps the quote side consistent with the lead side T-024 already shipped (LEAD_CLOSED_REQUIRES_CORRECTION_PERMISSION -> 403)."
+    },
+    {
+      "id": "T-026-N3",
+      "severity": "major",
+      "status": "open",
+      "summary": "CONTRADICTION (AC-054 vs reference): AC-054 requires mark-won to require bound premium and decision date (422 otherwise). Measured: both are OPTIONAL in MarkQuoteWonCommandHandler.cs:66-71 - boundPremium defaults to the CURRENT VERSION's quoted premium and decisionDate defaults to today; MarkQuoteWonValidator only constrains boundPremium to > 0 WHEN supplied. Ported per the reference (both optional, both defaulted) and asserted as such."
+    },
+    {
+      "id": "T-026-N4",
+      "severity": "major",
+      "status": "open",
+      "summary": "CONTRADICTION (AC-054/scope vs reference): AC-054 and this task's scope require date-order rules sent >= received and decision >= sent unless exception recorded. A grep of every date comparison across Features/Quotes finds only TWO date rules in the whole quote domain: preparedDate >= lead.dateReceived (CreateQuoteCommandHandler.cs:99) and validUntil > sentDate (SendQuoteCommandHandler.cs:72). There is no sent-vs-received rule and no decision-vs-sent rule, and no exception-recorded mechanism exists anywhere in the reference. The two real rules are implemented and tested; the two nonexistent ones are NOT invented. FLAGGED for a human ruling rather than filled in."
+    },
+    {
+      "id": "T-026-N5",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "MEASURED, counter-intuitive, and pinned by its own test: quote creation does NOT cascade a NEW lead to Pricing. QuoteLeadCascade.MoveLeadToPricingIfPreQuotingAsync guards on LeadWorkflow.IsLegal(StartPricing, ...), and the lead matrix allows start-pricing only from Assigned/Information Gathering/Underwriting (LeadWorkflow.cs:104-109) - so a quote raised against a brand-new unassigned lead leaves it in New. My first draft of the integration test assumed the naive reading (pre-Pricing lead moves to Pricing) and went red; the CODE was right and the TEST was wrong. Both directions are now pinned explicitly. | RESOLVED: verified the cascade guard reasoning against LeadWorkflow and confirmed both directions are pinned (quote-workflow.test.ts:782 cascade from Assigned, :802 explicit no-cascade from New)."
+    },
+    {
+      "id": "T-026-N6",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "MEASURED list-envelope shape: GET /leads/{id}/quotes returns a BARE ARRAY of QuoteListItemDto, not the {items,totalCount} envelope used by the paged list endpoints (QuoteEndpoints.cs:60-65 returns Results.Ok(IReadOnlyList<...>)). Checked rather than assumed, per the standing warning that the totalCount rule does not hold universally. It is a lead-subordinate card with no paging/filter/sort parameters, so there is no total to report. Preserved as-is. | RESOLVED: verified QuoteEndpoints.cs:60-65 returns Results.Ok(IReadOnlyList<QuoteListItemDto>) - a bare array, no {items,totalCount} envelope - and the TS list endpoint asserts Array.isArray (quote-workflow.test.ts:777). Checked rather than assumed, correctly."
+    },
+    {
+      "id": "T-026-N7",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "DOC-vs-CODE divergence inside the reference itself: QuoteOperationExecutor's doc comment (:20-24) claims it checks the closed-quote-correction gate as a defensive second gate, but the executor's actual code contains no CorrectClosed check at all. The comment even concedes it is structurally impossible today since every QuoteWorkflow rule already excludes every terminal status. Followed the CODE: the correction gate lives only on the PUT path. Closed quotes are still unreachable by every workflow operation via the legality matrix, asserted for all seven operations. | RESOLVED by evaluator ruling: following the CODE over the stale doc comment was correct. The executor contains no CorrectClosed check; every workflow rule already excludes terminal statuses, and the port asserts closed quotes reject all seven operations (quote-workflow.test.ts:1728)."
+    },
+    {
+      "id": "T-026-N8",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "FIXED A FIXTURE DEFECT IN ANOTHER TASK'S FILE, caused by this task's migration: lead-workflow.test.ts's seedQuote() hard-coded is_current=true, so any test seeding several quotes on one lead created TWO current quotes - a state production cannot reach and that double-counts premium in every dashboard joining quote.is_current. The new uq_quotes_current index rejects it, which is how it surfaced. Changed to current-only-if-the-lead-has-no-current-quote-yet, matching CreateQuoteCommandHandler. Nothing in that suite asserts is_current; all 40 of its tests pass. This is a direct consequence of MY change, not a sibling artifact, so it was fixed rather than reported. | RESOLVED by evaluator ruling: fixing the sibling fixture was the right call. The failure was mechanically caused by this task's own uq_quotes_current index; the fixture seeded a state production cannot reach (two current quotes, premium double-counting); the fix ('current only if the lead has no current quote yet', lead-workflow.test.ts:300-321) matches CreateQuoteCommandHandler semantics; nothing in that suite asserts is_current. Evaluator re-ran the suite serially: 40/40 pass. This also resolves T-048's F-048-3."
+    },
+    {
+      "id": "T-026-N9",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "DEFERRED TO THE ORCHESTRATOR (deliberate, per brief): the scope asks for a db:validate snapshot refresh via --update-snapshot, but the brief forbids running db:validate / supabase:reset against the shared local DB. The new migration 20260719001000_quotes_current_guard.sql was applied with the non-destructive npm run db:migrate, and the parity allow-list entry plus its automatic side-assertion are in place. The snapshot refresh still needs to be run serially by the orchestrator. | RESOLVED: the orchestrator ran the snapshot refresh serially, reviewed the full diff before accepting it (exactly the guard: uq_quotes_current, its COMMENT, the default-partition index, the ATTACH PARTITION; 2380 -> 2388 lines), and db:validate now exits 0."
+    },
+    {
+      "id": "T-026-N10",
+      "severity": "minor",
+      "status": "resolved",
+      "summary": "NO ORDERING FLAKE OBSERVED in this task's quote_status_history assertions across roughly a dozen full runs of the suite. Quote history deliberately reuses the lead side's appendQuoteStatusHistory (leads/workflow/history.ts) and the same (acted_at, id) read ordering rather than defining a divergent writer, so whatever T-048 lands for the lead-side root cause covers the quote side through the shared pattern. Nothing was worked around locally. | RESOLVED: T-048 landed the root-cause fix and the quote side is covered through the shared pattern - listQuoteStatusHistory (quotes/repository.ts:702) orders by the identity column id, not forked. One residue remains in this task's TEST helper only, filed separately as T-026-E1."
+    },
+    {
+      "id": "T-026-E1",
+      "severity": "minor",
+      "status": "open",
+      "summary": "EVALUATOR (tests-code-review): readQuoteHistory in quote-workflow.test.ts:481-488 reintroduces the T-048 alias-shadowing mechanism on its TIE-BREAK key. The helper selects `id::text as id` and sorts with a bare `order by acted_at, id`: acted_at is NOT aliased (the primary key sorts the real timestamptz), but the bare `id` tie-break resolves to the TEXT alias, so two rows of one quote sharing an identical acted_at would tie-break as strings ('10' < '9' across a digit-length boundary). Verified first-hand that Postgres resolves the bare name to the alias. Latent rare flake of exactly the class T-048 eradicated (this file landed AFTER T-048's repo scan, so T-048's 'no other occurrences' claim was true when made). Fix is one line: qualify the tie-break (e.g. `order by acted_at, quote_status_history.id`) or drop the acted_at key and order by the qualified id alone, matching the lead-side helper. Test-only; production listQuoteStatusHistory is correct (orders by id)."
+    },
+    {
+      "id": "T-026-E2",
+      "severity": "minor",
+      "status": "open",
+      "summary": "EVALUATOR (tracking): the uq_quotes_current index is a documented TARGET-ONLY DEVIATION (absent from the .NET reference, where the invariant lived only in the handlers) and per the orchestrator must enter the AC-095 deviation ledger at T-044 - but T-044's task file currently contains no mention of it (verified: zero occurrences of 'uq_quotes_current' or 'deviation' in .claude/tasks/T-044.json). The deviation itself is ratified (T-005 evaluator ruling 2, verified verbatim: 'fold into T-026 as a NEW migration + parity allow-list entry') and is self-documenting in the index COMMENT and the parity allow-list, but the ledger obligation needs to be recorded on T-044 by the orchestrator so it is not lost. No implementor action required on T-026."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-07 quote side, P-09, section 12 quotes, section 14 rules."
+    },
+    {
+      "timestamp": "2026-07-19T02:30:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator amended scope per evaluator ruling 2 on T-005: the quotes.is_current one-current invariant guard is assigned to T-026 rather than a new task, because T-026 owns every code path that writes quotes.is_current and its tests must exercise current-quote semantics anyway. Adds a new migration (uq_quotes_current partial unique on tenant_id, lead_id where is_current), parity allow-list entry with target-only side-assertion, and a db:validate snapshot refresh."
+    },
+    {
+      "timestamp": "2026-07-19T09:15:00-04:00",
+      "event": "note",
+      "message": "OBLIGATION INHERITED FROM T-008 (evaluator, iteration 5, categorised as consumer-side not a T-008 finding): the money-type pins guarantee that `numeric` columns are typed string (never number) throughout the Kysely schema, on Select/Insert/Update. That guarantee is bypassable from consumer code via raw `sql<number>` casts. When this task reads, aggregates or writes premium/threshold values, do NOT cast money to number - keep it string and do arithmetic in SQL (numeric) or with an explicit decimal-safe path. The T-008 pin cannot catch a cast written here. Background: this pin was defeated SIX times during T-008 (three vacuity axes, sampling, nullability mismatch, write-path), so treat money typing as a known-fragile area and assert it in this task's own tests."
+    },
+    {
+      "timestamp": "2026-07-19T22:10:00-04:00",
+      "event": "scope_amended",
+      "message": "Human ruled on T-025-N1: the AC-049 high-value pricing gate is QUOTE-side, not lead-side, and is re-scoped into this task. AC-049 and V-063 amended and now list both T-025 (sub-state machine, already implemented and verified) and T-026 (the gate). Measured facts to port rather than re-derive: SendQuoteCommandHandler.cs:85-91 compares the CURRENT QUOTE VERSION's QuotedPremium against the tenant threshold and returns 422 PRICING_APPROVAL_REQUIRED, whose doc comment (QuoteWorkflowErrors.cs:26) states '422, nothing persists'. The original AC wording said 409 and lead-side; both were wrong, and a repo-wide grep confirmed no lead operation consults RequirePricingApprovalForHighValue."
+    },
+    {
+      "timestamp": "2026-07-19T22:55:00-04:00",
+      "event": "implemented",
+      "message": "Implemented the quotes backend test-first (unit RED observed before legality.ts existed). NEW FILES: domains/quotes/{errors,schemas,repository,quote-ref,service,routes,index}.ts and domains/quotes/workflow/{legality,operations}.ts; migration 20260719001000_quotes_current_guard.sql; tests/unit/quote-legality-matrix.test.ts (105 tests); tests/integration/quote-workflow.test.ts (77 tests). EDITED: lib/router/app.ts (own quotes deps slot, deliberately NOT riding the leads slot), both composition roots, auth-wiring.test.ts (+2 pins), schema-business-dotnet-parity.test.ts (quotes.uq_quotes_current allow-list entry, whose side-assertion loop picks it up automatically), and lead-workflow.test.ts's seedQuote fixture (see T-026-N8). PRICING GATE ported from SendQuoteCommandHandler.cs:85-91 rather than inferred: all four conjuncts preserved (tenant switch on, threshold non-null, current version exists, premium STRICTLY greater than threshold, lead pricing_approval_state != approved) -> 422 PRICING_APPROVAL_REQUIRED. The comparison runs in SQL against numeric, never through a JS double (T-008 money obligation), and is raised before any write inside the operation's transaction. Nothing-persists is asserted as an unchanged digest over the quote row, lead row, quote_status_history, audit_log and follow_ups. MUTATION TESTING: 7 mutants, each with an application proof (sha256 delta for same-line edits, plus line-count delta where relevant; git diff is blind to these untracked files). KILLED: gate status 422->409 with code intact (3 tests); gate code renamed with status intact (3 tests) - the required discrimination pair; threshold > became >= (boundary test); Send made legal from Revised (3 unit + 1 integration); sibling-withdrawal cascade disabled (2 tests); first-quote is_current default forced true (4 tests). SURVIVED, ruled EQUIVALENT with evidence: relocating the gate to after the writes, and separately bypassing the transaction - each survives alone because ordering AND rollback are independent sufficient mechanisms; COMBINING them killed the digest test (it caught the lead status, follow_up_count, next_follow_up_date and the follow_up row), proving the nothing-persists assertion is non-vacuous rather than guarded by an untested tautology. GATES: own suites isolated exit 0 (105 unit + 77 integration); full backend suite 2698/2698 pass, exit 0; typecheck 0 (run AFTER the suite, which exposed a real exactOptionalPropertyTypes defect in the cross-tenant scrub helper, now fixed); lint 0; db:types:check 0 (no schema type drift - the new index changes no column). Residue verified by direct SQL: zero t026 tenants/quotes and zero orphaned quote_versions / quote_status_history / quote_assignments rows. ci:test floor untouched (2511). session_state.json and task_list.json not edited. Ten findings recorded, including four reference-vs-criteria contradictions (T-026-N1..N4) and one case where the reference proved my own test wrong (T-026-N5)."
+    },
+    {
+      "timestamp": "2026-07-19T22:50:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator PASS, iteration 0 (two minor non-blocking findings T-026-E1/E2 filed; N2/N3/N4 remain open as HUMAN-owned AC amendments, not implementation defects - see below). VERIFIED FIRST-HAND, all serial: quote-legality-matrix 105/105; quote-workflow 77/77; lead-workflow 40/40 (seedQuote fix confirmed, resolving T-048's F-048-3); combined re-run after evaluator mutants restored 117/117. REFERENCE CLAIMS ALL RE-MEASURED, the reference wins every one: (N4) grep of Features/Quotes plus a WIDER sweep of QuoteIQ.Application/QuoteIQ.Domain for DecisionDate/SentDate comparisons finds EXACTLY two date rules - preparedDate < lead.DateReceived rejected (CreateQuoteCommandHandler.cs:99) and validUntil <= sentDate rejected (SendQuoteCommandHandler.cs:72); every other hit is a dashboard aggregation; no sent>=received rule, no decision>=sent rule, no exception-recorded mechanism exists anywhere. (N2) UpdateDraftQuoteCommandHandler.cs:73-85 + QuoteEndpoints.cs:151-165 confirm: closed quote -> 403 QUOTE_CLOSED_REQUIRES_CORRECTION_PERMISSION without quotes.correct_closed, SUCCESS with it (the PUT IS the audited corrections path; no separate corrections endpoint exists in QuoteEndpoints); 409 QUOTE_DRAFT_EDIT_ONLY belongs to Sent/Revised; consistent with the lead side T-024 shipped. Tests cover all three legs incl. before/after audit (quote-workflow.test.ts:1685,1700,1728). (N3) MarkQuoteWonCommandHandler.cs:66-71 confirms boundPremium and decisionDate are OPTIONAL AND DEFAULTED (current version's premium; today); defaulting pinned at :1271. (N1) set-current verified per reference route/permission and ruled correctly implemented. PRICING GATE (amended AC-049/V-063): port verified line-against-line with SendQuoteCommandHandler.cs:85-91 - all four conjuncts, STRICT >, version-less quote PASSES the gate (isCurrentVersionPremiumAbove returns false on no current version, matching the currentVersion-not-null conjunct); the comparison runs IN SQL against numeric with the threshold cast (::numeric), no premium through a JS double (T-008 obligation honoured; boundary-cent test :1977); nothing-persists asserted as an unchanged DIGEST across quote row, lead row, quote_status_history, audit_log and follow_ups, not a status code. SURVIVOR-EQUIVALENCE PROOF REPRODUCED BY THE EVALUATOR with sha256 application proofs on operations.ts (baseline 469b2a91..., restored byte-identical): gate relocated AFTER the writes alone -> all 7 gate tests PASS (survives; rollback is sufficient); transaction bypassed alone (withTransaction call replaced by a direct pool invocation) -> digest test PASSES (survives; ordering is sufficient); BOTH combined -> digest test FAILS, catching lead status 170->175, last/next_follow_up_date, follow_up_count 0->1 and the persisted follow_ups row - the nothing-persists assertion is demonstrably non-vacuous, exactly as claimed. uq_quotes_current: migration verified (new file, partial unique on (tenant_id, lead_id) where is_current, backfill caveat honoured-and-noop-locally, COMMENT records the target-only deviation); the cited T-005 precedent verified VERBATIM in T-005's evaluated history (ruling 1 ratified uq_quote_versions_current as the same governance class; ruling 2 explicitly folds the quotes.is_current guard into T-026 as a new migration + parity allow-list entry); parity allow-list entry present with the honesty-loop side-assertion; DB-level guarantee pinned by tests :1024 and :1074. SECURITY: every route permission-bound with the reference's exact permission names; tenant scoping via forTenant throughout the repository; cross-tenant 404 indistinguishability and no-side-effects pinned (:1865,:1900,:1942); operations/create/corrections audited (:879,:1279,:1313,:1700); availableOperations server-computed, permission-narrowed, and not load-bearing (:1592-1645); no secrets, no service-role exposure, no sensitive logging observed in the changed files. Error semantics preserved (422 field errors :848, 409 with legal-operation hint :1211, empty hint on closed :1728). Bare-array list envelope confirmed against QuoteEndpoints.cs:60-65 and asserted at :777. HUMAN ESCALATION T-026-N4 (recommendation, not closed): amend AC-054 and V-069 to the measured contract - drop 'sent >= received' and 'decision >= sent unless exception recorded' (neither exists in the reference; no exception mechanism exists), keep 'prepared >= received' and 'valid-until > sent', and restate mark-won as 'bound premium and decision date OPTIONAL, defaulting to the current version premium and today, bound premium > 0 when supplied' (folds N3); amend AC-055/V-070 to '403 QUOTE_CLOSED_REQUIRES_CORRECTION_PERMISSION on closed records without the corrections permission, success with it via the same PUT (which IS the audited corrections path; no separate endpoint), 409 QUOTE_DRAFT_EDIT_ONLY for Sent/Revised' (folds N2). This matches both prior human rulings on this class (AC-045/AC-042, AC-049). PASS is recorded on the implementation as measured; the open N2/N3/N4 await only the AC text amendment."
+    }
+  ]
+}

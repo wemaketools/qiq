@@ -1,0 +1,68 @@
+{
+  "id": "T-049",
+  "title": "Orphaned-upload reaper: cron sweep for attachment rows never confirmed",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-027",
+    "T-031"
+  ],
+  "objective": "Reclaim storage objects and rows left behind when a signed-URL upload is issued but never confirmed. Without this, every abandoned upload is permanent litter in a private bucket nobody lists.",
+  "scope": [
+    "Idempotent sweep deleting quote_attachments rows where confirmed_at IS NULL and uploaded_at is older than the upload-URL TTL (2h, fixed by Supabase), together with their storage objects",
+    "Registered as a Supabase Cron (pg_cron) job following the T-031 job patterns: schedule, purpose, idempotency key strategy, failure behaviour and observability expectations documented per CLAUDE.md",
+    "Must tolerate retries and duplicate delivery, and be safe to run concurrently with live uploads - a row younger than the TTL must never be reaped"
+  ],
+  "out_of_scope": [
+    "Changing the upload/confirm flow itself (T-027, PASS)",
+    "Shortening the upload-URL TTL - storage-js createSignedUploadUrl accepts no expiresIn, verified against installed 2.110.7"
+  ],
+  "implementation_details": [
+    "The ordering hazard is the whole task: reaping a row whose upload is still in flight destroys a legitimate upload. Assert the TTL boundary from BOTH sides (just-inside kept, just-outside reaped), not merely that old rows go.",
+    "Delete the storage object and the row together, and make the handler safe if the object is already gone - a partial previous run must be completable, not fatal.",
+    "Follow the T-031 cron/queue patterns rather than inventing a new one."
+  ],
+  "files": [
+    "src/server/jobs/",
+    "src/server/domains/quotes/",
+    "supabase/migrations/",
+    "src/server/tests/"
+  ],
+  "test_plan": {
+    "unit": [
+      "TTL boundary arithmetic"
+    ],
+    "integration": [
+      "A pending row older than the TTL is reaped with its object; one younger is NOT",
+      "Idempotency: running the sweep twice produces the same end state and the second run is a no-op",
+      "A row whose object is already deleted still completes",
+      "Confirmed and removed rows are never touched"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-024"
+  ],
+  "verification_ids": [
+    "V-031"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-20T03:10:00-04:00",
+      "event": "task_created",
+      "message": "Created by the orchestrator on evaluator finding F-027-2 while passing T-027. T-027 correctly flagged the gap rather than building an unscoped cron inside an attachments task. Depends on T-031 for the established job patterns as well as T-027."
+    },
+    {
+      "timestamp": "2026-07-20T18:55:00-04:00",
+      "event": "implemented",
+      "message": "Implemented the orphaned-upload-reaper cron sweep following the T-032/T-034 patterns. MEASURED vs assumed against the T-027 schema: aged against `uploaded_at` (not a separate created_at; uploaded_at is stamped at request time on the pending row and re-stamped at confirm); soft-remove column is `removed_at` (nullable pair with removed_by, NULL=present); confirmed marker is `confirmed_at` (NULL=pending). Candidate predicate = confirmed_at IS NULL AND removed_at IS NULL AND uploaded_at < (now - TTL); TTL defaults to SUPABASE_UPLOAD_TOKEN_TTL_SECONDS (7200s, the fixed Supabase upload-URL lifetime). Row delete reuses the existing `deletePendingAttachment` (guarded confirmed_at IS NULL) as defense-in-depth; object delete goes through the injected StorageAdapter, object-FIRST then row (the recoverable order, matching discardPendingAttachment). Files: src/server/jobs/cron/orphaned-upload-reaper.ts (handler + pure orphanUploadCutoff), src/server/domains/quotes/attachments.repository.ts (+listOrphanedAttachmentCandidates), quotes/index.ts (exports), jobs/cron/registry.ts (+CRON_JOB_NAMES entry), jobs/runtime.ts (builds StorageAdapter, registers handler), api/cron/orphaned-upload-reaper.ts (endpoint), supabase/migrations/20260720020000_pg_cron_orphaned_upload_reaper_schedule.sql ('30 * * * *' reusing invoke_cron_endpoint; commits NO url/secret). Tests: unit orphaned-upload-reaper-cutoff.test.ts (5, TTL/DST arithmetic), integration orphaned-upload-reaper-job.test.ts (8: exact reaped set, object+row deleted together, TTL boundary both sides incl. exact-boundary `<` vs `<=`, object-already-gone completes, confirmed+soft-removed never touched, idempotent second run reaps 0, two-tenant isolation, end-to-end dispatch via runCronJob writing a job_run row). Gates: typecheck 0, lint 0, db:types:check 0 (no schema-type change), full npm test 111 files / 3722 passed / 0 failed (floor 3706), cron:list reports orphaned-upload-reaper registered, pg-cron-schedules + cron-scripts suites green. Mutation evidence (binary-safe edits, restored byte-identical, sha256 verified): (1) `<`->`<=` in candidate query reaped orphanAtBoundary -> boundary test red; (2) dropped `removed_at IS NULL` clause reaped removedPendingOld -> soft-removed test red; (3) cutoff sign `-`->`+` -> 4 unit assertions red. Migration disclosure: added supabase/migrations/20260720020000_*; applied ONLY its additive `cron.schedule(...)` upsert to the live local DB (not a reset/db:validate) so pg-cron-schedules could observe it — orchestrator should review the diff and refresh the snapshot. No secret or URL committed (schedule reuses the out-of-band job_cron_config helper). No open findings."
+    },
+    {
+      "timestamp": "2026-07-20T23:18:08Z",
+      "event": "evaluator_verdict",
+      "message": "PASS. First-hand verification (not taken on trust): (1) TTL boundary pinned from both sides by reading the integration fixture table directly — orphanJustOutside (cutoff-1min) reaped, orphanAtBoundary (cutoff exactly) kept, orphanJustInside (cutoff+1min) kept, proving `<` not `<=`. Reproduced the `<`->`<=` mutant on attachments.repository.ts's listOrphanedAttachmentCandidates myself (binary-mode Python edit): the boundary test and the two-tenant test went red exactly as claimed (orphanAtBoundary wrongly reaped); restored and verified sha256 identical to pre-mutation (ba4c4105b1053c1609b44332bbfbb7c4b84cde71b8c2c5105653b0d6f40b3283, matched before/after). (2) End-to-end deletion reproduced by running the 'dispatches through runCronJob...' test myself: it seeds a fresh orphan with a real fake-bucket object, runs the handler through runCronJob, and asserts both the DB row (0 rows) AND the storage object (storage.keys() no longer contains it) are gone, plus a job_run row with status=succeeded and counts containing attachmentsReaped — not merely a registry-name check. (3) Reproduced the removed_at-IS-NULL-dropped mutant myself (binary-mode Python edit to the same repository file): removedPendingOld was wrongly reaped, two tests went red; restored and verified sha256 identical (same hash as above). Predicate read directly from attachments.repository.ts: confirmed_at IS NULL AND removed_at IS NULL AND uploaded_at < uploadedBefore — matches claim exactly. (4) Idempotency: ran 'running the sweep twice reaps nothing the second time' myself — second run's attachmentsReaped/attachmentsFailed both 0, survivor rows and objects byte-for-byte unchanged; the 'completes when the object is already gone' test separately confirms tolerance. (5) Read the actual T-027 migrations (20260718003400_quote_attachments.sql, 20260719002100_quote_attachments_confirmed_at.sql) directly: confirmed no separate created_at column exists (uploaded_at is the only timestamp at insert), removed_at is the soft-remove column, confirmed_at is the pending marker (NULL=pending) — all measured claims check out. Confirmed SUPABASE_UPLOAD_TOKEN_TTL_SECONDS = 7200 in supabase-adapter.ts. (6) Read the new migration file directly: contains only `cron.schedule('orphaned-upload-reaper', '30 * * * *', $cron$select public.invoke_cron_endpoint(...)$cron$)` — no extensions.http_* reference, no URL, no secret, confirming it reuses the T-032 helper rather than repeating its pg_net defect. Ran `npm run cron:list` myself: orphaned-upload-reaper reports 'registered'; traced run-cron.ts's --list path to createJobRuntime() (real registration, not a static name array) and registry.ts's `cronHandlers.get(name) !== undefined` check, which would report 'NOT REGISTERED' for any CRON_JOB_NAMES entry whose factory was not wired in runtime.ts — the overclaim guard is real, not merely asserted. (7) Ran db:validate myself: 28 migrations apply cleanly from empty, twice, identical schema, matches the checked-in snapshot (this is expected since the migration adds only a cron.job schedule row, no public-schema object). Re-ran cron:list post-reset: all four sweeps still registered. Ran the full suite twice across this session (once before, once after db:validate reset): both runs 111 files / 3722 passed / 0 failed, matching the orchestrator's baseline exactly; typecheck 0; db:types:check 0. Audit note: the reaper deliberately does not write an audit_log row for a reaped pending attachment; checked this against T-027's discardPendingAttachment precedent (attachments.service.ts:217, 'No audit row yet: nothing has been attached. The audit belongs to confirm') — this is consistent with established domain precedent, not a gap against AC-024's enumerated operation list (attachment add/remove refers to CONFIRMED attachments). DB left in a clean, coherent state: db:validate reset it from empty, reapplied all 28 migrations plus seed, and the full suite passed against that fresh state — no leftover fixture rows from this evaluation's mutation runs (each mutation run's suite cleans up in its own afterAll). Scratch files (__pycache__, mutation test artifacts) removed. No findings."
+    }
+  ]
+}

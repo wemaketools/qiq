@@ -1,0 +1,72 @@
+{
+  "id": "T-047",
+  "title": "Replace the raw NUL byte in global-template.schemas.ts with a \u0000 escape",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-046"
+  ],
+  "objective": "Restore text-file status to a source file that a literal 0x00 byte currently makes invisible to every grep/ripgrep-based tool, without changing runtime behaviour.",
+  "scope": [
+    "THREE files contain a raw 0x00 byte, not the one originally reported. Measured 2026-07-20 by a byte-level scan after `grep -rlP '\\x00'` returned NOTHING - the grep was itself blind to the very files it was checking, which is the whole point of this task: src/server/domains/reference-data/global-template.schemas.ts (composite dedupe key), src/server/tests/helpers/dotnet-seed-reference.ts, and src/server/tests/unit/storage-keys.test.ts.",
+    "Replace each raw byte with the \\u0000 escape sequence - runtime-identical strings, so no key or assertion changes.",
+    "Confirm each file is thereafter visible to grep/ripgrep (they currently report only 'Binary file matches', or nothing at all under some flags).",
+    "Add a guard that FAILS when a raw NUL byte is introduced into a source file, so this cannot silently recur - T-036 typed one accidentally as a map-key separator and caught it only via mutation restore-hash discipline."
+  ],
+  "out_of_scope": [
+    "Changing the dedupe-key SEMANTICS or the delimiter character itself",
+    "The fs-based sweep in validation-rule-codes.test.ts, which is correct as written and should keep working either way"
+  ],
+  "implementation_details": [
+    "The evaluator confirmed no IN-SUITE guard is blind: the process-env scanner, log-scrubbing and layering checks all read via readFileSync or spawned tsx, none shells out to grep. So this is tooling hygiene, NOT a live security hole - do not overstate it.",
+    "What IS affected: interactive grep/ripgrep (including agent tooling) and any FUTURE shell-grep guard added by someone unaware these files are binary-invisible. The orchestrator hit exactly this false negative while verifying.",
+    "Prove the produced strings are byte-identical before and after (compare the values, not the source text).",
+    "The new guard must be byte-level (readFileSync + indexOf 0), NOT grep-based - a grep-based guard would be blind to precisely the files it is meant to catch."
+  ],
+  "files": [
+    "src/server/domains/reference-data/global-template.schemas.ts",
+    "src/server/tests/helpers/dotnet-seed-reference.ts",
+    "src/server/tests/unit/storage-keys.test.ts",
+    "src/server/tests/"
+  ],
+  "test_plan": {
+    "unit": [
+      "The composite dedupe key and any affected assertion values are byte-identical before and after (pin the produced string, not the literal)"
+    ],
+    "integration": [
+      "A byte-level guard fails when a raw NUL is introduced into a source file and passes on the clean tree",
+      "Existing reference-data, seed-reference and storage-key suites stay green"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-022"
+  ],
+  "verification_ids": [
+    "V-027"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-19T23:00:00-04:00",
+      "event": "task_created",
+      "message": "Created on the evaluator's recommendation while passing T-046. T-046's implementor found the byte, worked around it with an fs-based sweep, and correctly left it alone as out of scope; the evaluator then measured the blast radius and found it NARROWER than feared - no in-suite guard shells out to grep, so nothing is silently unguarded today. Filed as hygiene rather than a defect."
+    },
+    {
+      "timestamp": "2026-07-20T07:30:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator widened scope from one file to three after MEASURING rather than trusting the original report. `grep -rlP '\\x00'` over src/server, api and scripts returned NOTHING; a byte-level python scan found three files. Two are new since T-046 filed this (a test helper and T-027's storage-keys test), so the problem is actively recurring, not static - T-036 also typed one accidentally and caught it only through mutation restore-hash discipline. Added a byte-level guard to the scope so it stops recurring; the guard must NOT be grep-based, for the obvious reason."
+    },
+    {
+      "timestamp": "2026-07-20T18:40:00-04:00",
+      "event": "implemented",
+      "message": "Byte-level scan BEFORE confirmed exactly three raw-NUL files (global-template.schemas.ts, tests/helpers/dotnet-seed-reference.ts, tests/unit/storage-keys.test.ts); AFTER: zero across src/server/api/scripts/src/ui. Replaced each raw 0x00 with the \\u0000 escape via binary-mode I/O (LF preserved, CRLF=0). Runtime-identity PROVEN in node: the produced dedupe key `${listType}\\u0000${name}` is Buffer.compare-equal to the old `${listType}<rawNUL>${name}` (code units show U+0000 sitting exactly between the segments), and 'report.pdf\\u0000.exe' equals the old 'report.pdf<rawNUL>.exe'. Added TEST-FIRST byte-level guard src/server/tests/unit/no-nul-bytes.test.ts (readFileSync Buffer + indexOf(0) over .ts/.tsx/.mts/.cts/.js/.mjs/.cjs/.sql under src/server, api, scripts): observed RED (flagged the 3 files plus the guard file, which my own editor had re-injected a NUL into - the exact recurrence trap - fixed in the same binary pass) then GREEN. MUTATION: planted a raw NUL in a scratch .ts, guard FAILED naming it while `grep` and `rg` reported only 'Binary file matches' (content hidden) - proving the guard has teeth AND that a grep-based guard would miss the very file it must catch; scratch removed, 0 NULs remain. Gates: full `npm test` 3709 passed / 109 files, exit 0 (floor 3706); typecheck 0; lint 0. No schema/migration/semantic change - only source representation of the delimiter. Did not touch session_state.json or task_list.json."
+    },
+    {
+      "timestamp": "2026-07-20T23:18:08Z",
+      "event": "evaluator_verdict",
+      "message": "PASS. First-hand verification (not taken on trust): (1) Own byte-level Python scan (open(p,'rb'), b'\\x00' in data) across src/server, api, scripts, src/ui found ZERO raw NUL bytes, including no-nul-bytes.test.ts itself — the file the implementor disclosed its editor had briefly re-injected one into. (2) Guard-has-teeth reproduction: planted a raw NUL in a scratch .ts under src/server/tests/, ran no-nul-bytes.test.ts — FAILED and named the exact file; confirmed both `grep -r` and `rg` on the same file report ONLY 'Binary file matches' / 'binary file matches (found \"\\0\" byte...)' with no content — proving a grep-based guard would be blind to precisely what this byte-level guard catches. Scratch file removed; guard green again. (3) Runtime-identity of the dedupe key: wrote a standalone node script building both `${listType}\\u0000${name}` (escape) and a Buffer-concatenated raw-0x00 equivalent — Buffer.compare === 0 (true), byte array confirms 0 sits exactly between the two segments. storage-keys.test.ts and dotnet-seed-reference.ts use the same \\u0000 escape consistently with unchanged delimiter semantics. (4) No schema/migration change (task touches only source files). Ran the guard test, storage-keys.test.ts, reference-data.test.ts, global-template.test.ts, validation-rule-codes.test.ts — all green. Full `npm test`: 111 files / 3722 passed / 0 failed, matching the orchestrator's reproduced baseline exactly; typecheck 0. Note: AC-022/V-027 (tenant isolation) is the closest linked acceptance criterion but does not directly describe NUL-byte hygiene — flagged as a non-blocking traceability gap for orchestrator awareness, not a defect in the implementation itself. No findings. Status set to PASS."
+    }
+  ]
+}

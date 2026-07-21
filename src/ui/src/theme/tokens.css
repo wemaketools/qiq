@@ -1,0 +1,152 @@
+/*
+ * QuoteIQ design tokens (spec NFR-04, AC-070, docs/QuoteIQ_UI_Standards.md §2-3, §5-6).
+ * Every color/spacing value components use must come from these --qiq-* custom properties —
+ * never a raw hex or literal pixel gap in component styles (V-070's CI grep check).
+ *
+ * Theme selection is driven by the `data-theme` attribute on <html> (light | dark), toggled from
+ * the UserCard menu and persisted server-side via PUT /me/preferences (see auth/AuthProvider.tsx
+ * and components/shell/UserCard.tsx).
+ */
+
+:root,
+html[data-theme='light'] {
+  color-scheme: light;
+
+  /* 3.1 Surfaces and shell */
+  --qiq-surface-sidebar: #0f2a3f;
+  --qiq-surface-app: #f4f6f8;
+  --qiq-surface-card: #ffffff;
+  --qiq-surface-raised: #ffffff;
+  --qiq-border-subtle: #e3e8ee;
+  --qiq-text-primary: #1b2733;
+  --qiq-text-secondary: #5b6b7a;
+  --qiq-text-on-sidebar: #d7e3ec;
+
+  /* 3.2 Brand and accent */
+  --qiq-accent: #159aa6;
+  --qiq-accent-strong: #0f7d87;
+  --qiq-accent-contrast: #ffffff;
+  --qiq-accent-soft: #e3f4f5;
+
+  /* Component-layer surfaces/effects (T-043, UI Standards §6 cards / §14 modals; values follow the
+     3.1 surface family — these exist so components.css never needs a raw color). */
+  --qiq-surface-hover: #f8fafb;
+  --qiq-surface-inset: #eef2f5;
+  --qiq-border-strong: #d0d9e0;
+  --qiq-shadow-card: 0 1px 2px rgba(20, 40, 50, 0.04), 0 6px 18px rgba(20, 40, 50, 0.06);
+  --qiq-shadow-raised: 0 8px 30px rgba(20, 40, 50, 0.14);
+  --qiq-scrim: rgba(15, 30, 35, 0.42);
+  --qiq-sidebar-hover: rgba(255, 255, 255, 0.07);
+  --qiq-focus-ring: 0 0 0 2px var(--qiq-surface-card), 0 0 0 4px var(--qiq-accent);
+  /* Select-control chevron; a data URI cannot consume CSS variables, so the stroke color (matching
+     --qiq-text-secondary) is baked per theme here rather than in components.css. */
+  --qiq-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235b6b7a' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+
+  /* 3.3 Semantic colors */
+  --qiq-success: #1e8e5a;
+  --qiq-success-soft: #e1f3ea;
+  --qiq-warning: #c9820a;
+  --qiq-warning-soft: #faf0dc;
+  --qiq-danger: #c0392b;
+  --qiq-danger-soft: #f8e2df;
+  --qiq-info: #2a6fb0;
+  --qiq-info-soft: #e2ecf5;
+  --qiq-neutral: #6b7a88;
+  --qiq-neutral-soft: #e9edf0;
+
+  /* 3.5 Product-line series palette */
+  --qiq-series-motor: #1f3a5f;
+  --qiq-series-property: #159aa6;
+  --qiq-series-engineering: #3e8e3f;
+  --qiq-series-marine: #7a4fb0;
+  --qiq-series-grouplife: #d98324;
+
+  /*
+   * Broker/RM Performance Matrix quadrant palette (PRD 15.3: "one consistent quadrant palette on
+   * both dashboards, defined in QuoteIQ_UI_Standards.md"). FLAGGED GAP (T-031): the referenced UI
+   * Standards doc does not actually define these four colors as of this task -- this mapping is
+   * this task's own documented decision (semantic-token reuse, so it survives theme toggling),
+   * pending a human-confirmed addition to QuoteIQ_UI_Standards.md: high/high = success (strategic,
+   * "good"), high/low = warning (investigate), low/high = accent (growth opportunity), low/low =
+   * neutral (low priority).
+   */
+  --qiq-quadrant-high-high: var(--qiq-success);
+  --qiq-quadrant-high-low: var(--qiq-warning);
+  --qiq-quadrant-low-high: var(--qiq-accent);
+  --qiq-quadrant-low-low: var(--qiq-neutral);
+}
+
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* 3.1 Surfaces and shell */
+  --qiq-surface-sidebar: #0b1e2e;
+  --qiq-surface-app: #0e1621;
+  --qiq-surface-card: #16232f;
+  --qiq-surface-raised: #1c2b39;
+  --qiq-border-subtle: #263644;
+  --qiq-text-primary: #eaf0f5;
+  --qiq-text-secondary: #9db0bf;
+  --qiq-text-on-sidebar: #d7e3ec;
+
+  /* 3.2 Brand and accent */
+  --qiq-accent: #2fb6c2;
+  --qiq-accent-strong: #49c5d0;
+  --qiq-accent-contrast: #08202a;
+  --qiq-accent-soft: #123b41;
+
+  /* Component-layer surfaces/effects (see light-theme block comment). */
+  --qiq-surface-hover: #1b2a37;
+  --qiq-surface-inset: #101c27;
+  --qiq-border-strong: #35485a;
+  --qiq-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --qiq-shadow-raised: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --qiq-scrim: rgba(2, 8, 12, 0.6);
+  --qiq-sidebar-hover: rgba(255, 255, 255, 0.07);
+  --qiq-focus-ring: 0 0 0 2px var(--qiq-surface-card), 0 0 0 4px var(--qiq-accent);
+
+  /* 3.3 Semantic colors */
+  --qiq-success: #3fbf86;
+  --qiq-success-soft: #163429;
+  --qiq-warning: #e3a93c;
+  --qiq-warning-soft: #3a2e14;
+  --qiq-danger: #e56b5d;
+  --qiq-danger-soft: #3a1f1a;
+  --qiq-info: #5aa0dd;
+  --qiq-info-soft: #17293a;
+  --qiq-neutral: #8497a5;
+  --qiq-neutral-soft: #24313c;
+
+  /* 3.5 Product-line series palette (kept stable across themes per tenant, §3.5) */
+  --qiq-series-motor: #1f3a5f;
+  --qiq-series-property: #159aa6;
+  --qiq-series-engineering: #3e8e3f;
+  --qiq-series-marine: #7a4fb0;
+  --qiq-series-grouplife: #d98324;
+
+  --qiq-select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239db0bf' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+
+  /* Quadrant palette (see the light-theme block's comment for the flagged-gap rationale). */
+  --qiq-quadrant-high-high: var(--qiq-success);
+  --qiq-quadrant-high-low: var(--qiq-warning);
+  --qiq-quadrant-low-high: var(--qiq-accent);
+  --qiq-quadrant-low-low: var(--qiq-neutral);
+}
+
+:root {
+  /* §5 Typography */
+  --qiq-font-sans: Inter, 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --qiq-font-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+
+  /* §6 Layout and spacing (4px base scale) */
+  --qiq-space-1: 4px;
+  --qiq-space-2: 8px;
+  --qiq-space-3: 12px;
+  --qiq-space-4: 16px;
+  --qiq-space-5: 24px;
+  --qiq-space-6: 32px;
+  --qiq-space-7: 48px;
+
+  --qiq-radius-card: 10px;
+  --qiq-radius-chip: 999px;
+}

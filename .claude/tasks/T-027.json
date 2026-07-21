@@ -1,0 +1,154 @@
+{
+  "id": "T-027",
+  "title": "StorageAdapter port + Supabase Storage attachments backend with signed-URL upload/download",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-026",
+    "T-002"
+  ],
+  "objective": "Implement the swappable StorageAdapter port with SupabaseStorageAdapter as default (private bucket, tenant-prefixed keys) and the attachment endpoints using the approved signed-URL envelope flow: authorize -> validate (type allow-list, per-tenant size cap) -> record metadata + audit -> issue short-lived signed upload/download URLs; soft remove preserved (A-6, A-7, Q-22, P-09).",
+  "scope": [
+    "lib/storage: StorageAdapter interface (put, get, delete, createSignedUploadUrl, createSignedDownloadUrl, exists as applicable); SupabaseStorageAdapter (server-side supabase-js Storage, service-role); FakeStorageAdapter for unit tests; adapter selected via config",
+    "Private bucket provisioning (migration or config) with no public access; tenant-prefixed object keys",
+    "Attachment endpoints per reference paths, adapted to the signed-URL envelope (the ONE documented API-contract deviation besides intake auth): request-upload (validates type PNG/JPG/PDF/DOC/DOCX + size <= per-tenant cap default 10MB, records quote_attachments metadata, returns signed upload URL + confirm token), confirm-upload (verifies object exists; post-upload verification step for magic-number concern — implement or explicitly flag per R-8), download (authorizes, returns short-lived signed download URL with attachment disposition), remove (soft, audited)",
+    "Audit add/remove; metadata in quote_attachments with storage_key"
+  ],
+  "out_of_scope": [
+    "Frontend attachment components (T-028)",
+    "Non-Supabase adapters beyond the fake (config seam only)",
+    "Export storage (not in scope per Q-18)"
+  ],
+  "implementation_details": [
+    "Bucket policies: storage access is server-only (service-role via adapter); signed URLs are the exclusive client path; RLS/storage policies deny anon access (spec 16).",
+    "Signed upload URL: Supabase createSignedUploadUrl; enforce size at validation time and verify object size/content-type on confirm (HEAD/metadata) since direct-to-storage bypasses the function body limit (A-7); reject + clean up on mismatch.",
+    "Magic-number verification: attempt lightweight post-upload check (download first bytes server-side) — if infeasible within limits, raise an explicit accepted-risk finding rather than dropping silently (spec 5 implementation note, R-8).",
+    "Attachment key scheme: {tenantId}/{leadId}/{quoteId}/{attachmentId}-{filename-sanitized}.",
+    "Per-tenant cap read from business rules (T-020); closed-quote attachment rules per reference behavior.",
+    "Document the envelope DTO as a contract deviation (M-07) in the API notes."
+  ],
+  "files": [
+    "src/server/lib/storage/index.ts",
+    "src/server/lib/storage/supabase-adapter.ts",
+    "src/server/lib/storage/fake-adapter.ts",
+    "src/server/domains/quotes/attachments.routes.ts",
+    "src/server/domains/quotes/attachments.service.ts",
+    "src/server/domains/quotes/attachments.schemas.ts",
+    "supabase/migrations/*_storage_bucket.sql (or config.toml buckets)",
+    "src/server/tests/unit/storage-fake.test.ts",
+    "src/server/tests/integration/attachments.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Type allow-list + size validation rules; key-scheme generation/sanitization; FakeStorageAdapter contract tests shared with the real adapter (adapter conformance suite)"
+    ],
+    "integration": [
+      "Against local Supabase Storage: request-upload -> PUT bytes to signed URL -> confirm records/verifies; oversize and disallowed type rejected before signing; size/content-type mismatch on confirm rejected + object cleaned",
+      "Download returns working short-lived signed URL, authorized + tenant-isolated (cross-tenant attachment 404); soft remove hides but preserves; audit rows on add/remove",
+      "Anon key cannot read the bucket directly"
+    ],
+    "e2e": [
+      "Attachment upload/download via UI in T-043 (after T-028)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-021",
+    "AC-022",
+    "AC-024",
+    "AC-056",
+    "AC-057",
+    "AC-058"
+  ],
+  "verification_ids": [
+    "V-026",
+    "V-027",
+    "V-031",
+    "V-071",
+    "V-072",
+    "V-073",
+    "V-074"
+  ],
+  "findings": [
+    {
+      "id": "F-027-1",
+      "severity": "minor",
+      "summary": "Magic-number validation moved from mid-stream to a post-upload confirm step (R-8): hostile bytes transiently exist in the private bucket before rejection.",
+      "detail": "IMPLEMENTED, not dropped: confirm reads the object's leading 8 bytes via a ranged read and rejects a mismatch with ATTACHMENT_SIGNATURE_MISMATCH, deleting both the object and the pending row. What differs from the .NET reference is TIMING, not coverage. The reference inspected bytes as they streamed THROUGH the API, so a mismatched file never reached storage; under A-7/Q-22 the client transfers directly to Storage, so the check necessarily runs AFTER the object lands. Residual exposure: a hostile object exists in the bucket between transfer and confirm. It is unreachable during that window (private bucket, zero storage RLS policies, and no signed URL is ever minted for an unconfirmed attachment), and it is deleted on rejection. Also preserved verbatim from the reference: DOCX cannot be distinguished from any other ZIP-family file at the header level. Tested in attachments.test.ts (PNG-as-PDF and MZ-as-PDF both rejected and cleaned up) and attachment-content.test.ts.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-2",
+      "severity": "minor",
+      "summary": "Unconfirmed attachments whose upload is abandoned leave an orphaned storage object; no reaper is implemented.",
+      "detail": "A caller can request an upload envelope, transfer bytes, and never call confirm. The pending row is invisible to every read path (the live-set predicate requires confirmed_at is not null) and no signed download URL can be issued for it, so it is not a data-exposure issue - but the object and its row accumulate. Reaping is deliberately NOT implemented here: it is a scheduled-job concern and this task owns no cron surface. Recommend a follow-up cron handler deleting objects+rows where confirmed_at is null and uploaded_at is older than the Supabase upload-token TTL (2h), which is idempotent and retry-safe. Raised explicitly rather than left silent. EVALUATOR RULING (2026-07-20): verified — the pending row is invisible to list and download (constructed: an unconfirmed attachment 404s on download and is absent from the list; re-applying the M7 mutant that drops confirmed_at from the live-set predicate fails exactly that test), so this is hygiene, not exposure. RULING: a follow-up cron task IS warranted (CLAUDE.md lists 'clean up expired transient data' as a standard job; the deletion is idempotent and retry-safe by construction: object first, then row, keyed on confirmed_at is null and uploaded_at older than the 2h token TTL). KEPT OPEN as a routing finding for the orchestrator to scope the reaper task; not a T-027 defect — this task owns no cron surface.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-3",
+      "severity": "minor",
+      "summary": "Signed UPLOAD URL lifetime is fixed at 2h by Supabase Storage and cannot be shortened through the client API.",
+      "detail": "MEASURED against @supabase/storage-js 2.110.7: createSignedUploadUrl(path, {upsert}) accepts no expiresIn; the TTL is set server-side. The adapter REPORTS that value (SUPABASE_UPLOAD_TOKEN_TTL_SECONDS = 7200) rather than pretending to choose it, so the envelope's expiresInSeconds is honest. DOWNLOAD expiry IS caller-chosen, is set to 300s, and its enforcement is tested against the real service. Mitigations for the long upload TTL: the token authorizes writing exactly ONE server-chosen key already bound to one tenant and one quote; upsert is left false so a token cannot replace an already-confirmed object; and an unconfirmed object is never readable through the product. An S3/MinIO adapter could choose a shorter upload TTL with no domain-code change. EVALUATOR RULING (2026-07-20): the measured claim is verified against the installed @supabase/storage-js 2.110.7 type declarations — createSignedUploadUrl(path, options?: {upsert: boolean}) accepts no expiresIn. The mitigations are verified in code and test: the token targets ONE server-chosen key whose metadata row already binds tenant and quote; upsert is left false (the adapter passes no options), so a retained token cannot replace a confirmed, signature-checked object — a real TOCTOU defence, documented in the adapter header; and an unconfirmed object is unreachable through the product. Residual risk ACCEPTED: possession of the 2h token allows writing only an object that can never be read until it passes confirm-time verification. Route a note to the T-044 deviation/risk ledger. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-4",
+      "severity": "minor",
+      "summary": "Storage-level bucket size backstop is 25 MiB; a tenant max_attachment_mb above that would be silently unusable.",
+      "detail": "max_attachment_mb has no enforced upper bound in the business-rules validator (only > 0), while the bucket carries file_size_limit = 26214400 as defence in depth. A tenant cap above 25 MB would pass the server's per-tenant check, issue a signed URL, and then be refused by Storage at transfer time with an error the product does not translate. The 25 MiB figure matches the reference's own documented ceiling (AttachmentEndpoints MaxSupportedTenantCapMb = 20 plus its 25% multipart headroom). Flagged rather than assumed away; raise both in lockstep if such a cap is ever permitted. EVALUATOR RULING (2026-07-20): verified, and one material fact ADDED — the trap is REFERENCE PARITY, not introduced here. UpdateBusinessRulesValidator.cs:27 is also GreaterThan(0) with no upper bound, and AttachmentEndpoints.cs:26-37 documents the same ceiling (MaxSupportedTenantCapMb = 20 + 25% headroom, below Kestrel's ~28.6 MB), so a reference tenant setting a 50 MB cap hit the identical silent refusal at the transport layer. The port preserves the measured contract exactly; tightening the business-rules validator would be a T-020-surface contract change (previously-accepted values would begin to 422) needing its own criterion. WONT_FIX in T-027; recorded so that any future task permitting caps above 25 MB must raise the bucket file_size_limit and add the validator bound in lockstep (the migration comment says the same). Noted for the T-044 ledger.",
+      "status": "wont_fix",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-5",
+      "severity": "minor",
+      "summary": "Reference contradictions recorded: key scheme, absent list endpoint, and routes/columns with no .NET counterpart.",
+      "detail": "(1) KEY SCHEME. The task file specifies {tenantId}/{leadId}/{quoteId}/{attachmentId}-{name}; the reference (AttachmentStorageKey.BuildKey) uses t{tenantId}/quotes/{quoteId}/{attachmentId}_{name} - t-prefixed tenant segment, literal 'quotes' segment, NO lead segment, underscore separator. The REFERENCE scheme is implemented. (2) NO LIST ENDPOINT EXISTS IN THE REFERENCE. AttachmentEndpoints exposes only upload, download and remove, and QuoteDto carries no attachments field; the SPA compensated with component-local state that lost attachments on reload (a gap QuotesCard.tsx:128-131 documents against itself). AC-057/V-073 require removed attachments to disappear from 'the quote's list', which is unverifiable without one, so GET /quotes/{id}/attachments was ADDED (bare array, mirroring GET /leads/{id}/quotes - measured, not assumed). (3) POST /attachments/{id}/confirm has no counterpart because the reference upload was atomic; it is part of the approved M-07/A-7 deviation. (4) Two new error codes (ATTACHMENT_OBJECT_MISSING, ATTACHMENT_ALREADY_CONFIRMED) cover states the atomic upload could not reach. (5) A migration adds quote_attachments.confirmed_at plus a partial index; both are registered as target-only deviations in schema-business-dotnet-parity.test.ts with justifications and a side-assertion proving they exist only in the target.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-6",
+      "severity": "minor",
+      "summary": "Declared-vs-actual size mismatch within the cap is accepted, recording the server-observed size (FLAGGED decision).",
+      "detail": "The task file says to 'reject + clean up on mismatch' at confirm. Implemented narrower on purpose: confirm rejects when the SERVER-OBSERVED size exceeds the tenant cap (the security property) or when the magic number disagrees, and otherwise records the observed size rather than rejecting a benign declared/actual difference. Rationale: the declared size is an untrusted hint used only for the cheap pre-signing rejection, and the migration is explicit that size_bytes/content_type hold server-observed values; rejecting an in-cap mismatch would fail legitimate uploads (e.g. a client rounding a size) without adding a security property, since the cap check already bounds the real bytes. Tested: a client declaring 10 bytes and transferring 4096 is accepted with 4096 persisted; declaring 1 KB and transferring 2 MB against a 1 MB cap is rejected and cleaned up. Flagged for evaluator review rather than silently chosen. EVALUATOR RULING (2026-07-20): ACCEPTED. The security property is the cap on the bytes that actually arrived, which is enforced at confirm on the server-observed size (verified by test: declared-honest-but-oversize object rejected AND object deleted AND row dropped); the declared size is an untrusted pre-signing hint, and rejecting a benign in-cap mismatch would fail legitimate clients while adding no property the cap does not already provide. The persisted size is the server-observed one (verified: declared 10, transferred 4096, persisted 4096 — and mutant M6 persisting the declared size is reported killed by that test). The narrower reading of the brief is the better-engineered one. RESOLVED.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T23:20:00-04:00"
+    },
+    {
+      "id": "F-027-7",
+      "severity": "minor",
+      "summary": "AC-095 deviation-ledger routing: T-044 must record the T-027 additions and residuals so the 'exactly two deviations' criterion stays honest.",
+      "detail": "AC-095 pins the /api/v1 surface to exactly two documented deviations (A-7 envelope, Q-19 intake auth) and requires any additional deviation to be flagged, never absorbed. T-027 produces four items for the T-044 ledger: (1) GET /quotes/{id}/attachments — an ADDED endpoint with NO reference counterpart (AttachmentEndpoints.cs exposes only upload/download/remove and QuoteDto has no attachments field), added because AC-057/V-073's 'disappears from the quote's list' is unverifiable without it. Evaluator ruling: the addition is the RIGHT call — amending AC-057 instead would have preserved a documented SPA defect (QuotesCard.tsx:128-131 loses attachments on reload); the endpoint mirrors the measured GET /leads/{id}/quotes bare-array contract, is permission-bound (quotes.view) and tenant-isolated, and its paired frontend consumer is T-028. It should be recorded either as a component of the A-7 envelope deviation or as an explicit third entry — T-044's call, but it must appear. (2) POST /attachments/{id}/confirm plus the two new error codes (ATTACHMENT_OBJECT_MISSING, ATTACHMENT_ALREADY_CONFIRMED) — components of the approved A-7 envelope deviation. (3) The magic-number TIMING residual (AC-095/R-8): validation is implemented and tested, but 'never written' has become 'written, then deleted' — a hostile object exists in the private bucket between transfer and confirm/abandonment, unreachable in that window (verified: private bucket, zero storage RLS policies, no signed URL for confirmed_at IS NULL rows, list excludes them). Accepted residual; belongs in the ledger. (4) The Supabase-fixed 2h upload-token TTL (F-027-3) as a documented platform constraint with its mitigations. OPEN until T-044 records them.",
+      "status": "open",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-20T00:45:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to A-6, A-7, Q-22, P-09, R-8, spec 16 attachment hardening."
+    },
+    {
+      "timestamp": "2026-07-19T23:25:00-04:00",
+      "event": "implemented",
+      "message": "StorageAdapter port + Supabase Storage attachments over the A-7 signed-URL envelope.\n\nFILES ADDED: src/server/lib/storage/{types,keys,fake-adapter,supabase-adapter,index}.ts; src/server/domains/quotes/{attachment-content,attachments.errors,attachments.schemas,attachments.repository,attachments.service,attachments.routes}.ts; supabase/migrations/20260719002000_storage_buckets.sql; supabase/migrations/20260719002100_quote_attachments_confirmed_at.sql; src/server/tests/helpers/storage-contract.ts; src/server/tests/unit/{storage-keys,storage-fake,attachment-content}.test.ts; src/server/tests/integration/attachments.test.ts.\nFILES CHANGED: lib/config/schema.ts (STORAGE_ADAPTER, STORAGE_ATTACHMENTS_BUCKET); lib/router/app.ts (attachments slot); domains/quotes/index.ts (defaultAttachmentsDeps); api/v1/[[...segments]].ts and scripts/dev/serve-api.ts (both composition roots); tests/integration/auth-wiring.test.ts (root pin); tests/integration/schema-business-dotnet-parity.test.ts (two registered deviations); .env.example.\n\nMIGRATION ADDED: yes, two. Applied additively via `npm run db:migrate` (NOT supabase:reset / db:validate). db:types regenerated; db:types:check clean.\n\nTEST-FIRST: unit suites written first and the RED run observed (module-not-found, then a real assertion failure), then production code.\n\nMUTATION TESTING - 7 mutants, each with an application proof matched to its shape:\n  M1 drop tenant predicate in findAttachment (sha256 delta) -> KILLED (3 isolation tests)\n  M2 disable magic-number check (sha256 delta) -> KILLED (2 confirm tests)\n  M3 allow '/' through the sanitizer allow-list (sha256 delta) -> SURVIVED, ruled EQUIVALENT: directory stripping runs first, so `candidate` can never contain '/' and that arm is unreachable\n  M3b remove the directory stripping, i.e. the load-bearing line (sha256 delta) -> KILLED (5 tests)\n  M4 status 422->400 with the CODE intact (sha256 delta) -> KILLED (2 tests)\n  M5 code swapped with the STATUS intact (sha256 delta) -> KILLED (2 tests); M4+M5 together prove the suite discriminates on code and status independently\n  M6 persist declared instead of server-observed size (sha256 delta) -> KILLED (1 test)\n  M7 drop confirmed_at from the live-set predicate (line-count delta -1) -> KILLED (1 test)\nAll four mutated files verified byte-identical to their pre-mutation sha256 afterwards. NOTE: the M7 restore was silently REFUSED (its replacement string was ambiguous, appearing twice) and was caught only by the hash check, then repaired manually - the mutant would otherwise have shipped.\n\nGATES (serial, all exit 0): my unit suites 70/70; my integration suites 94/94; FULL backend suite 2982 passed across 83 files; typecheck 0; lint 0; db:types:check 0. ci:test floor untouched (2698).\n\nRESIDUE: verified zero after the full run - 0 t027 tenants, 0 quote_attachments rows, 0 objects in the quote-attachments bucket. Storage objects are registered and deleted in afterAll BEFORE auth.cleanup(), and row deletion precedes it too.\n\nSIBLING NOTE: T-035 landed dashboards in app.ts and both composition roots concurrently; my edits and theirs coexist. The two suite failures I hit were caused by MY migration (parity column/index diff) and were fixed by registering justified target-only deviations. One flaky test of my own (a 1s signed-URL expiry race that failed only under full-suite load) was made one-directional."
+    },
+    {
+      "timestamp": "2026-07-20T00:50:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS (iteration 0), evaluated serially after T-035. F-027-2 stays OPEN (reaper follow-up task for the orchestrator to scope); F-027-7 ADDED and OPEN (T-044 deviation-ledger routing); F-027-3/6 resolved, F-027-4 wont_fix (reference parity), all with rulings in the findings. VERIFIED FIRST-HAND: (1) THE THREE REFERENCE CONTRADICTIONS — AttachmentStorageKey.cs read in full: BuildKey is exactly t{tenantId}/quotes/{quoteId}/{attachmentId}_{name} and the TS keys.ts port matches character rule for character rule (both-separator split, allow-list, ./_ trim, 150 cap, 'attachment' fallback); AttachmentEndpoints.cs maps ONLY upload (Quotes.Update), download (Quotes.View), remove (Quotes.Update) with the CorrectClosed gate in the handlers — no list endpoint, no dedicated attachment permission; QuoteDto.cs has no attachments field and QuotesCard.tsx:128-131 documents the component-state loss against itself. RULING ON THE ADDED LIST ENDPOINT: adding GET /quotes/{id}/attachments was the right call over amending AC-057 — the criterion expresses real product behaviour the reference SPA demonstrably failed to deliver — but it is an API-surface addition and is routed to the T-044 ledger via F-027-7. (2) THE MAGIC-NUMBER TIMING RESIDUAL — unreachability verified in the artifacts, not the report: the bucket migration inserts public=false with NO storage RLS policy (and the suite asserts private provisioning, zero policies, anon-key refusal, unauthenticated refusal, expired-URL refusal); the service refuses to sign for confirmed_at IS NULL (download 404s, constructed in test) and the repository live-set requires confirmed_at is not null (proven live by my M7 re-application: dropping that predicate fails exactly the hides-unconfirmed test); rejection deletes object then row, object-first so the failure direction is the recoverable one. Residual ACCEPTED and routed to T-044 (F-027-7). (3) SECURITY PROPERTIES BY CONSTRUCTED STATE, not code reading — the suite constructs and I re-ran green 52/52: a '../../../t9999/evil.pdf' filename confined inside t{tenantA}/ with no '..' in the key; cross-tenant download 404 with NOTHING resembling a URL in the body (asserts no 'token=' and no '/storage/v1'); cross-tenant 404 byte-identical to nonexistent-id 404 (shape + code deep-equal); cross-tenant confirm/remove leave rows untouched (post-asserted); keys server-built from verified ids (tenant from TenantContext, quote from the tenant-scoped row, attachment id from the DB — the only caller input is the sanitized filename); download expiry chosen at 300s and expiry enforcement tested against the real service; signed URLs never persisted (row asserted) and never logged (the adapter's describe() takes only error.message, documented as the anti-URL-leak measure; no logger calls in any attachment path). (4) M7 NEAR-MISS CLOSED FIRST-HAND: I re-applied the mutant myself (255->254 lines), it was KILLED by exactly 1 test as reported, and my restore is byte-identical to the pre-mutation sha256 (f194bb36) with 52/52 green — the current file provably carries the fixed behaviour regardless of the implementor's restore drama; my own patch tooling asserted single-occurrence, the exact ambiguity that silently refused their restore. (5) STORAGEADAPTER AS A PORT: domain code imports only the interface (grep: no storage-js/supabase reference outside lib/storage in domains/ beyond doc comments); binding selected via typed config (STORAGE_ADAPTER/STORAGE_ATTACHMENTS_BUCKET, in .env.example without secrets); the fake is a real seam sharing the SAME conformance suite the Supabase adapter runs in integration (tests/helpers/storage-contract.ts imported by both); STORAGE_ADAPTER=fake outside local/test throws at composition; NO speculative third adapter exists; service-role client constructed only server-side via getAdminClient and no service-role/storage config string reaches src/ui (grep clean). (6) MIGRATIONS: both read in full — bucket insert idempotent (on conflict do update), MIME allow-list mirrors the code list (and the suite asserts the two agree); confirmed_at additive/nullable/no-default with backfill confirmed_at=uploaded_at for pre-envelope rows, COMMENT matching the enforced semantics exactly, and the partial index (tenant_id, quote_id) WHERE confirmed_at is not null and removed_at is null matches listAttachmentsForQuote's predicate verbatim; the orchestrator's reviewed snapshot diff (2388->2398) is exactly these objects. The ORDER BY alias-shadowing trap is pre-empted by a qualified orderBy with the T-048 mechanism cited; no new test SQL contains a bare aliased order by. (7) F-027-3 MEASURED CONSTRAINT confirmed against installed @supabase/storage-js 2.110.7 d.ts: createSignedUploadUrl(path, options?: {upsert}) — no expiresIn; upsert left unset (false), the TOCTOU defence. (8) F-027-4 UPGRADED WITH A REFERENCE FACT: UpdateBusinessRulesValidator.cs:27 is GreaterThan(0) only, so the >25MB trap is reference parity — wont_fix here, lockstep note recorded. (9) SUITES RE-RUN SERIALLY: storage-keys+storage-fake+attachment-content 70/70; attachments integration 52/52 twice (before and after my M7 cycle); audit coverage verified by test (exactly one uploaded row on confirm not request, distinct removed row, before/after payloads, lead-activity stamps on both). TAKEN ON TRUST: the implementor's RED-first runs, mutants M1-M6 kill details (consistent with the M7 shape I reproduced and the test inventory), and the full-suite 2982 sweep (reproduced by the orchestrator serially)."
+    }
+  ]
+}

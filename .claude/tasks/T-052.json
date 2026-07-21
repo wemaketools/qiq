@@ -1,0 +1,87 @@
+{
+  "id": "T-052",
+  "title": "Fix shell nav pointer-interception regression: TenantSwitcher overlaps and blocks Tenant/User Manager nav clicks",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [],
+  "objective": "Fix a genuine product regression the T-043 e2e evaluation reproduced: in a standard 1280x720 viewport, overflowing sidebar nav content collides with the TenantSwitcher, which paints on top and INTERCEPTS POINTER EVENTS, blocking clicks on the Tenant Manager (and likely User Manager) nav links. This blocks AC-090/AC-092 e2e journeys and must be fixed before cutover can honestly claim them.",
+  "scope": [
+    "src/ui/src/components/shell/* (AppShell/Sidebar/TenantSwitcher and their layout CSS): the nav list and the tenant switcher must not overlap such that one intercepts pointer events destined for the other, at 1280x720 and typical smaller heights.",
+    "The fix is layout/stacking (the nav must scroll within its own region, or the switcher must not overlay the nav, or pointer-events/z-index must be corrected) - determine the actual cause by reproduction, do not guess.",
+    "Add a component/e2e-level regression test that FAILS on the current layout and passes after: a real click on the lowest nav item (Tenant Manager / User Manager) must land on the link, not the switcher."
+  ],
+  "out_of_scope": [
+    "The demo seed permission over-grant (that is the separate T-041 reopen) - though note the two interact: with the over-grant fixed, pilot.admin shows fewer nav items, which may reduce overflow; the LAYOUT bug must still be fixed so it cannot recur for any tenant whose nav legitimately fills the sidebar (e.g. an Internal user).",
+    "Backend, domain, or e2e-infrastructure changes (T-043 owns the e2e adaptation)."
+  ],
+  "implementation_details": [
+    "REPRODUCE FIRST via Playwright at 1280x720 (the evaluator did: the click on Tenant Manager is intercepted by the TenantSwitcher). An e2e boundingBox / pointer-intercept assertion is the reliable detector - a component render test that only checks the element exists will NOT catch a pointer-interception layout bug (this session established that only e2e boundingBox checks catch the bare-button/layout class of defect).",
+    "This is pre-existing SPA layout code inherited by the migration; whether regression or latent, it blocks the DoD e2e journeys, so it is fixed here.",
+    "Do not weaken the e2e assertion to pass; fix the layout so the click genuinely lands."
+  ],
+  "files": [
+    "src/ui/src/components/shell/",
+    "e2e_tests/tests/",
+    "src/ui/src/components/shell/__tests__/"
+  ],
+  "test_plan": {
+    "unit": [
+      "A shell layout/component test asserting the nav region and the tenant switcher do not overlap in a way that steals pointer events (or the e2e below is the authoritative check if jsdom cannot measure layout)"
+    ],
+    "integration": [],
+    "e2e": [
+      "At 1280x720, a real click on the Tenant Manager and User Manager nav links navigates (is not intercepted by the TenantSwitcher) - fails on current layout, passes after the fix"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-090",
+    "AC-092"
+  ],
+  "verification_ids": [
+    "V-116",
+    "V-117"
+  ],
+  "findings": [
+    {
+      "id": "F-043-4",
+      "source": "evaluator",
+      "severity": "major",
+      "status": "resolved",
+      "summary": "Shell nav content overflows and the TenantSwitcher intercepts pointer events, blocking Tenant/User Manager nav clicks at 1280x720",
+      "detail": "Reproduced first-hand by the T-043 evaluator via the exact Playwright error. AppShell/Sidebar/TenantSwitcher CSS lets overflowing nav content collide with the tenant switcher, which paints on top and intercepts pointer events. No pre-migration task owns src/ui/src/components/shell/*; F-043-3's stale 'owner T-013' was old numbering. Fixed under this task. RESOLUTION: Reproduced as the full-nav Internal persona (internal.admin) at 1280x720. Measured geometry showed the nav element flex-shrunk to a 587px box with overflow-y:visible while its content flowed to ~639px; the TenantSwitcher (a later DOM sibling) sat at y=587-656 and painted over the overflow, so Tenant Manager's centre (~y=619) fell inside the switcher and its clicks were intercepted (User Manager, centre above 587, survived). Fix is pure layout: gave the nav its own bounded scroll region (added overflow-y:auto to the existing flex:1/min-height:0 nav in Sidebar.tsx) so overflowing nav content clips+scrolls internally instead of spilling over the switcher, and pinned the TenantSwitcher and UserCard with flex-shrink:0 so they can never be squeezed over the nav. No items were hidden and the e2e assertion was not weakened. Verified: an elementFromPoint + real-click e2e (shell-nav-overflow.spec.ts) went RED before (Tenant Manager centre owned by an overlay) and GREEN after for BOTH User Manager and Tenant Manager."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-21T10:00:00-04:00",
+      "event": "task_created",
+      "message": "Created by the orchestrator after the T-043 e2e evaluation found F-043-4 - a genuine product regression hiding among the reds, exactly the thing the honest-partial e2e approach existed to surface. No existing task owned the shell components, so this task gives it an owner. It blocks AC-090/AC-092 (nav journeys) and therefore the DoD, so it must land before T-044 cutover. Kept SEPARATE from the T-041 seed over-grant reopen because the two are distinct causes (permission over-grant shows too many nav items; the layout bug intercepts clicks regardless), though fixing the over-grant may incidentally reduce overflow for pilot.admin."
+    },
+    {
+      "timestamp": "2026-07-21T00:00:00-04:00",
+      "event": "implemented",
+      "message": "Reproduced F-043-4 first-hand as the full-nav Internal persona (internal.admin) at 1280x720 (NOT pilot.admin, whose corrected seed now hides Tenant Manager and would have masked the bug). Added e2e_tests/tests/shell-nav-overflow.spec.ts: an elementFromPoint + real-click assertion on User Manager and Tenant Manager. Observed RED before the fix (Tenant Manager's centre owned by an overlay; the switcher intercepted its click) and GREEN after. Measured geometry pinned the root cause: nav flex-shrunk to a 587px box with overflow-y:visible, content flowing to ~639px, switcher sitting at y=587-656 painting over the overflow. Fix (shell files only, inline styles): Sidebar.tsx nav gets overflow-y:auto (bounded scroll region within its existing flex:1/min-height:0); TenantSwitcher.tsx and UserCard.tsx get flex-shrink:0 so they stay pinned and un-squeezable. Added a unit tripwire in Sidebar.test.tsx asserting the bounded-region style (jsdom cannot lay out, so the e2e is the authoritative pointer check). Gates: SPA suite 565 passed (up from 564; new test ran) exit 0; typecheck:ui 0; lint:ui 0 errors (6 pre-existing warnings in untouched userManager files); shell e2e (shell.spec + shell-nav-overflow) all passed, no regressions. Fix holds for BOTH Tenant Manager and User Manager. No nav items hidden; e2e assertion not weakened. Final file sha256: Sidebar.tsx e6f7afa31846d90f8e35f7fb59579a278cfd450ab169962887453fc0ee52fe2b; TenantSwitcher.tsx 93896e3e31ad6c192fed79a56ed450bfda10531c60a8c5ca2da6d0c8bf50e797; UserCard.tsx e3af9da094464acc94337fffa67cc1e0337c5cc88d142fdf5bba0354fef545f7; Sidebar.test.tsx 0fcecb292659b94cf4499810e3965777d2361061ccc52e5a2ecdb8da77238cb5; shell-nav-overflow.spec.ts 6b576ed55ca615073b75e51f0d28bab7e5d791b5c8fc9de49aec82cab34c7a98. Set status IMPLEMENTED; F-043-4 resolved. Did NOT touch session_state.json or task_list.json."
+    },
+    {
+      "timestamp": "2026-07-21T14:00:00-04:00",
+      "event": "evaluated",
+      "message": "PASS (evaluated together with T-041 and T-043 as one interlocked batch). The load-bearing claim -- that the fix is genuinely responsible for the click landing, not merely coincidental with the test -- was independently proven by reverting it.",
+      "results": {
+        "verified_first_hand": [
+          "Confirmed Sidebar.tsx's live sha256 (e6f7afa3...) matches the recorded final hash before touching anything.",
+          "Ran e2e_tests/tests/shell-nav-overflow.spec.ts against a fresh demo seed (internal.admin persona, 1280x720): 1 passed -- elementFromPoint at the centre of both nav-user-manager and nav-tenant-manager resolves to the link itself, and real clicks on both navigate to /admin/users and /admin/tenants respectively.",
+          "MUTATION: edited Sidebar.tsx's nav style from overflowY:'auto' back to 'visible' (the pre-fix state) and re-ran the same spec -- it went RED with the EXACT predicted failure: 'the element at the centre of nav-tenant-manager should be the nav link, not an overlay (switcher)', Received: false. User Manager (whose centre sits above the pre-fix box) still passed, matching the fix's own documented root-cause analysis (only the LOWEST link was intercepted). This proves the overflow-y:auto/min-height:0 fix is load-bearing, not coincidental.",
+          "Reverted the mutation; Sidebar.tsx sha256 back to e6f7afa3... (byte-identical); re-ran the spec -- 1 passed again.",
+          "Read Sidebar.test.tsx directly: it only asserts `nav.style.overflowY === 'auto'` in jsdom (a style tripwire, cannot measure real layout/pointer interception) -- confirmed the e2e is the authoritative guard as claimed, not a redundant/decorative check.",
+          "Read navConfig.ts: Tenant Manager and User Manager are still gated on PermissionCodes.TenantsView/UsersView respectively, same as every other nav item -- confirmed no nav items were hidden to route around the bug, and the e2e assertion (elementFromPoint + real click, not a weaker toBeVisible) was not weakened.",
+          "Ran the full Playwright suite twice (69 passed / 0 failed / 60 fixme(skipped) both times) with the fix in place -- no regressions from the shell change; shell.spec.ts and shell-nav-overflow.spec.ts both green alongside tenant-manager.spec.ts and internal-cross-tenant.spec.ts's own nav clicks to the same two links.",
+          "Full SPA suite (ci:test:ui): 104 files / 565 tests, matches floor exactly; typecheck:ui and lint:ui clean (only the same 6 pre-existing unrelated warnings)."
+        ],
+        "cross_cutting": "Confirmed the three fixes compose as claimed: T-041's corrected seed means pilot.admin no longer renders Tenant Manager at all (so it can't exercise this bug), but the regression test deliberately uses internal.admin (the full-nav persona) precisely so the shell fix is proven independent of any persona's permission set, per the task's own out-of-scope note that the layout bug must be fixed for any tenant whose nav legitimately fills the sidebar.",
+        "db_end_state": "No DB mutation from this task's verification (UI-only); left demo-seeded (matches T-041/T-043's state).",
+        "verdict": "PASS"
+      }
+    }
+  ]
+}

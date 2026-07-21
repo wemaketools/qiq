@@ -1,0 +1,93 @@
+{
+  "id": "T-048",
+  "title": "Investigate non-deterministic ordering in lead status-history reads (append-only audit invariant)",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-025"
+  ],
+  "objective": "Find and fix the root cause of an intermittent ordering failure in lead status history, BEFORE the same pattern is relied on more widely. This is an append-only audit invariant, so an ordering defect is a correctness problem, not a cosmetic one.",
+  "scope": [
+    "Reproduce the intermittent failure in lead-workflow.test.ts 'appends exactly one history row per operation' - observed once by the evaluator at 2510/2511, passing 37/37 in isolation and on full re-run",
+    "readHistory orders by (acted_at, id); acted_at is a per-operation JS new Date().toISOString(), NOT a database clock",
+    "The flaking digest showed the start-information-gathering row sorted FIRST and an exact whole-second timestamp - determine whether that is clock resolution, a tie broken inconsistently, a truncation, or rows genuinely written out of order",
+    "Decide the correct fix: order by a monotonic key, source the timestamp from the database, or make the tie-break total"
+  ],
+  "out_of_scope": [
+    "Redesigning the history feature",
+    "Changing quote-side history independently - whatever fix lands here MUST apply to the identical appendStatusHistory pattern used for quote_status_history"
+  ],
+  "implementation_details": [
+    "A JS-generated timestamp means two operations in the same millisecond tie, and any ordering that is not TOTAL can then vary between reads. Establish whether the id tie-break is actually being applied.",
+    "Do not close this as flake without a root cause. It was seen once; an append-only audit trail that reorders under load is exactly the kind of defect that is dismissed until it matters.",
+    "Reproduce deterministically if at all possible - e.g. force same-millisecond writes - rather than re-running until it recurs.",
+    "T-026 (quotes) uses the same src/server/domains/leads/workflow/history.ts pattern for quote_status_history and was told to follow it rather than diverge, so ONE fix here should cover both."
+  ],
+  "files": [
+    "src/server/domains/leads/workflow/history.ts",
+    "src/server/tests/integration/lead-workflow.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Ordering is total and deterministic when multiple rows share an acted_at value"
+    ],
+    "integration": [
+      "A deterministic reproduction of the same-timestamp case; history order is stable across repeated reads",
+      "Quote status history exhibits the same guarantee once T-026 has landed"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-024"
+  ],
+  "verification_ids": [
+    "V-031"
+  ],
+  "findings": [
+    {
+      "id": "F-048-1",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T22:00:00-04:00",
+      "summary": "Test helper readHistory sorted by TEXT, not by timestamp/bigint: `acted_at::text as acted_at` shadowed the real column and Postgres resolved the bare ORDER BY to the output alias.",
+      "detail": "Postgres resolves a BARE ORDER BY name to an output-column ALIAS in preference to the underlying table column. readHistory cast every column to text under its own name, so `order by acted_at, id` became a STRING sort. timestamptz::text trims trailing zeros, so a whole-second value (millisecond .000) renders without a fractional part and sorts apart from every sub-second value in the SAME second; `id::text` likewise orders '10' before '9'. This exactly reproduces the observed digest (a row sorted out of place plus an exact whole-second timestamp) and its ~1/1000 frequency. Fixed by table-qualifying the sort key (order by h.id), which defeats alias resolution. Same anti-pattern found and fixed in helpers/audit-assert.ts and brokers.test.ts; a repo-wide scan found no other real occurrences."
+    },
+    {
+      "id": "F-048-2",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T22:00:00-04:00",
+      "summary": "Production history reads ordered by (acted_at, id), an application wall-clock key, so a backwards clock step reorders an append-only audit trail and mis-resolves Reopen.",
+      "detail": "acted_at is the operation's new Date().toISOString(), not a database clock. (acted_at, id) is a TOTAL order, so it is deterministic per read, but it is not the APPEND order: a clock that ties or steps backwards (NTP / VM host correction) is faithfully reproduced as a reordered trail. resolveReopenTargetStatusId walks the list backwards for the most recent open status, so this resolves Reopen to the WRONG status - demonstrated by a new integration test that regresses only the timestamps and observes 'information_gathering' instead of 'underwriting'. Fixed by ordering on the identity column id, which the database assigns at INSERT and which therefore increases strictly with append order. Applied identically to listQuoteStatusHistory in domains/quotes/repository.ts so the shared pattern is not forked."
+    },
+    {
+      "id": "F-048-3",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-19T22:00:00-04:00",
+      "summary": "SIBLING (T-026), NOT T-048: lead-workflow.test.ts 'cascades OPEN quotes to Lost' now fails on T-026's new uq_quotes_current partial unique index.",
+      "detail": "Migration 20260719001000_quotes_current_guard.sql adds `unique (tenant_id, lead_id) where is_current = true`. The seedQuote helper hardcodes is_current = true and that test seeds three quotes on one lead, so the third insert raises duplicate key on quotes_p757_tenant_id_lead_id_idx1. Neither seedQuote nor that test is touched by T-048, and the failure is a constraint violation, not an ordering one. Left for T-026 because the correct resolution (seed only one current quote per lead) is a semantic decision about T-026's guard. This is the ONLY failure in the lead-workflow suite (39/40 pass). RESOLVED by the evaluator 2026-07-19: T-026 (implemented 22:55, after this report) fixed seedQuote to mark a quote current only when the lead has no current quote yet (T-026-N8), matching CreateQuoteCommandHandler. Evaluator re-ran lead-workflow.test.ts serially: 40/40 pass."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-19T23:00:00-04:00",
+      "event": "task_created",
+      "message": "Created by the orchestrator on the evaluator's recommendation while passing T-046. The evaluator saw the failure ONCE during T-046's evaluation, correctly ruled it NOT a T-046 defect (mechanically unreachable from a validation-layer change), and escalated it rather than dismissing it - noting the shape is disturbing for an append-only audit invariant. Filed as its own task instead of being absorbed into T-026 so that a real root cause is found rather than worked around under delivery pressure."
+    },
+    {
+      "timestamp": "2026-07-19T22:00:00-04:00",
+      "event": "implementation_written",
+      "message": "ROOT CAUSE FOUND, two distinct defects, neither a flake. (1) The observed failure was in the TEST helper: `acted_at::text as acted_at` / `id::text as id` shadow their own columns, and Postgres resolves a bare ORDER BY to the output ALIAS, silently turning the sort into a string comparison. Because timestamptz::text trims trailing zeros, a whole-second value sorts apart from sub-second values in the same second - which explains BOTH observations in the evaluator's digest (row out of place AND an exact whole-second timestamp) and the ~1/1000 frequency. Proved by measurement, not inference: renaming ONLY the alias flips the result order, and the kysely-generated production SQL was dumped and confirmed clean. (2) A REAL production defect found while reproducing: ordering by (acted_at, id) is total but is not the APPEND order, because acted_at is an application wall clock; a backwards step mis-resolves Reopen. Fixed both: sort keys table-qualified in the three test SQL sites, and listStatusHistory + listQuoteStatusHistory now order by the identity column id (the monotonic append key), chosen over a database now()/clock_timestamp() source because the same `now` also stamps last_activity_at, updated_at and the audit row, so moving only acted_at would desynchronise a record from the row it describes. User-visible timestamp semantics are UNCHANGED - acted_at is still the same application-sourced value; only the ORDER changed. Three deterministic regression tests added (whole-second-in-shared-second, microsecond tie read twice, reopen under a regressed clock); the first and third FAILED before the fix and pass after. Two mutants applied with sha256 proofs and both killed, restored byte-identical. Gates: lead-workflow 39/40 (sole failure is sibling T-026's uq_quotes_current guard vs seedQuote, F-048-3); brokers/tenants/users 104/104; 11 audit-assert consumer suites 430/430; typecheck and lint clean in all T-048 files, remaining errors confined to T-026's quotes/errors.ts and quotes/workflow/operations.ts; schema unchanged so db:types:check not required."
+    },
+    {
+      "timestamp": "2026-07-19T22:45:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator PASS, iteration 0. Every load-bearing claim reproduced FIRST-HAND against the live local Postgres rather than taken from the report. (1) ALIAS SHADOWING: `select id::text as id ... order by id` over (9),(10),(100) returns '10','100','9'; renaming ONLY the alias flips it to 9,10,100; table-qualifying the sort key (order by v.id) also defeats alias resolution. `timestamptz::text` confirmed to TRIM trailing zeros: '...10:00:00.000Z' renders '2026-07-19 10:00:00+00' with NO fractional part. The EXACT observed two-row shape was reconstructed: assign at .000 + start-information-gathering at .412 in the same second, aliased text sort -> start-information-gathering sorts FIRST and the digest shows an exact whole-second timestamp - ONE mechanism explains BOTH original observations, and the ~1/1000 frequency (P of a .000 landing) is consistent. (2) PRODUCTION NEVER AFFECTED - verified independently by compiling the kysely queries: production selects plain columns with NO ::text casts and NO aliases, and the pre-fix shape emits `order by \"acted_at\", \"id\"` over the real columns (ordering by an uncast output column IS the underlying column), so alias shadowing was mechanically impossible in production; the current query emits `order by \"id\"`. (3) DEFECT 2 fix ruled CORRECT and its caveat ruled honestly characterised: the backwards-clock reordering is a demonstrated consequence under controlled timestamps (the test rewrites acted_at via SQL), not a captured wild occurrence - neither over- nor under-stated, and defect 1 alone fully explains what was seen. Ordering on `id` is genuinely monotonic with append order here: verified in catalog that lead_status_history/quote_status_history each have EXACTLY ONE identity sequence living on the partitioned PARENT (pg_depend count 2 across both parents and all partitions), cache 1, increment 1 - one global nextval stream across every tenant partition. The id-over-db-clock choice is right for the stated desynchronisation reason (same `now` stamps last_activity_at/updated_at/audit), and user-visible acted_at semantics are unchanged (select list untouched; only ORDER BY changed). (4) REGRESSION TESTS PROVEN DISCRIMINATING by evaluator-applied mutants with sha256 application proofs, both restored byte-identical (4a2ddd5c.../29d1559a...): reverting listStatusHistory to orderBy(acted_at),orderBy(id) -> 'resolves reopen from the append order even when the clock ran backwards' FAILS with exactly the predicted wrong status (information_gathering instead of underwriting); reverting the test helper to unqualified `order by acted_at, id` -> 'keeps append order when a row lands on an exact second inside a shared second' FAILS. (5) QUOTE SIDE covered through the shared pattern, not forked: listQuoteStatusHistory (quotes/repository.ts:702) orders by id. audit-assert.ts and brokers.test.ts fixes confirmed qualified (a.id / c.id). F-048-3 confirmed a sibling (T-026) issue and now RESOLVED: T-026's seedQuote fix landed and lead-workflow is 40/40 serially. Post-restoration serial re-run: lead-workflow + quote-workflow 117/117 pass. ONE residue found by the evaluator's repo scan and filed on T-026, not here (T-026-E1): T-026's readQuoteHistory helper, written after this task's scan, tie-breaks with a bare `order by ..., id` while aliasing id::text - the same mechanism on the tie-break key. T-048's own 'no other real occurrences' claim was true when made."
+    }
+  ]
+}

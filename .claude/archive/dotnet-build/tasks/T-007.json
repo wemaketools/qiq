@@ -1,0 +1,249 @@
+{
+  "id": "T-007",
+  "title": "User Manager backend: users, roles, groups, effective access, Keycloak provisioning",
+  "status": "PASS",
+  "iteration_count": 4,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-005",
+    "T-006"
+  ],
+  "objective": "Authorized administrators can manage users (create/edit/deactivate with Keycloak provisioning), roles (with usage visibility), and groups (members/roles/permissions), with per-tenant assignments and full audit (spec FR-13..FR-14, §12.2, PRD 20.1.1).",
+  "scope": [
+    "Features/Users, Features/Roles, Features/Groups CQRS handlers + endpoints per spec §12.2",
+    "Keycloak user provisioning on create, disable on deactivate, initial credential via reset email",
+    "Effective-access query per user",
+    "Validation: normal users must have >= 1 tenant; email unique; deactivation not deletion"
+  ],
+  "out_of_scope": [
+    "User Manager UI (T-015)",
+    "Login flow (T-004/T-013)"
+  ],
+  "implementation_details": [
+    "Features/Users: CreateUserCommand{FirstName,LastName,Email,TenantIds[],DirectRoleIds[],DirectPermissions[],GroupIds[]} -> creates Keycloak user (IKeycloakAdminService), stores users row + assignments, sends reset email; UpdateUserCommand (names, tenant assignments, roles, permissions, groups — per-tenant context payload shape: assignments carry tenantId); DeactivateUserCommand (is_active=false + Keycloak disable); GetUserQuery; ListUsersQuery (tenant-filtered for tenant admins, global for Internal); GetEffectiveAccessQuery -> {directRoles[], directPermissions[], groups[], tenantAssignments[], effectivePermissionsByTenant{}}",
+    "Features/Roles: CreateRole/UpdateRole/DisableRole (blocked with 409 listing usages unless force after usage view), GetRoleUsageQuery -> users+groups referencing the role; roles are tenant-scoped rows (tenant_id from context) unless caller has global.manage_roles and passes global:true",
+    "Features/Groups: CRUD + AddMember/RemoveMember/SetGroupRoles/SetGroupPermissions",
+    "Endpoints: /api/v1/users (tenant-scoped group; Internal may operate cross-tenant via global permission), /api/v1/users/{id}/deactivate, /api/v1/users/{id}/effective-access, /api/v1/roles, /api/v1/roles/{id}/usage, /api/v1/groups and subresources — all with RequirePermission(Users.Manage / Roles.Manage / Groups.Manage)",
+    "Guard: creating a non-Internal user with zero tenants -> validation error USER_REQUIRES_TENANT (FR-16)",
+    "Every mutation writes audit_log entries (action codes user.created, user.deactivated, role.updated, group.member_added, ...)"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Users/**/*.cs",
+    "src/api/QuoteIQ.Application/Features/Roles/**/*.cs",
+    "src/api/QuoteIQ.Application/Features/Groups/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/UserEndpoints.cs",
+    "src/api/QuoteIQ.Api/Endpoints/RoleEndpoints.cs",
+    "src/api/QuoteIQ.Api/Endpoints/GroupEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Users/UserEndpointsTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Roles/RoleEndpointsTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Groups/GroupEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "CreateUser_WhenValid_ShouldProvisionKeycloakAndPersist (Keycloak Testcontainer)",
+      "CreateUser_WhenNoTenantAndNotInternal_ShouldReturnValidationError",
+      "DeactivateUser_ShouldDisableKeycloakAccountAndKeepHistory",
+      "DisableRole_WhenInUse_ShouldReturn409WithUsage",
+      "GroupRoleAssignment_ShouldFlowIntoEffectivePermissions",
+      "UserWithDifferentRolesPerTenant_ShouldResolvePerTenant",
+      "AllMutations_ShouldWriteAudit"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-012",
+    "AC-013",
+    "AC-068",
+    "AC-075"
+  ],
+  "verification_ids": [
+    "V-012",
+    "V-013",
+    "V-068",
+    "V-075"
+  ],
+  "findings": [
+    {
+      "id": "F-027",
+      "source": "security",
+      "severity": "high",
+      "category": "security",
+      "description": "Cross-tenant IDOR on every by-id Role/Group/User operation. Handlers resolve the target entity via IRoleStore/IGroupStore/IUserStore.FindAsync(id) and act on it without verifying the entity belongs to the ambient tenant. The RBAC tables (roles, user_groups, users + assignments) are global/unpartitioned with no EF query filter (QuoteIqDbContext.ConfigureSecurity comment lines 147-152), and FindAsync applies no tenant predicate. A tenant-A admin who holds roles.manage / groups.manage / users.edit / users.deactivate / users.view within tenant A (a legitimate membership that passes TenantContextMiddleware) can therefore read, rename, re-permission, disable, deactivate, or read effective-access of roles/groups/users owned by other tenants by supplying the foreign id in the path. UpdateUserCommandHandler is especially damaging: ReplaceTenantAssignmentsAsync replaces the target user's ENTIRE tenant set, so a tenant-A admin editing a tenant-B-only user can strip that user's tenant-B membership and/or graft them into tenant A.",
+      "evidence": "RoleStore.FindAsync (src/api/QuoteIQ.Infrastructure/Roles/RoleStore.cs:32-33), GroupStore.FindAsync (Groups/GroupStore.cs:32-33), UserStore.FindAsync (Users/UserStore.cs:37-38) apply no tenant filter. UpdateRoleCommandHandler, DisableRoleCommandHandler, GetRoleQueryHandler, GetRoleUsageQueryHandler, GetUserQueryHandler, DeactivateUserCommandHandler, GetEffectiveAccessQueryHandler, UpdateUserCommandHandler, and all Groups by-id handlers (AddGroupMember/RemoveGroupMember/SetGroupRoles/SetGroupPermissions/UpdateGroup/DisableGroup/GetGroup) call FindAsync then mutate/return with no check that role.TenantId/group.TenantId equals the ambient tenant or that the target user is a member of it. Tests only cover LIST isolation (Roles_ShouldBeTenantIsolated, Groups_ShouldBeTenantIsolated, ListUsers_ShouldBeTenantIsolated); no test exercises by-id cross-tenant access, so the gap is untested. Spec §13 requires tenant confinement enforced in handlers ('write paths assert entity.tenant_id == context tenant'), and the task history's F-020 lesson calls for explicit predicates where confinement is intended.",
+      "recommendation": "In every by-id role/group handler, after FindAsync reject (404, indistinguishable from missing per spec §14) when the entity's TenantId is non-null and != ambient TenantId unless ITenantContext.IsCrossTenant. For user handlers, confine to users who are members of the ambient tenant (or IsCrossTenant). Add integration tests: tenant-A admin issuing GET/PUT/disable/usage against a tenant-B role/group id -> 404, and against a tenant-B user id -> 404.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T00:00:00-04:00"
+    },
+    {
+      "id": "F-028",
+      "source": "security",
+      "severity": "high",
+      "category": "security",
+      "description": "Privilege escalation via unrestricted assignment: CreateUser (gated only by users.invite) and UpdateUser (gated only by users.edit) accept DirectRoleIds, DirectPermissions, GroupIds, and TenantIds and persist them without (a) checking the caller holds the dedicated assignment permissions the catalog defines for exactly this purpose, or (b) verifying the caller actually possesses the roles/permissions being granted. The catalog's users.assign_tenant, users.assign_role, users.assign_group, and users.grant_direct_permission are defined but enforced NOWHERE in the codebase, so they are dead. A caller holding only users.invite can mint a new user carrying any catalog permission (e.g. pricing.approve, business_rules.manage, api_access.regenerate_secret) scoped to their tenant, i.e. grant privileges far beyond their own.",
+      "evidence": "Grep for AssignRole|AssignTenant|AssignGroup|GrantDirectPermission across src/api returns only PermissionCatalog.cs (the definitions) - no enforcement site. UserEndpoints.cs:32-33 gate create on Users.Invite and update on Users.Edit only. CreateUserCommandHandler.cs:131-152 validates DirectPermissions solely against the catalog code set, never against the caller's own effective permissions; DirectRoleIds/GroupIds/TenantIds are likewise accepted with only existence/tenant-scope checks. No test asserts an invite-only caller is blocked from attaching roles/permissions.",
+      "recommendation": "Gate assignment inputs behind the catalog's assign_* permissions (require users.assign_role when DirectRoleIds non-empty, users.grant_direct_permission when DirectPermissions non-empty, users.assign_group, users.assign_tenant), and enforce grant-no-higher-than-self: reject any DirectPermission/role permission the caller does not themselves hold in the target tenant. Add negative integration tests.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T00:00:00-04:00"
+    },
+    {
+      "id": "F-029",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "Cross-tenant by-id access is untested. The three *_ShouldBeTenantIsolated tests only assert LIST endpoints hide other tenants' rows; none exercise the by-id read/mutate paths that F-027 shows are unconfined. Even independent of the fix, a regression test asserting foreign-id -> 404 is required to lock the boundary.",
+      "evidence": "RoleEndpointsTests.Roles_ShouldBeTenantIsolated (line 228) asserts only GET /api/v1/roles list contents; equivalents in Users/Groups tests do the same. No test issues PUT /api/v1/roles/{foreignId} or POST /api/v1/users/{foreignId}/deactivate from a non-member admin.",
+      "recommendation": "Add cross-tenant by-id negative tests alongside the F-027 handler fix.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T00:00:00-04:00"
+    },
+    {
+      "id": "F-030",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "Best-effort reset-password email (deviation 5) swallows all failures and returns CreateUser success with no credential-delivery signal to the admin. Log-and-continue is defensible (mail outage must not orphan a created account), but the create response gives the administrator no indication the invite was not delivered, so a user can be silently created with no path to first login. Spec does not mandate surfacing this, so it is advisory rather than blocking.",
+      "evidence": "CreateUserCommandHandler.cs:193-201 catches every exception from SendResetPasswordEmailAsync and only LogWarning; CreateUserResult (returned to the caller) carries no emailSent/credentialDelivery flag.",
+      "recommendation": "Return a boolean/flag on CreateUserResult indicating whether the credential email was dispatched so the UI (T-015) can prompt a manual resend; keep the swallow-and-log behavior.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T00:00:00-04:00"
+    },
+    {
+      "id": "F-031",
+      "source": "security",
+      "severity": "high",
+      "category": "security",
+      "description": "Privilege escalation via group permission/role assignment bypasses the F-028 grant-no-higher-than-self guarantee. The F-028 fix (AssignmentGuard) is enforced only on the user-assignment inputs of CreateUser/UpdateUser. The parallel group-mutation paths -- SetGroupPermissionsCommandHandler, SetGroupRolesCommandHandler, and AddGroupMemberCommandHandler -- are gated ONLY by Groups.Manage (GroupEndpoints.cs:36-39), apply NO grant-no-higher-than-self check, and do not confine the added member to the ambient tenant. A tenant admin holding only Groups.Manage can therefore self-escalate: (1) POST /api/v1/groups/{id}/permissions to attach any catalog permission they do NOT themselves hold (e.g. pricing.approve, business_rules.manage, api_access.regenerate_secret -- the exact codes F-028 cited) to a group they own; then (2) POST /api/v1/groups/{id}/members adding their OWN user id; EffectivePermissionResolver.viaGroupDirect/viaGroupRole then resolves that permission for the caller in the tenant. The same route also works against a global (null-tenant) group, whose grants resolve in every tenant. This is the identical privilege-escalation class F-028 was raised to close, reachable through the group indirection the fix did not cover.",
+      "evidence": "SetGroupPermissionsCommandHandler.cs:21-47 validates codes only against PermissionCatalog (no caller-permission check); SetGroupRolesCommandHandler.cs:22-53 validates only role existence/tenant-match; AddGroupMemberCommandHandler.cs:22-49 checks group accessible + user exists + not-already-member, with no confinement that the added user is a member of the ambient tenant and no self-grant ceiling. GroupEndpoints.cs:36-39 gate all three on PermissionCatalog.Groups.Manage only. No AssignmentGuard / IEffectivePermissionResolver usage exists in any Groups handler. No test asserts a Groups.Manage-only caller is blocked from granting a group a permission they lack and then joining it.",
+      "recommendation": "Apply the same grant-no-higher-than-self ceiling (via IEffectivePermissionResolver/AssignmentGuard) to SetGroupPermissions and SetGroupRoles (reject any group permission -- direct or role-carried -- the caller does not hold in the group's tenant scope), and confine AddGroupMember to users who are members of the group's tenant (or a cross-tenant caller). Add negative integration tests: a Groups.Manage-only caller granting a group a permission it lacks -> 403, and adding a foreign-tenant user -> 404/422.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T19:20:00-04:00",
+      "resolution": "Verified fix iteration 3. Grant-no-higher-than-self enforced on group paths via shared AssignmentGuard (src/api/QuoteIQ.Application/Security/AssignmentGuard.cs): SetGroupPermissionsCommandHandler.cs:55-62 checks direct codes, SetGroupRolesCommandHandler.cs:49-72 checks role-carried codes against caller effective permissions in the group tenant scope, returning GROUP_PERMISSION_EXCEEDS_CALLER_GRANT/403 (GroupEndpoints.cs:110-111). AddGroupMemberCommandHandler.cs:55-62 confines added member to ambient tenant via GetTenantIdsAsync (IsCrossTenant exempt, mirroring existing policy), GROUP_USER_NOT_FOUND/404. CreateUser/UpdateUser GroupIds now union group direct + role-carried codes under the same ceiling (USER_PERMISSION_EXCEEDS_CALLER_GRANT/403). Negative and positive tests present and passing. The described attack (endow group with unheld permission then self-join) is closed. Two adjacent routes remain, tracked as new findings F-033 and F-034."
+    },
+    {
+      "id": "F-032",
+      "source": "security",
+      "severity": "major",
+      "category": "security",
+      "description": "Tenant-scoped admins can mutate Internal-managed global (null-tenant) RBAC defaults. TenantConfinement.IsAccessible returns true whenever entityTenantId is null, and it is used identically on read AND write paths. While allowing global rows on READ is correct (tenants must see/use global roles/groups), applying the same predicate to the mutating by-id handlers (UpdateRole, DisableRole, UpdateGroup, DisableGroup, SetGroupPermissions, SetGroupRoles, AddGroupMember) lets any non-cross-tenant caller with Roles.Manage/Groups.Manage rename, re-permission, disable, or add members to a GLOBAL default role/group, affecting every tenant. This contradicts spec 12.4 line 489 ('write paths assert entity.tenant_id == context tenant; cross-tenant admin features use an explicit path gated by global permissions') and FR-16/FR-22 (global default templates are Internal-managed); note CreateRole/CreateGroup already correctly gate global creation behind Global.ManageGlobalDefaults, so edit/disable/member paths are an inconsistent gap.",
+      "evidence": "TenantConfinement.cs:16-17 (entityTenantId is null => accessible) is called by UpdateRoleCommandHandler.cs:37, DisableRoleCommandHandler.cs:25, UpdateGroupCommandHandler.cs:36, DisableGroupCommandHandler.cs:25, SetGroupPermissionsCommandHandler.cs:26, SetGroupRolesCommandHandler.cs:27, AddGroupMemberCommandHandler.cs:27 -- all mutating paths. None additionally require IsCrossTenant or Global.ManageGlobalDefaults when the resolved entity is global. CreateRoleCommandHandler.cs:49 / CreateGroupCommandHandler.cs:49 by contrast require Global.ManageGlobalDefaults to create a global row.",
+      "recommendation": "Split the confinement for write vs read: on mutating by-id role/group handlers, when the resolved entity is global (TenantId null) require ITenantContext.IsCrossTenant or Global.ManageGlobalDefaults; otherwise return the same NotFound. Add tests: a tenant-scoped Roles.Manage/Groups.Manage admin mutating a global role/group -> 404/403.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T19:20:00-04:00",
+      "resolution": "Verified fix iteration 3. TenantConfinement.IsWriteAccessibleAsync (TenantConfinement.cs:36-55) requires IsCrossTenant or global.manage_global_defaults to mutate a global null-tenant entity, else the same NotFound; tenant-scoped entities unchanged. Applied to all 8 mutating by-id handlers (UpdateRole, DisableRole, UpdateGroup, DisableGroup, SetGroupPermissions, SetGroupRoles, AddGroupMember, RemoveGroupMember). Read paths GetRole/GetRoleUsage/GetGroup retain IsAccessible. DisableRole usage/409/force flow unchanged. 4 Roles + 8 global-group tests cover the 404 negative, ManageGlobalDefaults positive, and cross-tenant positive. All pass."
+    },
+    {
+      "id": "F-033",
+      "source": "security",
+      "severity": "high",
+      "category": "security",
+      "description": "Privilege escalation residual: AddGroupMember applies NO grant-no-higher-than-self ceiling on the target group's carried permissions. F-031 blocks endowing a group with unheld permissions and blocks assigning an over-privileged group via CreateUser/UpdateUser GroupIds (403). But POST /api/v1/groups/{id}/members only checks group write-accessibility, user existence, and member tenant confinement, never the group's direct and role-carried codes against the caller. A groups.manage-only tenant admin can add their own (or any in-tenant) user to an EXISTING over-privileged group (e.g. one a higher admin endowed with pricing.approve) and EffectivePermissionResolver.viaGroupDirect/viaGroupRole (cs:49-69, live joins) resolves it immediately. The identical action via UpdateUser GroupIds returns 403; enforcement is inconsistent and the cheaper route is open.",
+      "evidence": "AddGroupMemberCommandHandler.cs:33-76: after IsWriteAccessibleAsync + user-exists + tenant-confinement + already-member, it calls AddMemberAsync with no AssignmentGuard and no read of the group's permission codes. Contrast UpdateUserCommandHandler.cs:165-196 which unions group direct + role-carried codes and enforces CallerHoldsInAllScopesAsync for the same logical grant. No test covers a groups.manage-only caller joining an over-privileged group.",
+      "recommendation": "In AddGroupMemberCommandHandler, before AddMemberAsync compute the group's direct + role-carried codes (same union as CreateUser/UpdateUser GroupIds) and reject any code the caller lacks in the group tenant scope with GROUP_PERMISSION_EXCEEDS_CALLER_GRANT/403 (AssignmentGuard.CallerHoldsInAllScopesAsync; cross-tenant/global callers satisfied). Add negative and positive tests.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T21:10:00-04:00",
+      "resolution": "Verified fix iteration 4 (evaluator independent audit). AddGroupMemberCommandHandler.cs:79-93 unions the group's direct permission codes (GetPermissionCodesAsync) with each assigned role's codes (GetRoleIdsAsync -> RoleStore.GetPermissionCodesAsync) and rejects any code the caller lacks in group.TenantId scope via AssignmentGuard.CallerHoldsInAllScopesAsync -> GROUP_PERMISSION_EXCEEDS_CALLER_GRANT, mapped 403 at GroupEndpoints.cs:110-111 (cross-tenant/global callers exempt). Identical union/ceiling to the CreateUser (cs:177-190) and UpdateUser (cs:188-201) GroupIds paths, so enforcement is consistent across both routes; the cheaper self-join escalation is closed. Tests (real Keycloak+Postgres, AAA): AddGroupMember_WhenGroupCarriesPermissionCallerLacks_ShouldReturn403 (asserts 403 AND user not added), AddGroupMember_WhenCallerSelfJoinsGroupCarryingPermissionTheyLack_ShouldReturn403 (exact attack), AddGroupMember_WhenCallerHoldsGroupCarriedPermission_ShouldSucceed, AddGroupMember_WhenCrossTenantCallerHoldsGroupCarriedPermissionGlobally_ShouldSucceed."
+    },
+    {
+      "id": "F-034",
+      "source": "security",
+      "severity": "high",
+      "category": "security",
+      "description": "Privilege escalation residual: UpdateRole can widen an in-use role's permission set with no grant-no-higher-than-self ceiling, instantly escalating every user/group already holding that role, including the caller. Assignment-time ceilings snapshot codes; EffectivePermissionResolver joins role_permissions live, so PUT /api/v1/roles/{id} adding codes takes effect immediately for existing holders. A roles.manage caller who holds any role (directly or via a group) can add pricing.approve/business_rules.manage to it and gain them, bypassing every F-028/F-031 ceiling; they can also escalate other users beyond their own grant. CreateRole with arbitrary catalog codes is acceptable (an unassigned role grants nothing and assignment is ceiling-gated), but editing an already-assigned role is an un-gated grant event.",
+      "evidence": "UpdateRoleCommandHandler.cs:35-84: after IsWriteAccessibleAsync + catalog validation, ReplacePermissionsAsync runs with no ceiling on added codes and no tie to the caller's own grant. EffectivePermissionResolver.cs:39-60 (viaRole, viaGroupRole) resolves role_permissions live. No test covers UpdateRole adding a permission the caller lacks to an in-use role.",
+      "recommendation": "On UpdateRole, for each ADDED code (not already on the role) require the caller to hold it in the role's tenant scope (AssignmentGuard.CallerHoldsInAllScopesAsync), returning a 403-mapped ROLE_PERMISSION_EXCEEDS_CALLER_GRANT. Optionally scope the ceiling to in-use roles (GetUsageAsync.IsInUse) if freely composing unassigned roles must stay supported; document the choice. Add negative and positive tests mirroring the SetGroupRoles pair.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T21:10:00-04:00",
+      "resolution": "Verified fix iteration 4 (evaluator independent audit). UpdateRoleCommandHandler.cs:69-85 computes addedCodes = command.PermissionCodes.Except(existingPermissionCodes) and gates each added code against the caller in role.TenantId scope via AssignmentGuard.CallerHoldsInAllScopesAsync -> ROLE_PERMISSION_EXCEEDS_CALLER_GRANT, mapped 403 at RoleEndpoints.cs:77. Removed codes are never gated; the ceiling applies to all added codes (not only in-use roles), with the design choice documented in-code. Closes the live-escalation vector (EffectivePermissionResolver joins role_permissions live, so widening an in-use role would otherwise instantly escalate every holder incl. the caller). CreateRole stays intentionally un-ceiled and is inert because assignment paths (CreateUser/UpdateUser/SetGroupRoles/AddGroupMember) all re-check a role's carried codes against the caller. Tests: UpdateRole_WhenAddingPermissionCallerLacks_ShouldReturn403AndLeavePermissionsUnchanged (403 AND code not persisted), UpdateRole_WhenAddingPermissionCallerHolds_ShouldSucceed, UpdateRole_WhenOnlyRemovingPermissions_ShouldSucceedWithoutCeiling, UpdateRole_WhenCrossTenantCallerHoldsPermissionGlobally_ShouldSucceed."
+    },
+    {
+      "id": "F-035",
+      "source": "security",
+      "severity": "minor",
+      "category": "security",
+      "description": "Cross-tenant existence oracle via tenant-mismatch codes, deviating from spec section 14 (404 for cross-tenant ids, indistinguishable from missing). For a referenced (not path) foreign-tenant id several handlers return a distinguishable 422 mismatch instead of 404: SetGroupRoles returns GROUP_ROLE_TENANT_MISMATCH (422) vs GROUP_ROLE_NOT_FOUND (404); CreateUser/UpdateUser return USER_ROLE_TENANT_MISMATCH / USER_GROUP_TENANT_MISMATCH (422) for foreign ids. Low impact (leaks only existence of sequential numeric ids, no data) hence minor, but it is a stated spec requirement.",
+      "evidence": "SetGroupRolesCommandHandler.cs:53-62; CreateUserCommandHandler.cs:128-164; UpdateUserCommandHandler.cs:109-129 and 165-176: a foreign-tenant id yields 422 *_TENANT_MISMATCH while a missing id yields 404 *_NOT_FOUND.",
+      "recommendation": "When a referenced role/group is not visible under TenantConfinement.IsAccessible, return the same *_NOT_FOUND used for missing ids; keep 422 mismatch only for entities the caller can legitimately see. Add one probe test per handler.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-12T21:10:00-04:00",
+      "resolution": "Verified fix iteration 4 (evaluator independent audit). A TenantConfinement.IsAccessible guard now precedes every *_TENANT_MISMATCH branch: SetGroupRolesCommandHandler.cs:58 (before :65) -> GROUP_ROLE_NOT_FOUND; CreateUserCommandHandler.cs:135 and :162 (before :142/:169) -> USER_ROLE_NOT_FOUND / USER_GROUP_NOT_FOUND; UpdateUserCommandHandler.cs:116 and :174 (before :131/:181) -> USER_ROLE_NOT_FOUND / USER_GROUP_NOT_FOUND. Evaluator grepped all *_TENANT_MISMATCH sites in the Application project: they exist only in these three handlers and each 422 branch is now reachable only for entities the caller can legitimately see (global, cross-tenant, or ambient-tenant); foreign-tenant referenced ids return the same 404 as missing, closing the existence oracle per spec 14. Probe tests assert status AND code identical for foreign vs missing: SetGroupRoles_WhenForeignTenantRoleId_ShouldReturn404SameAsMissing, CreateUser_WhenDirectRoleIdForeignTenant_ShouldReturn404SameAsMissing, CreateUser_WhenGroupIdForeignTenant_ShouldReturn404SameAsMissing, UpdateUser_WhenRoleAssignmentForeignTenantRoleId_ShouldReturn404SameAsMissing, UpdateUser_WhenGroupIdForeignTenant_ShouldReturn404SameAsMissing."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-13..FR-16, §12.2)"
+    },
+    {
+      "timestamp": "2026-07-12T16:30:00-04:00",
+      "event": "task_started",
+      "message": "T-007 IN_PROGRESS; delegated to Implementor (iteration 1/10)"
+    },
+    {
+      "timestamp": "2026-07-12T17:05:00-04:00",
+      "event": "implementation_written",
+      "message": "T-007 IMPLEMENTED (iteration 1/10): Features/Users+Roles+Groups CQRS, IUserStore/IRoleStore/IGroupStore + Infrastructure stores, User/Role/Group endpoints registered; reused T-005 rbac schema entirely (no new Liquibase changesets); 26 new integration tests (Users 11, Roles 8, Groups 7) red-first against real Keycloak+Postgres; e2e user-manager.spec.ts as test.fixme pending T-015 UI. Full suite 134/134 three consecutive runs (Domain 9, Infrastructure 38, Api 87). Deviations flagged: fine-grained permission codes (no Users.Manage in catalog), Global.ManageGlobalDefaults for global role/group creation, create-time tenant restriction for non-cross-tenant callers, POST .../remove instead of DELETE for group members, best-effort reset email (no SMTP in test Keycloak). Handed to Evaluator."
+    },
+    {
+      "timestamp": "2026-07-12T00:00:00-04:00",
+      "event": "findings_added",
+      "message": "Evaluator audit (iteration 1/10): full backend suite re-run independently -> 134/134 (Domain 9, Infrastructure 38, Api 87). Implementation completeness, test validity (all 7 required integration tests present, real Keycloak+Postgres, AAA, no mocks), and Playwright coverage (user-manager.spec.ts faithfully encodes V-012/V-013 with legitimate T-015 fixme) all PASS. Two HIGH security findings block PASS: F-027 cross-tenant IDOR on all by-id role/group/user operations (RBAC tables global, FindAsync unconfined, handlers never check target.TenantId == ambient); F-028 privilege escalation via unenforced assign_* permissions (users.assign_role/assign_tenant/assign_group/grant_direct_permission defined but enforced nowhere; users.invite alone can grant arbitrary catalog permissions). Plus F-029 (minor test gap: cross-tenant by-id untested) and F-030 (minor: reset-email silently swallowed with no admin signal). Deviations 1/3/4 judged acceptable; deviation 5 -> F-030. Verdict NEEDS_FIXES."
+    },
+    {
+      "timestamp": "2026-07-12T17:50:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-007 NEEDS_FIXES; fix iteration 2/10 delegated to Implementor for F-027 (high, cross-tenant IDOR), F-028 (high, assignment privilege escalation), F-029 (minor, by-id isolation tests), F-030 (minor, emailSent signal)"
+    },
+    {
+      "timestamp": "2026-07-12T18:25:00-04:00",
+      "event": "implementation_written",
+      "message": "T-007 fix iteration 2/10: F-027 fixed (TenantConfinement.IsAccessible applied to all by-id Role/Group handlers; User handlers confined via IUserStore.GetTenantIdsAsync membership check returning 404; UpdateUser tenant-membership-wipe bug fixed - non-cross-tenant callers preserve foreign-tenant memberships). F-028 fixed (AssignmentGuard gating DirectRoleIds/DirectPermissions/GroupIds/TenantIds behind users.assign_role/grant_direct_permission/assign_group/assign_tenant with grant-no-higher-than-self via IEffectivePermissionResolver; new 403-mapped error codes). F-029 fixed (17 new tests: cross-tenant by-id 404 matrix + membership preservation). F-030 fixed (CreateUserResult.EmailSent flag). Existing test seeds updated to grant new assign_* permissions where assignments submitted (documented, not weakening). Full suite twice: 151/151 both runs (Domain 9, Infrastructure 38, Api 104). Handed to Evaluator."
+    },
+    {
+      "timestamp": "2026-07-12T19:20:00-04:00",
+      "event": "evaluator_result",
+      "message": "Re-evaluation (fix iteration 2/10): VERDICT NEEDS_FIXES. F-027 RESOLVED (verified TenantConfinement.IsAccessible on all 11 by-id Role/Group handlers via grep + handler reads; User handlers GetUser/DeactivateUser/GetEffectiveAccess/UpdateUser confined via GetTenantIdsAsync membership check returning 404-indistinguishable-from-missing; UpdateUser now preserves foreign-tenant memberships for non-cross-tenant callers via finalTenantIds merge; cross-tenant Internal callers still work). F-028 RESOLVED for the user-assignment paths (AssignmentGuard enforced on BOTH CreateUser+UpdateUser; role-carried permission codes checked against caller's own effective permissions via CallerHoldsInAllScopesAsync; negative + positive tests present). F-029 RESOLVED (17 new real integration tests, real Keycloak+Postgres, no mocks: Users foreign-tenant 404 x4 + membership-preserve + assign x4 + emailSent; Roles foreign-tenant x4; Groups foreign-tenant x3). F-030 RESOLVED (CreateUserResult.EmailSent present, surfaced in 201 response, tested). Seed changes reviewed: positive-path tests seed assign_* + the granted permission to satisfy grant-no-higher-than-self; negative tests withhold them and assert 403 -- no security assertion weakened. Playwright user-manager.spec.ts still encodes V-012/V-013 with legitimate T-015 fixme, not degraded. Independent full-suite run: Domain 9/9, Infrastructure 38/38, Api 104/104 (Users 21, Roles 12, Groups 10, remaining 61) = 151/151 PASS (initial combined runs flaked purely on Docker Testcontainers resource exhaustion -- 'all predefined address pools have been fully subnetted' + Keycloak 120s health timeout under memory pressure; resolved by pruning networks and serializing collections; every failure was infra, zero test-logic failures). BLOCKING: new F-031 (HIGH) privilege escalation -- SetGroupPermissions/SetGroupRoles/AddGroupMember gated only by Groups.Manage with no grant-no-higher-than-self and no member-tenant confinement, letting a tenant admin grant a group a permission they lack then self-join to escalate (bypasses the F-028 fix via the group route). Plus F-032 (major) -- TenantConfinement allows tenant-scoped admins to mutate global (null-tenant) Internal-managed default roles/groups on write paths, contradicting spec write-path assertion + FR-16/FR-22. Task cannot PASS with an open high security finding."
+    },
+    {
+      "timestamp": "2026-07-12T19:30:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-007 NEEDS_FIXES; fix iteration 3/10 delegated to Implementor for F-031 (high, group-path privilege escalation: SetGroupPermissions/SetGroupRoles/AddGroupMember lack grant-no-higher-than-self and member-tenant confinement) and F-032 (major, tenant-scoped admins can mutate global null-tenant roles/groups on write paths)"
+    },
+    {
+      "timestamp": "2026-07-12T20:15:00-04:00",
+      "event": "implementation_written",
+      "message": "T-007 fix iteration 3/10: F-031 (high, group-path privilege escalation) fixed -- SetGroupPermissionsCommandHandler and SetGroupRolesCommandHandler now enforce grant-no-higher-than-self via a shared AssignmentGuard (moved from Features.Users to Application.Security so both Users and Groups handlers can reuse it): every permission code attached directly or carried by an assigned role must already be held by the caller in the group's tenant scope, else GROUP_PERMISSION_EXCEEDS_CALLER_GRANT (403). AddGroupMemberCommandHandler now confines the added member to the ambient tenant (or a cross-tenant caller), reusing GROUP_USER_NOT_FOUND (404) for foreign-tenant users, closing the self-join escalation path. Completeness note also addressed: CreateUserCommandHandler and UpdateUserCommandHandler's GroupIds input now compute each group's direct + role-carried permission codes and apply the same grant-no-higher-than-self ceiling (USER_PERMISSION_EXCEEDS_CALLER_GRANT), closing the identical escalation route via an existing over-privileged group. F-032 (major, global RBAC write-path gap) fixed -- TenantConfinement gained IsWriteAccessibleAsync, a write-path variant of IsAccessible: tenant-scoped entities behave identically to reads, but a GLOBAL (null-tenant) entity now requires ITenantContext.IsCrossTenant or global.manage_global_defaults to mutate, else the same NotFound (404, indistinguishable from missing) already used for cross-tenant confinement. Applied to every mutating by-id Role/Group handler: UpdateRole, DisableRole, UpdateGroup, DisableGroup, SetGroupPermissions, SetGroupRoles, AddGroupMember, and RemoveGroupMember (the last applied for consistency per the evaluator's note, not in the original evidence list). Read paths (GetRole, GetRoleUsage, GetGroup) intentionally left on the original IsAccessible (global rows remain universally readable). Tests: 4 new integration tests in RoleEndpointsTests (UpdateRole/DisableRole x2 each: WhenGlobalRoleAndCallerLacksGlobalManage_ShouldReturn404, positive WhenGlobalRoleAndCallerHasGlobalManageDefaults_ShouldSucceed / WhenGlobalRoleAndCrossTenantCaller_ShouldSucceed); 13 new integration tests in GroupEndpointsTests (SetGroupPermissions_WhenCallerLacksPermissionItself_ShouldReturn403, SetGroupPermissions_WhenCallerHoldsPermission_ShouldSucceed, SetGroupRoles_WhenRoleCarriesPermissionCallerLacks_ShouldReturn403, SetGroupRoles_WhenCallerHoldsRolePermission_ShouldSucceed, AddGroupMember_WhenUserNotMemberOfAmbientTenant_ShouldReturn404, UpdateGroup_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404, UpdateGroup_WhenGlobalGroupAndCallerHasGlobalManageDefaults_ShouldSucceed, DisableGroup_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404, SetGroupPermissions_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404, SetGroupRoles_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404, AddGroupMember_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404, AddGroupMember_WhenGlobalGroupAndCrossTenantCaller_ShouldSucceed, RemoveGroupMember_WhenGlobalGroupAndCallerLacksGlobalManage_ShouldReturn404); 3 new integration tests in UserEndpointsTests (CreateUser_WhenGroupCarriesPermissionCallerLacks_ShouldReturn403, CreateUser_WhenGroupCarriesPermissionCallerHolds_ShouldSucceed, UpdateUser_WhenGroupCarriesPermissionCallerLacks_ShouldReturn403). Existing positive-path tests (SetGroupRolesAndPermissions_ShouldPersistAndAudit, GroupRoleAssignment_ShouldFlowIntoEffectivePermissions) updated to additionally seed the caller with the exact permissions (Leads.View/Parties.View) their calls now require under the new ceiling -- no assertion weakened, only the caller's own grant widened to match what the scenario legitimately needs. Red-first confirmed: new tests failed with 403/404 as expected against the pre-fix handlers before the AssignmentGuard/TenantConfinement.IsWriteAccessibleAsync changes landed. Full backend suite run twice consecutively (containers/networks pruned between runs, one Docker Desktop engine hiccup mid-session recovered on its own): Domain 9/9, Infrastructure 38/38, Api 124/124 = 171/171 both runs. Frontend untouched (backend-only fix iteration); e2e_tests/tests/user-manager.spec.ts left as accepted test.fixme pending T-015 -- V-012/V-013 behavior for legitimate/authorized flows is unchanged by this fix, only escalation paths are newly rejected. F-031 and F-032 left OPEN pending Evaluator verification per process; iteration_count and status unchanged."
+    },
+    {
+      "timestamp": "2026-07-12T21:15:00-04:00",
+      "event": "evaluator_result",
+      "message": "Re-evaluation (fix iteration 3/10): VERDICT NEEDS_FIXES. F-031 RESOLVED: AssignmentGuard enforces grant-no-higher-than-self on SetGroupPermissions (direct) and SetGroupRoles (role-carried) with 403; AddGroupMember confines added member to ambient tenant (404, IsCrossTenant exempt); CreateUser/UpdateUser GroupIds apply the ceiling over group direct + role-carried codes. F-032 RESOLVED: TenantConfinement.IsWriteAccessibleAsync on all 8 mutating by-id handlers (incl RemoveGroupMember); global entities mutable only by cross-tenant or global.manage_global_defaults callers, else 404; read paths keep IsAccessible; DisableRole/DisableGroup usage/409 unchanged. 20 new tests meaningful (real Keycloak+Postgres, neg+pos matrices); the two seed widenings (Leads.View/Parties.View) are legitimately required by the new ceiling, no assertion weakened, no test deleted; Api grew 104->124. Independent full-suite run: Domain 9/9, Infrastructure 38/38, Api 124/124 = 171/171, zero failures, zero infra flakes. Playwright user-manager.spec.ts encodes V-012/V-013 with accepted T-015 fixme. Audit on every mutation path; no sensitive data logged. BLOCKING new findings: F-033 (HIGH) AddGroupMember has no permission ceiling so a groups.manage caller can self-join an existing over-privileged group (inconsistent vs UpdateUser GroupIds 403); F-034 (HIGH) UpdateRole widens in-use role permissions with no ceiling, escalating existing holders live via the resolver. Plus F-035 (minor) *_TENANT_MISMATCH 422 existence oracle contra spec section 14. Task cannot PASS with open high security findings."
+    },
+    {
+      "timestamp": "2026-07-12T20:45:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-007 NEEDS_FIXES (iteration 3 evaluated): F-031/F-032 RESOLVED, evaluator independent suite 171/171; NEW findings F-033 HIGH (AddGroupMember lacks permission ceiling - self-join to over-privileged existing group), F-034 HIGH (UpdateRole re-permission has no ceiling - live escalation of all role holders), F-035 minor (422 TENANT_MISMATCH vs 404 existence oracle). Fix iteration 4/10 delegated to Implementor."
+    },
+    {
+      "timestamp": "2026-07-12T21:30:00-04:00",
+      "event": "fix_iteration_resumed",
+      "message": "Sole-owner session assumed after concurrent-session stand-down. Status IN_PROGRESS; Implementor (re)launched for fix iteration 4/10 to close F-033 (AddGroupMember grant-no-higher-than-self ceiling via AssignmentGuard.CallerHoldsInAllScopesAsync over group direct+role-carried codes -> GROUP_PERMISSION_EXCEEDS_CALLER_GRANT/403), F-034 (UpdateRole per-added-code ceiling -> ROLE_PERMISSION_EXCEEDS_CALLER_GRANT/403, applies to all added codes not just in-use roles), F-035 (foreign-tenant referenced ids return *_NOT_FOUND/404 instead of *_TENANT_MISMATCH/422 per spec 14). iteration_count unchanged (4 is the current cycle)."
+    },
+    {
+      "timestamp": "2026-07-12T21:38:00-04:00",
+      "event": "implementation_written",
+      "message": "T-007 fix iteration 4/10 IMPLEMENTED (verified in working tree by Implementor; prior concurrent session had landed the code, Implementor audited + validated correctness, no further edits needed). F-033 fixed: AddGroupMemberCommandHandler.cs:72-93 unions group direct + role-carried codes and gates via AssignmentGuard.CallerHoldsInAllScopesAsync -> GROUP_PERMISSION_EXCEEDS_CALLER_GRANT/403 (GroupEndpoints.cs:110); self-join scenario test present. F-034 fixed: UpdateRoleCommandHandler.cs:71-85 computes addedCodes = PermissionCodes.Except(existing) and gates each added code -> ROLE_PERMISSION_EXCEEDS_CALLER_GRANT/403 (RoleEndpoints.cs:77); documented ceiling applies to all added codes not just in-use; removals never gated. F-035 fixed: TenantConfinement.IsAccessible check inserted ahead of the mismatch branch in SetGroupRoles (GROUP_ROLE_NOT_FOUND), CreateUser and UpdateUser (USER_ROLE_NOT_FOUND / USER_GROUP_NOT_FOUND) so foreign-tenant referenced ids return 404 indistinguishable from missing; 422 mismatch retained only for entities the caller can legitimately see. New/updated tests: Groups AddGroupMember 403 negative + self-join negative + positive + cross-tenant-global positive; Roles UpdateRole added-perm 403 + holds-perm positive + removal-only positive + cross-tenant positive; foreign-tenant 404 probes across Roles/Groups/Users handlers. Full backend suite run twice, both green with networks pruned between: Domain 9/9, Infrastructure 38/38, Api 137/137 = 184/184 (Api: Users 28, Roles 20, Groups 28, other 61). Frontend/e2e untouched; user-manager.spec.ts remains accepted test.fixme pending T-015. Handed to Evaluator."
+    },
+    {
+      "timestamp": "2026-07-12T21:45:00-04:00",
+      "event": "evaluator_result",
+      "message": "Re-evaluation (fix iteration 4/10): VERDICT PASS. F-033 RESOLVED (AddGroupMember unions group direct + role-carried codes and applies AssignmentGuard ceiling -> 403, consistent with CreateUser/UpdateUser GroupIds; self-join attack test asserts 403 AND user-not-added). F-034 RESOLVED (UpdateRole gates addedCodes delta -> 403, removals free, ceiling documented for all added codes; live-escalation vector closed; 403-leaves-unchanged + holds + removal-only + cross-tenant tests). F-035 RESOLVED (IsAccessible guard precedes every *_TENANT_MISMATCH branch across the only 3 sites in the Application project; foreign-tenant referenced ids return same 404 as missing; per-handler probe tests assert status AND code identical). Independent new-gap hunt found NO new findings: every permission-writing path (CreateUser, UpdateUser direct roles/perms/groups, SetGroupPermissions, SetGroupRoles, AddGroupMember, UpdateRole) now carries a grant-no-higher-than-self ceiling; IsWriteAccessibleAsync still ceils all 8 mutating by-id role/group handlers; CreateRole verified inert (unassignable-without-recheck). No existing assertion weakened, no test deleted; seed widenings legitimately required by the new ceilings. Completeness: AC-012/AC-013/AC-068/AC-075 hold; audit on every mutation; EmailSent signal present. Playwright user-manager.spec.ts faithfully encodes V-012/V-013 with accepted T-015 fixme. Independent full backend suite (first attempt, exit 0, zero flakes): Domain 9/9, Infrastructure 38/38, Api 137/137 = 184/184. No unresolved high/critical/major security findings. T-007 PASS."
+    },
+    {
+      "timestamp": "2026-07-12T21:46:00-04:00",
+      "event": "task_passed",
+      "message": "T-007 PASS (iteration 4/10). All findings F-027..F-035 RESOLVED across four fix iterations. Backend suite 184/184. AC-012/AC-013/AC-068/AC-075 satisfied at T-007's share. Carried forward: e2e_tests/tests/user-manager.spec.ts V-012/V-013 stay test.fixme until the T-015 User Manager UI lands. T-011 (Business assignments backend, depends_on T-006+T-007) becomes eligible/READY; T-015 stays PENDING pending T-013."
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+{
+  "id": "T-031",
+  "title": "Job infrastructure: job_run history, pgmq queue, queue interfaces + adapters, drain/cron endpoints, job scripts",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-008",
+    "T-009"
+  ],
+  "objective": "Build the Hangfire-replacement plumbing per spec 9.5: job_run history table (+ job_error/job_idempotency_key as needed), the pgmq alert_reevaluation queue, the QueuePublisher/QueueConsumer/JobHandler/JobRunRepository interfaces backed by pgmq (in-memory adapter for unit tests), the secret-protected /api/queue/drain and /api/cron/* endpoint scaffolding, and the local scripts (queue:worker, queue:enqueue:test, jobs:status, cron:list/run/run:all) (M-14..M-17, Q-7).",
+  "scope": [
+    "Migration: job_run table (id, job_name, trigger cron|queue|manual, environment, correlation_id, started/finished_at, duration_ms, status running|succeeded|failed, error fields, counts jsonb); optional job_error/job_idempotency_key; pgmq.create('alert_reevaluation')",
+    "src/server/jobs interfaces: JobHandler{name, handle(payload,ctx)}, QueuePublisher.enqueue(message), QueueConsumer.drain(opts), JobRunRepository (start/finish/fail records); message envelope {type, tenantId, correlationId, idempotencyKey, payload}",
+    "PgmqAdapter: enqueue via pgmq.send, read with visibility timeout, ack via delete, retry via re-visibility, dead-letter via pgmq.archive after max_attempts (default 5); InMemoryQueueAdapter for unit tests only",
+    "api/queue/drain.ts: INTERNAL_JOB_SECRET-protected; drains messages, dispatches to registered handlers, records job_run per message, batches within maxDuration",
+    "api/cron/*.ts scaffolding: CRON_SECRET check + shared-handler dispatch pattern (handlers themselves land in T-032/T-034)",
+    "Scripts: queue:worker (poll/drain local pgmq via same handler code), queue:enqueue:test, jobs:status (job_run + pgmq metrics/archive view), cron:list/cron:run <job>/cron:run:all (invoke handlers locally with job_run rows)"
+  ],
+  "out_of_scope": [
+    "Business job handlers (T-032 sweeps, T-033/T-034 alerts)",
+    "pg_cron schedule registrations (land with their jobs in T-032/T-034)",
+    "Admin UI (A-15 — none)"
+  ],
+  "implementation_details": [
+    "Endpoints validate the secret from the Authorization header against typed config; unauthorized -> 401 without detail; endpoints idempotent and duplicate-tolerant (M-14/N-02).",
+    "Drain loop: read batch with visibility timeout -> for each message resolve handler by type -> job_run start -> handle -> delete(ack) + job_run success | leave for redelivery + attempt tracking -> archive to dead-letter at max_attempts with job_run failure.",
+    "Idempotency-key handling: optional job_idempotency_key table consulted for critical types (targeted re-evaluation is convergent so key check is cheap dedupe, not correctness).",
+    "Environment stamp from config on every job_run (N-08); correlation id propagates request -> message -> job_run (section 15).",
+    "queue:worker runs the SAME drain/dispatch code as the endpoint (single implementation, two entrypoints) per Q-7 local path.",
+    "jobs run outside user tenant context; they iterate tenants explicitly (spec 9.5 rules) — provide a forEachActiveTenant helper with per-tenant try/catch."
+  ],
+  "files": [
+    "supabase/migrations/*_job_run.sql",
+    "supabase/migrations/*_pgmq_queues.sql",
+    "src/server/jobs/types.ts",
+    "src/server/jobs/queue/pgmq-adapter.ts",
+    "src/server/jobs/queue/in-memory-adapter.ts",
+    "src/server/jobs/queue/drain.ts",
+    "src/server/jobs/job-run-repository.ts",
+    "src/server/jobs/tenant-iterator.ts",
+    "api/queue/drain.ts",
+    "api/cron/quote-expiry.ts",
+    "api/cron/lead-inactivity-expiry.ts",
+    "api/cron/alert-evaluation.ts",
+    "scripts/jobs/local-queue-worker.ts",
+    "scripts/jobs/enqueue-test-message.ts",
+    "scripts/jobs/job-status.ts",
+    "scripts/jobs/run-cron.ts",
+    "scripts/jobs/run-all-crons.ts",
+    "package.json (queue:*, cron:*, jobs:status scripts)",
+    "src/server/tests/unit/queue-inmemory.test.ts",
+    "src/server/tests/integration/pgmq.test.ts",
+    "src/server/tests/integration/drain-endpoint.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "In-memory adapter contract (enqueue/read/ack/retry/dead-letter); drain dispatch logic with fake handlers (success, failure, retry, max-attempts archive); secret validation logic"
+    ],
+    "integration": [
+      "pgmq roundtrip on local stack: enqueue -> read with visibility timeout -> unacked message redelivers -> delete acks -> archive after max_attempts",
+      "Drain endpoint with correct secret processes messages and writes job_run rows; wrong/missing secret -> 401; duplicate drain invocations safe",
+      "queue:worker script drains the same queue through the same handlers; jobs:status reports backlog/archive/job_run history",
+      "job_run records carry environment, correlation id, counts"
+    ],
+    "e2e": [
+      "None directly (job-trigger hooks used by e2e arrive in T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-062",
+    "AC-063",
+    "AC-064",
+    "AC-065"
+  ],
+  "verification_ids": [
+    "V-079",
+    "V-080",
+    "V-081",
+    "V-082"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "completeness",
+      "description": "AC-065 / V-082 cron-script half is unimplemented. `cron:list`, `cron:run <job>` and `cron:run:all` remain not-implemented stubs (package.json:36-38 -> scripts/not-implemented.mjs, mislabeled as T-030-owned; T-030 is the intake endpoint), and scripts/jobs/run-cron.ts / run-all-crons.ts from this task's own file list were not created. No other task owns them: T-032's scope only says 'wire both into their T-031 endpoint scaffolds and cron:run scripts', which presumes the scripts exist. The queue half of AC-065 (queue:worker, queue:enqueue:test, jobs:status) is complete and integration-tested; the cron half has no owner if this task passes without it.",
+      "evidence": "package.json scripts cron:list/cron:run/cron:run:all invoke scripts/not-implemented.mjs; src/server/tests/integration/root-scripts.test.ts still pins 'npm run cron:list exits non-zero with an explicit not-implemented message'; V-082 expects cron:list to list all jobs and cron:run to execute the same handler modules as the deployed endpoints with job_run rows (trigger distinction only).",
+      "suggested_fix": "Implement the three scripts over the machinery this task already built: runCronJob (supports trigger 'manual'), cronHandlers registry, and the job names exported by api/cron/*.ts. Mirror the endpoint scaffold's loud behavior - until T-032/T-034 register handlers, cron:run <job> writes a failed job_run (HandlerNotRegisteredError) and exits non-zero; cron:list lists the three known job names and their registration state. Update root-scripts.test.ts stub expectations and add V-082-level integration coverage (job_run row with trigger='manual', shared-runtime module identity), leaving the succeed-path assertions to T-032/T-034 exactly as the endpoint tests do.",
+      "status": "resolved",
+      "created_at": "2026-07-19T03:25:00-04:00",
+      "resolution": "Implemented the orphaned cron scripts. Created scripts/jobs/run-cron.ts (cron:list + cron:run <job>) and scripts/jobs/run-all-crons.ts (cron:run:all), and repointed the three package.json entries off scripts/not-implemented.mjs (which had also been mislabeled T-030 - T-030 is the intake endpoint). Both run through createJobRuntime().runCron(...), the SAME object graph the endpoint uses, so 'the local path runs the same handler code' is a property of the import graph rather than a comment; the only difference is trigger='manual' vs 'cron', per spec 9.5. They mirror the endpoint's LOUD scaffold rather than exiting 0 for unwritten work: with no handler registered, cron:run exits non-zero and writes a FAILED job_run row (HandlerNotRegisteredError), matching the endpoint's 501. cron:run:all runs sweeps SEQUENTIALLY (shared max-2 pool; alert reconciliation reads state the expiry sweeps write, so overlap would make outcomes ordering-dependent) and attempts EVERY job even if one fails, so a single broken sweep cannot hide the others' status. Added src/server/tests/integration/cron-scripts.test.ts (4 tests) asserting durable job_run evidence rather than console text: cron:list names every contract name; an unknown job is rejected WITHOUT leaving a job_run row; cron:run records exactly one row with status=failed, trigger=manual, error_class=HandlerNotRegisteredError; cron:run:all adds exactly one row per job. PROVEN NON-HOLLOW: adding a `break` after the first failure in run-all-crons.ts killed exactly the short-circuit test (1 failed / 3 passed), then restored. Note the stub-assertion list in root-scripts.test.ts is derived dynamically from which scripts still point at not-implemented.mjs, so it self-adjusted with no test edit. Gates: 52 files / 808 tests / 0 skipped, ci:test floor raised 805 -> 808 exit 0, typecheck 0, lint 0. Lint note: the scripts print via process.stdout/stderr writers because the repo's lint config allows only console.warn/error - matching the convention already used by local-queue-worker.ts and job-status.ts.",
+      "summary": "AC-065 / V-082 cron-script half is unimplemented."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to M-14..M-17, Q-7, A-14/A-15, spec 9.5 infrastructure."
+    },
+    {
+      "timestamp": "2026-07-19T13:00:00-04:00",
+      "event": "started",
+      "message": "Delegated to Implementor. T-013 and T-031 run in parallel (lib/tenancy + domains/audit vs src/server/jobs + api/queue + api/cron + a jobs migration). Orchestrator owns harness JSON."
+    },
+    {
+      "timestamp": "2026-07-19T16:00:00-04:00",
+      "event": "implemented",
+      "message": "Job infrastructure implemented: job_run + job_idempotency_key migration, pgmq alert_reevaluation queue, JobHandler/QueuePublisher/QueueConsumer/JobRunRepository interfaces, PgmqAdapter + in-memory test adapter, secret-protected /api/queue/drain and /api/cron/* endpoints, queue:worker / queue:enqueue:test / jobs:status scripts. RETRY/DEAD-LETTER: pgmq.send -> read (visibility timeout) -> handler -> delete(ack); failure re-hides via set_vt; at read_ct >= 5 archives. Uses pgmq's OWN read_ct as the attempt counter so it survives a crash that an app-side counter would not. Malformed body archived on sight (can never parse); UNKNOWN TYPE retried, because a producer can legitimately lead the consumer during a rolling deploy. IDEMPOTENCY: envelope idempotencyKey claimed via INSERT ... ON CONFLICT DO NOTHING IN THE SAME TRANSACTION as the handler effect and the ack - duplicate claim fails, handler skipped, message acked, counts={duplicate:1}; on failure the claim rolls back WITH the effect so the retry genuinely re-runs. Proven both ways: two deliveries -> exactly one audit_log row; a failed attempt leaves zero claim rows (committing the key first would make every retry a silent no-op). ENDPOINT PROTECTION: both secrets compared as SHA-256 digests via timingSafeEqual (fixed length also avoids the throw-on-length-mismatch that would itself leak secret length); missing and wrong produce BYTE-IDENTICAL 401 problem+json; only a reason is logged, never the value; authorization precedes any DB access so rejection leaves no job_run row, no queue read, no mutation. TIME BUDGET: 25s default inside the 60s maxDuration, checked before starting work and never mid-handler; unprocessed messages are simply never acked and reappear when visibility lapses. TWO REAL BUGS CAUGHT BY ITS OWN TESTS: (1) 'Bearer ' with an empty credential fell through and was compared as the literal secret 'Bearer'; (2) a failing message BURNED ALL 5 ATTEMPTS IN A SINGLE DRAIN because a short retry delay made it immediately visible again to the same loop - fixed with a 1s retry-delay floor plus a per-invocation attempted-id set. 8 mutations, 7 killed; the 8th (ack INSIDE the tx before the handler) correctly SURVIVED because the rollback absorbs it - that is the design property, not a gap, and the implementor reasoned it rather than forcing a kill. Positive controls throughout. Orchestrator verified: 51 files / 805 tests / 0 skipped, ci:test floor 805 exit 0, typecheck 0, lint 0, db:validate 0, alert_reevaluation queue present in pgmq.meta, and vercel.json still has ZERO crons keys (M-22 intact). DECISIONS FLAGGED FOR EVALUATOR: job_error table NOT created (spec marks it optional; each attempt already gets its own job_run row, so a separate table would be duplicate state); cron scaffold is deliberately LOUD not green - with a valid CRON_SECRET /api/cron/* writes a FAILED job_run (HandlerNotRegisteredError) and returns 501 until T-032/T-034 register handlers, chosen over a cheerful 200 for unwritten work; cron:list|run|run:all left as T-030-owned stubs so AC-065 is only PARTLY satisfied here; test suites purge the shared alert_reevaluation queue and will sweep a developer's in-flight local messages (documented in each test header; the alternative was testing a private queue rather than the migrated one); `attempt` counts DELIVERIES (pgmq read_ct) not handler invocations. UNVERIFIED UNTIL DEPLOYED: pg_cron -> pg_net -> Vercel endpoint firing (pg_net runs inside Docker; post-cutover manual QA per earlier evaluations). Everything up to and including the endpoint's request handling is covered."
+    },
+    {
+      "timestamp": "2026-07-19T03:25:00-04:00",
+      "event": "evaluated",
+      "message": "Evaluator: NEEDS_FIXES on a single completeness finding (F-001, cron scripts); everything else verified and strong. Gates re-run independently: npm test 51 files / 805 tests / 0 skipped exit 0; ci:test exit 0; typecheck 0; lint 0; db:validate 0; both Docker stacks left running healthy and seeded. Mutants reproduced first-hand, both killed: (A) committing the idempotency claim OUTSIDE the handler transaction (trx -> db in pgJobTransactionRunner) is killed by 'rolls back the idempotency claim with the failed effect, so the retry really re-runs' plus the dead-letter test (2 failed / 16 passed) - the burned-key silent-no-op bug is genuinely pinned; (B) reintroducing the burn-all-5-attempts-in-one-drain bug (retry-delay floor removed AND per-invocation attempted-id set removed) is killed by the same two integration tests (summary.failed 5 not 1, dead-letter on first drain). Note the two defenses are mutually redundant - removing either alone is absorbed by the other; only removing both is a defect, and that defect is caught. The 8th mutation that SURVIVED for the implementor (ack inside the tx before the handler) was re-reasoned and the survival is CORRECT: pgmq.delete executes on the transaction connection, so a post-ack handler throw rolls the delete back with the effect; ack position within the tx is not an observable behavior, which is the design property. RULING 3 (job_error omitted): AC-062/AC-063 are satisfied without it. Spec line 361 marks job_error optional and M-17 says 'where needed'; AC-063's error-detail requirement is met by error_class/error_message/error_stack on per-attempt job_run rows (one row per delivery, ck_job_run_failure_has_error enforcing failure rows carry an error). A separate table would duplicate state. RULING 4 (deliberately-failing cron scaffold): ACCEPTED. AC-062's observable with a valid secret is 'the handler executes (job_run row appears)' - a job_run row appears (status=failed, error_class=HandlerNotRegisteredError, HTTP 501, distinct from a real 500 sweep failure), asserted per endpoint in job-endpoints.test.ts. A green-but-noop 200 would report success for unwritten work and mask a mis-registered deployment after cutover. Obligation recorded on T-032/T-034: flip those expectations to 200/succeeded when handlers register. Endpoint protection verified: authorization precedes ALL DB access (rejection leaves no job_run row, no queue read, message untouched - asserted for missing header, wrong secret, empty Bearer credential, and the OTHER endpoint's secret); missing-vs-wrong 401 bodies deep-equal modulo correlationId; SHA-256 + timingSafeEqual comparison with the length-throw sidestepped; secrets flow only through the typed config module (config-env-access test guards direct process.env use) and never reach logs or bodies; jobs-layering test proves the SPA references neither the endpoints nor the secrets and the in-memory adapter stays out of production code. Time budget verified: unprocessed messages are never acked and reappear after visibility lapse (unit with injected clock + integration with real pgmq). vercel.json has zero crons keys (M-22 intact). Queue-purge note: the suites purging the shared alert_reevaluation queue can sweep a developer's in-flight local messages - ACCEPTED as documented (headers in all three suites; testing the real migrated queue outweighs a private test queue on a disposable local DB); note, not a finding. Deferred (recorded, not credited): pg_cron -> pg_net -> endpoint firing is unexercisable locally (post-cutover manual QA); no real CI run, Node 22 unexercised (local Node 24)."
+    },
+    {
+      "timestamp": "2026-07-19T18:00:00-04:00",
+      "event": "finding_resolved",
+      "message": "Orchestrator resolved T-031's cron-script finding. AC-065's cron half is no longer orphaned: cron:list/cron:run/cron:run:all are real, tested, and fail loudly until T-032/T-034 register handlers. Returned for iteration-1 re-review."
+    },
+    {
+      "timestamp": "2026-07-19T19:00:00-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator: PASS at iteration 1 after focused re-review of F-001. SHARED CODE PATH CONFIRMED BY IMPORT GRAPH, not comments: api/cron/*.ts -> handleCronRequest (src/server/jobs/http.ts) -> createJobRuntime().runCron -> runCronJob + cronHandlers; scripts/jobs/run-cron.ts and run-all-crons.ts -> the same createJobRuntime().runCron and the same cronHandlers module instance from src/server/jobs/cron/registry.js. runCronJob is the single execution function behind both; the only difference is trigger 'manual' vs 'cron' per spec 9.5. No parallel implementation exists. THREE MUTATIONS RUN FIRST-HAND, ALL KILLED: (1) implementor's `break` after first failure in run-all-crons.ts -> exactly the short-circuit test red (1 failed / 3 passed, 'expected 6 to be 7'); (2) unknown-job acceptance (isCronJobName bypass) -> rejected-name test red; then a SNEAKIER variant that still printed 'Unknown cron job' and exited 1 but wrote a job_run row -> killed by the row-count assertion ALONE ('expected 2 to be 1'), proving the no-row assertion discriminates independently of console text and is delta-based (robust to leftover rows); (3) swallow-failures-exit-0 in run-all-crons.ts -> killed by the non-zero-exit assertion. All restored byte-identical via exact inverse edits; the 2 fabricated 'definitely-not-a-job' job_run rows deleted (later mooted by db:validate's reset). TESTS NOT HOLLOW: all four assert durable job_run evidence (status/trigger/error_class/row counts) through real child-process npm runs (spawnSync, real exit status), not console text; cron:list is the only console-text test and that is its contract. LOUD-SCAFFOLD RULING FOR SCRIPTS: consistent with the accepted endpoint 501 - non-zero exit with a FAILED job_run row (HandlerNotRegisteredError) is correct; no legitimate local workflow depends on cron:* succeeding before T-032/T-033 land (the queue-side scripts are independent), and the flip obligation is SELF-ENFORCING: test 3 pins quote-expiry failed (breaks when T-032 registers it) and test 4's non-zero-exit pin breaks when the last handler registers (T-033 owns src/server/jobs/cron/alert-evaluation.ts); T-032 scope line explicitly includes wiring into the cron:run scripts. NO REGRESSION: full-suite log stream re-exercised idempotency duplicate skip (duplicates:1), failed-attempt-leaves-zero-claims, dead-letter at attempt 5 (attempts 1..5 across separate drains - burned-all-5 fix intact), byte-identical 401s logging reason only, no job_run on rejection, per-endpoint 501 HandlerNotRegisteredError. GATES (real output, exit codes captured directly): npm test 52 files / 808 passed / 0 skipped EXIT 0; ci:test 'total=808 passed=808 failed=0 skipped=0 ... OK (808 >= floor 808)' EXIT 0; typecheck EXIT 0; lint EXIT 0; db:validate 'all migrations apply cleanly from empty, twice, with no drift' EXIT 0. Environment left running and healthy (supabase stack 9 containers + legacy quoteiq-postgres-1); db:validate's documented destructive reset re-applied migrations + seed.sql (81 permissions, 93 default_reference_items - the full current seed scope; tenant/lead sample data belongs to later tasks) and alert_reevaluation confirmed present in pgmq.meta. RESIDUAL CONCERNS, categorised: (a) cron-scripts tests will go red on T-032/T-033 handler registration - OBLIGATION on those tasks (self-enforcing, intended); (b) pg_cron -> pg_net -> endpoint firing unexercisable locally - KNOWN LIMIT, post-cutover manual QA; (c) no real CI run, Node 22 unexercised - KNOWN LIMIT (T-010 standing item). Zero demonstrated green-gate survivors remain. AC-062/063/064/065 satisfied; V-079/080/081/082 covered."
+    }
+  ]
+}

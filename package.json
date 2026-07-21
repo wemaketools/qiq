@@ -1,6 +1,68 @@
 {
-  "dependencies": {},
+  "name": "quoteiq",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "src/ui",
+    "e2e_tests"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev/dev.mjs",
+    "dev:api": "tsx --env-file-if-exists=.env.local scripts/dev/serve-api.ts",
+    "dev:vercel": "vercel dev",
+    "supabase:start": "node scripts/db/ensure-signing-keys.mjs && supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:reset": "node scripts/db/ensure-signing-keys.mjs && supabase db reset",
+    "db:migrate": "supabase migration up --local",
+    "db:validate": "node scripts/db/ensure-signing-keys.mjs && tsx scripts/db/validate-migrations.ts",
+    "db:seed": "tsx --env-file-if-exists=.env.local scripts/db/seed.ts --baseline",
+    "db:seed:demo": "tsx --env-file-if-exists=.env.local scripts/db/seed-demo.ts",
+    "db:types": "tsx scripts/db/generate-types.ts",
+    "db:types:check": "tsx scripts/db/generate-types.ts --check",
+    "typecheck": "tsc -p tsconfig.server.json",
+    "typecheck:ui": "npm run typecheck -w src/ui",
+    "lint": "eslint .",
+    "lint:path": "eslint --no-ignore",
+    "lint:ui": "npm run lint -w src/ui",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "build:ui": "npm run build -w src/ui",
+    "ci:security": "tsx scripts/ci/scan-secrets.ts && tsx scripts/ci/scan-bundle.ts",
+    "ci:test": "npm run ci:security && tsx scripts/ci/assert-test-run.ts --label backend --cwd . --min-tests 3731",
+    "ci:test:ui": "tsx scripts/ci/assert-test-run.ts --label ui --cwd src/ui --min-tests 565",
+    "test:e2e": "npm test -w e2e_tests",
+    "test:e2e:smoke": "npm test -w e2e_tests -- --project=smoke",
+    "cron:list": "tsx --env-file-if-exists=.env.local scripts/jobs/run-cron.ts --list",
+    "cron:run": "tsx --env-file-if-exists=.env.local scripts/jobs/run-cron.ts",
+    "cron:run:all": "tsx --env-file-if-exists=.env.local scripts/jobs/run-all-crons.ts",
+    "queue:worker": "tsx --env-file-if-exists=.env.local scripts/jobs/local-queue-worker.ts",
+    "queue:enqueue:test": "tsx --env-file-if-exists=.env.local scripts/jobs/enqueue-test-message.ts",
+    "jobs:status": "tsx --env-file-if-exists=.env.local scripts/jobs/job-status.ts"
+  },
   "devDependencies": {
-    "playwright": "^1.60.0"
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.13.2",
+    "@types/pg": "^8.20.0",
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "jsdom": "^25.0.1",
+    "supabase": "2.109.1",
+    "tsx": "^4.20.6",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.7",
+    "exceljs": "^4.4.0",
+    "hono": "^4.12.31",
+    "kysely": "^0.29.4",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
   }
 }

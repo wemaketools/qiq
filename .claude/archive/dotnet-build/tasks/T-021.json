@@ -1,0 +1,132 @@
+{
+  "id": "T-021",
+  "title": "Quote attachments: S3 storage adapter and endpoints",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-020", "T-002"],
+  "objective": "Quotes support multiple validated file attachments stored in S3-compatible object storage behind a configurable adapter, streamed through the API with authorization and audit (spec FR-48, A-4, §16).",
+  "scope": [
+    "IObjectStorage + S3ObjectStorage (any S3-compatible endpoint; MinIO locally)",
+    "quote_attachments table",
+    "Upload/download/delete endpoints with type, magic-number, and per-tenant size validation",
+    "Closed-quote editing rules for attachments"
+  ],
+  "out_of_scope": ["Attachment UI (T-029)"],
+  "implementation_details": [
+    "Application/Abstractions/IObjectStorage.cs: PutAsync(key, stream, contentType), OpenReadAsync(key), DeleteAsync(key); Infrastructure/Storage/S3ObjectStorage.cs using AWSSDK.S3 (Apache-2.0) with ServiceURL + ForcePathStyle from config, credentials from Vault; bucket from config (quoteiq-attachments)",
+    "Liquibase 120-attachments: quote_attachments per spec §11.3 (storage_key text, removed_by/at soft delete)",
+    "Features/Quotes/Attachments: UploadAttachmentCommand: allow-list content types image/png, image/jpeg, application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document; FileSignatureValidator checks magic numbers match declared type (PNG/JPG/PDF signatures; DOCX=ZIP PK header, DOC=OLE header); size <= tenant max_attachment_mb; storage key pattern t{tenantId}/quotes/{quoteId}/{attachmentId}_{sanitizedFileName}; DownloadAttachmentQuery streams with Content-Disposition attachment and stored content type; RemoveAttachmentCommand soft-deletes row and deletes object; add/remove audited",
+    "Closed-quote rule: upload/remove on closed quotes requires Quotes.CorrectClosed (FR-48/FR-49)",
+    "Endpoints: POST /api/v1/quotes/{id}/attachments (multipart), GET /api/v1/attachments/{id}, DELETE /api/v1/attachments/{id}",
+    "compose MinIO init already creates bucket (T-001); integration tests use Testcontainers MinIO"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Abstractions/IObjectStorage.cs",
+    "src/api/QuoteIQ.Infrastructure/Storage/S3ObjectStorage.cs",
+    "src/api/QuoteIQ.Application/Features/Quotes/Attachments/**/*.cs",
+    "src/api/QuoteIQ.Application/Features/Quotes/Attachments/FileSignatureValidator.cs",
+    "src/api/db/changelog/120-attachments/*.xml",
+    "src/api/QuoteIQ.Api/Endpoints/AttachmentEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Attachments/AttachmentEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "FileSignatureValidator_WhenExtensionMismatchesMagicNumber_ShouldReject (pure byte-array cases per type)"
+    ],
+    "integration": [
+      "UploadDownloadRoundTrip_AgainstMinio_ShouldPreserveContentAndHeaders",
+      "Upload_WhenDisallowedType_ShouldReturn422",
+      "Upload_WhenOverTenantCap_ShouldReturn422; RaisingTenantCap_ShouldAllow",
+      "Upload_OnClosedQuote_WithoutCorrectionPermission_ShouldReturn403",
+      "Remove_ShouldSoftDeleteRowDeleteObjectAndAudit",
+      "Download_FromOtherTenant_ShouldReturn404"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-047", "AC-077"],
+  "verification_ids": ["V-047", "V-077"],
+  "findings": [
+    {
+      "id": "F-061",
+      "source": "security",
+      "severity": "minor",
+      "category": "security",
+      "description": "Upload endpoint lacks a request-body-size limit below the framework default (~30MB Kestrel/multipart). The per-tenant cap IS enforced (UploadAttachmentCommandHandler checks IFormFile.Length against MaxAttachmentMb before the S3 PUT, so no oversize object persists), but a file over the tenant cap yet under the framework default is fully buffered (spooled to disk) before the handler rejects it. Minor because the endpoint is authenticated + Quotes.Update-gated (not anonymous), the ceiling is bounded, and large bodies spool to disk not memory.",
+      "evidence": "UploadAttachmentCommandHandler.cs:102; no MaxRequestBodySize/MultipartBodyLengthLimit anywhere; AttachmentEndpoints.cs:31.",
+      "recommendation": "Add an endpoint-level request-size limit aligned to a maximum sane tenant cap (e.g. RequestSizeLimit / MultipartBodyLengthLimit) so oversize uploads are rejected pre-buffering.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T18:40:00-04:00",
+      "resolution": "Verified fix iteration 2 (evaluator audit). New RequestBodySizeLimitFilter (IEndpointFilter setting IHttpMaxRequestBodySizeFeature.MaxRequestBodySize before the handler/IFormFile binding) applied via .WithRequestBodySizeLimit(25MB) on the upload endpoint; 25MB = 20MB MaxSupportedTenantCapMb x 1.25 headroom, narrower than Kestrel's ~28.6MB default so grossly-oversize rejects pre-buffering; per-tenant handler cap UNCHANGED. Untested-framework-ceiling ACCEPTED: WebApplicationFactory/TestServer has no Kestrel/IIS transport so IHttpMaxRequestBodySizeFeature isn't enforced there - a ceiling test would be meaningless; the handler over-cap 422 test covers the functional path. Residual (MaxAttachmentMb unbounded) tracked as info F-066."
+    },
+    {
+      "id": "F-062",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "DOCX shares the 50 4B 03 04 PK ZIP header, so a .zip/.xlsx/.pptx declared as DOCX passes the four-byte signature check. Documented in the validator XML doc. Does not weaken AC-047 (allow-list still blocks dangerous declared types; residual confusion only among non-executable OOXML/ZIP formats; served as forced-content-type attachment).",
+      "evidence": "FileSignatureValidator.cs:13-20,36.",
+      "recommendation": "Optional follow-up: unzip + inspect [Content_Types].xml for true DOCX validation. ACCEPTED as-is; not required.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T18:40:00-04:00"
+    },
+    {
+      "id": "F-063",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "AC-077 / spec section 16 wording is 'extension + magic-number check'; the handler validates the declared Content-Type + magic number but NOT the filename extension itself. Security intent is met (bytes proven to be an allow-listed type, forced content-type attachment, no execution/XSS vector), so this is a literal AC-wording gap.",
+      "evidence": "UploadAttachmentCommandHandler.cs:95-112 (content-type + magic number, no extension check).",
+      "recommendation": "Add a filename-extension check consistent with the allow-listed content type (belt-and-suspenders) to satisfy the AC-077 literal 'extension + magic-number' wording, keeping the content-type+magic-number validation.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T18:40:00-04:00",
+      "resolution": "Verified fix iteration 2 (evaluator audit). FileSignatureValidator.AllowedExtensionsByContentType + IsExtensionAllowed; UploadAttachmentCommandHandler:107-111 extracts Path.GetExtension from the pre-sanitization filename -> 422 ATTACHMENT_EXTENSION_MISMATCH on mismatch. THREE-WAY agreement enforced without weakening: content-type allow-list (:97-100 unchanged) + extension (:108 new/additive) + magic-number bytes (:120-125 unchanged) must all pass. Tests: theory (6 accept, 5 mismatch reject, 1 not-allow-listed reject) + integration Upload_WhenExtensionMismatchesDeclaredContentType_ShouldReturn422 (valid PNG bytes + image/png + named logo.jpg -> 422, isolates the extension leg). Satisfies AC-077 literal wording."
+    },
+    {
+      "id": "F-064",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "No dedicated unit test for AttachmentStorageKey.Sanitize, a path-traversal / S3-key-injection security boundary. The sanitizer is correct on inspection but unlocked by tests.",
+      "evidence": "FileSignatureValidatorTests.cs covers only the signature validator; no Sanitize tests.",
+      "recommendation": "Add adversarial-filename unit cases (../../etc/passwd, ..\\evil, control chars, empty-after-strip, leading dot) asserting the sanitized key has no path separators/traversal.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T18:40:00-04:00",
+      "resolution": "Verified fix iteration 2. AttachmentStorageKeySanitizeTests 6 adversarial cases (unix traversal->passwd, windows ..\\..\\evil.png->evil.png, control chars->bad__name.pdf, empty-after-strip->attachment, leading-dot .htaccess->htaccess, normal logo.png) each asserting no /, no \\, no .., + exact expected output. InternalsVisibleTo QuoteIQ.Application.Tests added (AttachmentStorageKey is internal) - test-enablement only, no production surface."
+    },
+    {
+      "id": "F-065",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "The upload audit row (quote_attachment.uploaded) is written but never asserted by a test (only the remove audit is).",
+      "evidence": "UploadAttachmentCommandHandler.cs:148 (audit write); no test asserts it.",
+      "recommendation": "Assert the quote_attachment.uploaded audit row in the round-trip test.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T18:40:00-04:00",
+      "resolution": "Verified fix iteration 2. UploadDownloadRoundTrip now asserts exactly one quote_attachment.uploaded audit row (EntityType==quote_attachment, EntityId==uploaded.Id, Action==quote_attachment.uploaded) via Assert.Single, mirroring the remove-audit assertion."
+    },
+    {
+      "id": "F-066",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "TenantSettings.MaxAttachmentMb has no enforced upper bound in UpdateBusinessRulesValidator (only >0), so it can drift above the 20MB (25MB request) framework ceiling and silently break legitimate over-20MB uploads with a confusing framework-level rejection instead of the clean ATTACHMENT_OVER_SIZE_CAP 422. The residual is documented in code and lies outside the documented supported range (A-4 default 10MB, supported to 20MB).",
+      "evidence": "UpdateBusinessRulesValidator (MaxAttachmentMb only >0); RequestBodySizeLimitFilter 25MB ceiling.",
+      "recommendation": "Add a MaxAttachmentMb <= MaxSupportedTenantCapMb upper-bound validation so the tenant cap and framework ceiling cannot diverge into a broken state. Informational; belongs to the business-rules validator (T-010/T-016 territory). Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T19:20:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-48, A-4, §16)" },
+    { "timestamp": "2026-07-13T17:20:00-04:00", "event": "task_started", "message": "T-021 IN_PROGRESS; delegated to Implementor (iteration 1/10). Deps T-020 (quotes) + T-002 (Vault) PASS. Backend task, test-first (integration real Postgres + MinIO Testcontainers, no mocks, AAA): IObjectStorage + S3ObjectStorage (AWSSDK.S3, ServiceURL+ForcePathStyle, creds from Vault, bucket quoteiq-attachments); Liquibase 120-attachments quote_attachments (storage_key, soft delete); UploadAttachment (allow-list content types + FileSignatureValidator magic-number check + per-tenant max_attachment_mb cap, storage key t{tenantId}/quotes/{quoteId}/{attachmentId}_{sanitized}); Download streams with Content-Disposition; Remove soft-deletes + deletes object; closed-quote upload/remove needs Quotes.CorrectClosed; all audited; foreign-tenant download 404. AC-047/077." },
+    { "timestamp": "2026-07-13T18:30:00-04:00", "event": "implementation_written", "message": "T-021 IMPLEMENTED (iteration 1/10), test-first. QuoteAttachment domain + Liquibase 120-quote-attachments (registered in create_tenant_partitions + master, applied live + idempotent 39/39 then 0). IObjectStorage + S3ObjectStorage (AWSSDK.S3 3.7.417.7 Apache-2.0; S3Options ServiceUrl/ForcePathStyle/Bucket from per-env config, AccessKey/SecretKey from Vault via T-002 mapping, never hardcoded). Features/Quotes/Attachments: FileSignatureValidator (PURE - PNG 89504E47, JPEG FFD8FF, PDF %PDF, DOC D0CF11E0, DOCX/ZIP PK 504B0304), AttachmentStorageKey.Sanitize (strips path separators + non-alnum, key t{tenantId}/quotes/{quoteId}/{attachmentId}_{sanitized}), Upload/Download/Remove. PERMISSIONS: reused Quotes.Update (upload/remove) + Quotes.View (download); NO new catalog code (no mirror/drift change); closed-quote adds Quotes.CorrectClosed checked in handlers. Download streams via Results.Stream w/ Content-Disposition attachment + stored content type, tenant-confined FindAsync (foreign -> 404). Remove soft-deletes (removed_by/at) + deletes S3 object + audit. TWO REAL FRAMEWORK BUGS FOUND+FIXED: (a) ASP.NET auto-flags IFormFile minimal-API endpoints with antiforgery -> every upload 500'd; added .DisableAntiforgery() (bearer-JWT-only API, no cookie/session/antiforgery middleware); (b) removed DisablePayloadSigning=true from the S3 PUT (requires HTTPS, fails vs local HTTP MinIO). Tests: Application FileSignatureValidatorTests 10 pure; Api AttachmentEndpointsTests 7 integration (real Postgres+Keycloak+MinIO Testcontainers): UploadDownloadRoundTrip preserves bytes+headers, disallowed-type 422, over-cap 422 + raise-cap-allows, closed-quote-without-CorrectClosed 403, remove soft-deletes+deletes-object+audit, foreign-tenant download 404, magic-number-mismatch 422. Playwright quote-workflow.spec.ts V-047 fixme updated (backend proven, only T-029 UI blocks). FLAGGED FOR EVALUATOR: (1) DOCX magic-number caveat - shares generic ZIP PK header, cannot distinguish DOCX from .zip/.xlsx without unzipping [Content_Types].xml (out of scope) - assess if AC-047 needs stricter; (2) SIZE CAP enforced from IFormFile.Length (the buffered length) checked BEFORE the S3 PUT, but NO bespoke lower Kestrel/multipart body limit was added beyond ASP.NET defaults (~128MB) - a file over the tenant cap but under the framework default is still buffered before rejection [assess memory/DoS surface: should a per-request/tenant streaming ceiling reject earlier?]; (3) Application.Tests was previously empty (0 tests, not in 543 baseline) - FileSignatureValidator tests placed there per the task file's own file listing, so new total is 560 not 543+17; (4) attachment listing on QuoteDto/GetQuote (AC-046) left to T-029 per out_of_scope (AC-046 not in T-021 acceptance_ids). Full suite twice: Domain 259/259, Application 10/10, Infrastructure 45/45, Api 246/246 = 560/560, build 0/0, no flakes. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T18:40:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS (evaluator recommended PASS; no critical/high/major). AC-047 + AC-077 met with genuine covering tests. Independent suite: Domain 259/259, Application 10/10, Infrastructure 45/45, Api 246/246 = 560/560; attachment subset re-run 7/7 no flake. SECURITY RULINGS: size-cap/DoS ACCEPTABLE-minor (cap enforced from IFormFile.Length pre-PUT, no oversize object persists; only gap is no sub-default request-body ceiling so over-cap-under-~30MB buffers-to-disk before reject; authenticated+Quotes.Update-gated) -> F-061. DOCX/ZIP caveat ACCEPTABLE-info -> F-062. Tenant-isolation/IDOR HOLDS (FindAsync tenant+id scoped, S3 key from stored row not client, foreign download 404 tested). Filename sanitization HOLDS (strips separators/non-alnum/leading-dot, length cap). Secrets Vault-sourced CLEAN (appsettings only non-secret ServiceUrl/ForcePathStyle/Bucket + Vault SecretMappings; no bytes/creds logged). Both framework fixes SAFE (DisableAntiforgery correct for bearer-JWT-only API; payload-signing left ON works HTTP MinIO + HTTPS S3). Closed-quote CorrectClosed + audit + real object delete on remove all HOLD/tested. AC-046 listing deferral to T-029 legitimate (task_ids=[T-029], not a T-021 AC). Non-blocking findings F-061 (size-cap ceiling), F-063 (AC-077 literal 'extension' not checked - only content-type+magic-number), F-064 (no Sanitize adversarial test), F-065 (upload audit not asserted). ORCHESTRATOR DECISION: route back (security-sensitive upload surface + F-063 literal AC gap + all fixes cheap/clustered) rather than defer." },
+    { "timestamp": "2026-07-13T18:45:00-04:00", "event": "fix_iteration_started", "message": "T-021 NEEDS_FIXES; fix iteration 2/10 delegated. F-061: add an endpoint request-body-size limit (RequestSizeLimit/MultipartBodyLengthLimit) aligned to a sane maximum tenant cap so oversize uploads reject pre-buffering. F-063: add a filename-extension check consistent with the allow-listed content type (satisfy AC-077 literal 'extension + magic-number', keep content-type+magic-number). F-064: add adversarial AttachmentStorageKey.Sanitize unit tests (../../, ..\\, control chars, empty-after-strip, leading dot). F-065: assert the quote_attachment.uploaded audit row in the round-trip test. F-062 (DOCX/ZIP caveat) ACCEPTED as documented, no change. iteration_count -> 2." },
+    { "timestamp": "2026-07-13T19:30:00-04:00", "event": "evaluator_result", "message": "Re-evaluation (fix iteration 2/10): VERDICT PASS. F-061/F-063/F-064/F-065 all RESOLVED, F-062 accepted, no regression, no open high/critical/major. Independent suite (clean first run, no flakes): Domain 259/259, Application 28/28, Infrastructure 45/45, Api 247/247 = 579/579. F-063: three-way agreement (content-type allow-list + extension + magic-number) all required, prior checks unchanged - belt-and-suspenders not replacement; extension-mismatch integration test isolates the extension leg. F-061: 25MB filter ceiling sound, handler per-tenant cap unchanged; untested-framework-ceiling ACCEPTED (TestServer has no Kestrel transport so IHttpMaxRequestBodySizeFeature isn't enforced there - a test would be meaningless; handler over-cap test covers functional path). F-064: 6 genuine adversarial Sanitize tests; InternalsVisibleTo test-enablement only. F-065: upload audit row asserted via Assert.Single. Regression clean (tenant-isolation/IDOR, magic-number, closed-quote CorrectClosed, streaming, Vault, framework fixes untouched; additive only Application 10->28, Api 246->247). New info F-066 (MaxAttachmentMb unbounded could drift above the framework ceiling - T-010/T-016 validator follow-up). Recommend PASS." },
+    { "timestamp": "2026-07-13T19:32:00-04:00", "event": "task_passed", "message": "T-021 PASS (iteration 2/10). Backend suite 579/579 (Domain 259, Application 28, Infrastructure 45, Api 247). AC-047/AC-077 satisfied; V-047 Playwright carried as test.fixme until T-029 Quotes UI. Quote attachments: S3/MinIO adapter (Vault creds), three-way file validation (extension+content-type+magic-number), per-tenant cap + 25MB framework ceiling, tenant-confined streaming, soft-delete+object-delete, closed-quote CorrectClosed, all audited. Findings F-061/F-063/F-064/F-065 RESOLVED; F-062 (DOCX/ZIP caveat) + F-066 (MaxAttachmentMb upper bound, T-010/T-016) accepted OPEN/info. T-021 was a dependency only of T-029 (still blocked on T-028); no new task unblocks. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+} "message": "T-021 fix iteration 2/10 COMPLETE. F-063 closed: FileSignatureValidator gained AllowedExtensionsByContentType (png->.png, jpeg->.jpg/.jpeg, pdf->.pdf, msword->.doc, docx->.docx) + IsExtensionAllowed; UploadAttachmentCommandHandler extracts Path.GetExtension from the PRE-sanitization filename and rejects 422 ATTACHMENT_EXTENSION_MISMATCH if the extension doesn't match the declared content type - all three (extension, declared content-type, magic-number bytes) must now agree; content-type + magic-number checks unchanged. Tests: IsExtensionAllowed theory (accept/reject) + not-allow-listed reject + integration Upload_WhenExtensionMismatchesDeclaredContentType_ShouldReturn422 (valid PNG bytes declared image/png named logo.jpg). F-061 closed: new RequestBodySizeLimitFilter (IEndpointFilter setting IHttpMaxRequestBodySizeFeature.MaxRequestBodySize before IFormFile binding, mirrors RequirePermissionFilter); .WithRequestBodySizeLimit(25MB) on the upload endpoint - 25MB = 20MB largest-supported tenant cap (2x the A-4 documented 10MB default; MaxAttachmentMb has no enforced upper bound - flagged product decision) x 1.25 multipart headroom, narrower than Kestrel's ~28.6MB default so grossly-oversize rejected earlier; per-tenant handler cap UNCHANGED. NOTE [evaluator]: did NOT add a test asserting the framework ceiling rejects an oversize request - WebApplicationFactory TestServer doesn't enforce IHttpMaxRequestBodySizeFeature (Kestrel/IIS behavior), so it's untestable there; handler tenant-cap test still covers functional over-cap 422; documented in endpoint XML doc. F-064 closed: AttachmentStorageKeySanitizeTests 6 adversarial cases (unix/windows traversal, control chars, empty-after-strip, leading dot, normal) asserting no separators/traversal; added InternalsVisibleTo QuoteIQ.Application.Tests (AttachmentStorageKey is internal - test-enablement only). F-065 closed: UploadDownloadRoundTrip now asserts exactly one quote_attachment.uploaded audit row (EntityType/EntityId/Action). F-062 untouched (accepted). Production code touched only: handler extension check + endpoint filter + wiring + InternalsVisibleTo. Full suite twice: Domain 259/259, Application 28/28, Infrastructure 45/45, Api 247/247 = 579/579, no flakes. Handed to Evaluator." }
+  ]
+}

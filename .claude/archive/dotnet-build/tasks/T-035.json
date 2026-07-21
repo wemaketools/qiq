@@ -1,0 +1,228 @@
+{
+  "id": "T-035",
+  "title": "RM Performance dashboard (API + UI)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-031"
+  ],
+  "objective": "RM Performance dashboard per spec FR-58 / PRD 15.2: six KPIs, RM and broker rankings, shared matrix, turnaround-vs-SLA bars, Performance Watchlist with suggested actions, Leadership Insights panel; filter bar uses RM/Team and Broker Type variants.",
+  "scope": [
+    "GET /api/v1/dashboards/rm-performance",
+    "Route /rm-performance page with FilterBar variant (RM/Team, Broker Type)",
+    "Suggested-action classification and insight generation isolated as named rule classes"
+  ],
+  "out_of_scope": [
+    "Broker dashboard (T-034)"
+  ],
+  "implementation_details": [
+    "Features/Dashboards/RmPerformance/GetRmPerformanceQuery: KPIs — ActiveRms, ActiveBrokers, WonPremiumYtd, RmConversionRate, BrokerConversionRate, FollowUpCompliance (MetricDefinitions); TopRms ranking by won premium + conversion%; TopBrokers ranking; BrokerMatrix (same component/classifier as T-034); TurnaroundByRm: horizontal bars per RM (team grouping deferred — no team entity in MVP; RM-level with metric dropdown Avg Turnaround) with dashed SLA target marker from tenant sla_received_to_sent_days; PerformanceWatchlist rows {name (RM or broker), quotes, wonPremium, conversion, avgTurnaround, overdueFollowUps, suggestedAction}; LeadershipInsights: generated one-liners",
+    "Domain/Dashboards/SuggestedActionRule.cs (isolated, modifiable): maps performance profile to PRD 15.4 labels (maintain momentum, recognize and retain, deepen engagement, provide more leads, coach and support, escalate and intervene, review relationship) using conversion/volume/turnaround/overdue thresholds relative to tenant medians; Domain/Dashboards/LeadershipInsightRules.cs producing: top performing broker, underperforming RM, turnaround at risk, follow-up compliance, largest premium opportunity — each {icon, headline, narrative}",
+    "features/dashboards/RmPerformancePage.tsx with FilterBar variant='rm' (RM/Team select, Broker Type select replacing Broker); WatchlistTable with color-coded action chips; InsightsPanel",
+    "T-043 amendment (docs/ui-remediation/plan.md, AC-082): build every screen part of this task on the shared design-system layer from T-043 — src/ui/src/theme/components.css classes (.qiq-card, .qiq-btn, .qiq-chip, .qiq-table-wrap, .qiq-kpi-*, .qiq-menu) and components/common/Icon.tsx — never ad-hoc inline styling or new CSS files. Before marking IMPLEMENTED, do a side-by-side check against docs/prototype/screenshots/QuoteIQ - RM Performance.png at ~1670px: layout regions, card composition, chart types, chip/color semantics must match the prototype (subject to the PRD's documented deviations for this screen, e.g. lead-vs-quote labeling, excluded prototype-only widgets). Record the comparison result in this task's history."
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Dashboards/RmPerformance/*.cs",
+    "src/api/QuoteIQ.Domain/Dashboards/SuggestedActionRule.cs",
+    "src/api/QuoteIQ.Domain/Dashboards/LeadershipInsightRules.cs",
+    "src/ui/src/features/dashboards/RmPerformancePage.tsx",
+    "src/ui/src/features/dashboards/rm/*.tsx",
+    "src/api/tests/QuoteIQ.Domain.Tests/Dashboards/SuggestedActionRuleTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Dashboards/RmPerformanceTests.cs",
+    "e2e_tests/tests/dashboard-rm.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "SuggestedActionRule_GivenPerformanceProfiles_ShouldAssignExpectedLabels",
+      "LeadershipInsightRules_GivenFixture_ShouldProduceFiveInsightTypes"
+    ],
+    "integration": [
+      "RmPerformance_AgainstFixture_ShouldRankRmsByWonPremium",
+      "FollowUpCompliance_ShouldMatchMetricDefinition",
+      "TurnaroundBars_ShouldFlagRmsBeyondSlaTarget"
+    ],
+    "e2e": [
+      "dashboard-rm.spec.ts: filter bar shows RM/Team and Broker Type; rankings, matrix, watchlist with action chips, and insights render with seeded data; watchlist drill-through"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-057",
+    "AC-059",
+    "AC-080"
+  ],
+  "verification_ids": [
+    "V-057",
+    "V-059",
+    "V-080"
+  ],
+  "findings": [
+    {
+      "id": "F-035-1",
+      "severity": "info",
+      "summary": "RM-performance permission gate: gated on the dedicated dashboards.view_rm_performance (not view_executive). Unambiguous — the permission already existed and is correctly seeded.",
+      "detail": "GET /api/v1/dashboards/rm-performance is gated by PermissionCatalog.Dashboards.ViewRmPerformance ('dashboards.view_rm_performance', PermissionCatalog.cs line 185/303). This is a specific per-dashboard permission (not view_executive), matching the executive/pipeline/broker endpoints' pattern. SeedUsers.cs grants it to Sales Head (line 61) and Executive Viewer (line 89) — the PRD 20.5 leadership roles — so both seeded leadership personas reach it and the 403-gate test (RmPerformance_WhenCallerLacksViewRmPerformancePermission_ShouldReturn403) passes. No ambiguity; recorded for completeness.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "F-035-2",
+      "severity": "minor",
+      "summary": "Suggested-action threshold values are documented assumptions (PRD 15.4 names the seven labels but not the exact thresholds selecting among them).",
+      "detail": "SuggestedActionRule.Evaluate uses median-relative axis splits (a subject is 'high' at/above the tenant median of conversion/volume/won-premium, inclusive — matching QuadrantClassifier), the tenant SLA turnaround target for 'beyond target', and an overdue-follow-up escalation threshold (SuggestedActionRule.OverdueEscalationThreshold = 3) to select among the seven PRD 15.4 labels. The rule is isolated in one named, unit-tested Domain class (SuggestedActionRuleTests: all 7 labels + boundary/null-conversion cases) so the thresholds are tunable in one place. Flagged for human confirmation of the exact threshold values and the profile->label mapping.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "F-035-3",
+      "severity": "minor",
+      "summary": "Team-grouping deferral + related prototype deviations: Turnaround is RM-level (no team entity), the watchlist is RM-only, the turnaround metric dropdown is omitted, and Top Brokers ranks by won premium.",
+      "detail": "(a) TurnaroundByRm renders per-RM bars, not the prototype's team/segment grouping (Corporate & Commercial, Agriculture, ...): the MVP has no team entity, an explicitly task-sanctioned simplification. (b) The Performance Watchlist is RM-only, whereas the prototype mixes RM and broker rows; the SuggestedActionRule already works for both, so extending to broker rows is a drop-in — flagged. (c) The prototype's 'Avg Turnaround (Days)' metric dropdown is omitted because the MVP exposes only one turnaround metric (a single-option selector). (d) Top Brokers ranks by won premium (consistent with Top RMs and this dashboard's won-premium leadership framing) rather than the prototype's quote volume; the DTO carries quoteVolume so a volume-ranked variant is a drop-in. All surfaced for human review, not silently resolved.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "F-035-4",
+      "severity": "minor",
+      "summary": "Leadership-insight selection rules are documented assumptions (PRD 15.2 names the five insight types but not their exact selection rule).",
+      "detail": "LeadershipInsightRules selects the top broker by won premium, the underperforming RM by lowest conversion (then most overdue), turnaround-at-risk by the largest over-SLA-target delta (slowest RM), follow-up compliance as the tenant-wide rate, and the largest opportunity by open pipeline premium. Isolated in one named, unit-tested Domain class (LeadershipInsightRulesTests: five-type production + per-type subject selection + sparse-tenant degrade). Flagged for human confirmation of the selection rules.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "F-035-5",
+      "severity": "minor",
+      "summary": "Follow-up compliance uses an open-commitment proxy; Won Premium YTD is computed over the active filter window.",
+      "detail": "(a) FollowUpCompliance KPI delegates to MetricDefinitions.FollowUpCompliance(onTime, required) where required = open leads (Open/Quoted) with a committed next-follow-up date and onTime = those not yet overdue. The FollowUp log does not retain the prior committed date needed for the literal PRD 22 'completed by or before' semantics, so this open-commitment proxy is used (proven by FollowUpCompliance_ShouldMatchMetricDefinition). (b) 'Won Premium YTD' is summed over the active shared-filter window rather than a hard calendar YTD, since the date filter already governs the window and no separate YTD anchor exists. Both flagged for human confirmation.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "F-035-6",
+      "severity": "info",
+      "summary": "F-034-4 palette consolidation completed: the duplicate legacy quadrant palette and its dead ScatterChartWidget were removed; quadrantPalette.ts is now the single source.",
+      "detail": "Resolved T-034 finding F-034-4. Removed the duplicate quadrant trio (QUADRANT_PALETTE + MatrixQuadrant + resolveMatrixQuadrant) from src/ui/src/components/dashboards/palettes.ts (which now owns only the live SERIES_PALETTE/resolveSeriesColor consumed by BarChartWidget/DonutChartWidget/ProductLineStacks), deleted the dead src/ui/src/components/dashboards/charts/ScatterChartWidget.tsx (referenced only by rechartsWidgets.test.tsx, no live dashboard), and removed its orphan test case. The RM Broker Matrix reuses the shared brokers/BrokerMatrixScatter.tsx which imports features/dashboards/quadrantPalette.ts — now the single source of truth. Verified: tsc clean, full vitest 382/382 green, V-070 no-raw-hex grep green.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T10:30:00-04:00"
+    },
+    {
+      "id": "E-035-1",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "summary": "AC-057 completeness independently verified against the actual files: all six KPIs, both rankings, the shared-palette matrix, turnaround bars with SLA marker, the RM watchlist with suggested-action chips, five leadership insights, and the RM/Team + Broker Type filter variant are present.",
+      "detail": "GetRmPerformanceQueryHandler builds ActiveRms, ActiveBrokers, WonPremiumYtd, RmConversionRate, BrokerConversionRate, FollowUpCompliance (6 KPIs); TopRms + TopBrokers; RmBrokerMatrix via the shared QuadrantClassifier; TurnaroundByRm rows carry AvgTurnaroundDays + BeyondTarget with slaTargetDays from settings.SlaReceivedToSentDays; watchlist rows carry SuggestedActionDto{label,tone}; five LeadershipInsight types. FilterBar (src/components/dashboards/FilterBar.tsx) variant='rmPerformance' relabels RM->'RM/Team' (binds teamOrRmId) and Broker->'Broker Type' (binds brokerTypeId); RmPerformanceStore honours both TeamOrRmId/RmUserId (owner filter via lead_assignments) and BrokerTypeId. Route /rm-performance un-stubbed (router.tsx line 166). Every element of AC-057 is satisfied.",
+      "status": "closed",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    },
+    {
+      "id": "E-035-2",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "functional",
+      "summary": "AC-080 / V-080 GRADED: MetricDefinitions delegation rigorously verified with zero bypass. Every ratio/average/percentage delegates to Domain.Metrics; quadrants to QuadrantClassifier; rules to the two isolated Domain rule classes.",
+      "detail": "Grepped GetRmPerformanceQueryHandler for inline ratio/average/percentage arithmetic: the only '/', '*', '100' hits are in comments (lines 228-229, 321). RmConversionRate + BrokerConversionRate + per-RM/per-broker conversion all call MetricDefinitions.ConversionRate; turnaround calls MetricDefinitions.AverageTurnaroundDays; the compliance KPI calls MetricDefinitions.FollowUpCompliance; matrix splits/medians call QuadrantClassifier.Median/Classify; watchlist->SuggestedActionRule.Evaluate; insights->LeadershipInsightRules.Generate. FollowUpCompliance_ShouldMatchMetricDefinition pins the KPI to MetricDefinitions.FollowUpCompliance(2,3) against a hand-computed fixture (verified passing). SuggestedActionRule + LeadershipInsightRules are pure, DB-free, deterministic static Domain classes (no I/O, tenant, or clock dependency) with real unit coverage (SuggestedActionRuleTests: all 7 PRD 15.4 labels + inclusive-median boundary + at-target turnaround + null-conversion; LeadershipInsightRulesTests: 5 types + per-type subject selection + sparse-tenant degrade). NON-BLOCKING OBSERVATION: openPipelinePremium is computed as an inline .Sum(CurrentQuotedPremium ?? EstimatedPremium ?? 0) rather than via MetricDefinitions.OpenPipelinePremium; this is a summation aggregate (not a ratio/average/percentage), so it is outside AC-080's formula-isolation scope, but delegating it would be marginally cleaner. Also NON-BLOCKING: no automated architecture test asserting 'no dashboard handler contains inline conversion arithmetic' exists (V-080's approach mentions one); satisfied here by manual grep + the single-home unit tests.",
+      "status": "closed",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    },
+    {
+      "id": "E-035-3",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "maintainability",
+      "summary": "Ruling on F-035-6 / T-034 F-034-4: palette consolidation CONFIRMED complete. quadrantPalette.ts is now the single source; the duplicate palettes.ts quadrant trio and the dead ScatterChartWidget are gone.",
+      "detail": "Grep over src/ui/src: no live QUADRANT_PALETTE or resolveMatrixQuadrant remain (only an explanatory comment in palettes.ts, which now exports only SERIES_PALETTE/resolveSeriesColor). The MatrixQuadrant type is defined solely in features/dashboards/quadrantPalette.ts and imported by brokersApi.ts; src/components/dashboards/charts/ScatterChartWidget.tsx no longer exists (only referenced in a comment in BrokerMatrixScatter.tsx). Both the Broker matrix and the RM matrix render via brokers/BrokerMatrixScatter.tsx -> quadrantPalette.ts. Removing the dead widget dropped no live coverage (it had no live dashboard consumer). T-034 F-034-4 is resolved.",
+      "status": "closed",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    },
+    {
+      "id": "E-035-4",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "authorization",
+      "summary": "Ruling on F-035-1: permission gate + tenant isolation + drill breadth verified correct with no seeded-role regression.",
+      "detail": "GET /api/v1/dashboards/rm-performance is gated by PermissionCatalog.Dashboards.ViewRmPerformance (DashboardEndpoints.cs line 36; catalog line 185/303). SeedUsers.cs grants it to Sales Head (line 61) and Executive Viewer (line 89) — both PRD leadership personas reach it; RM/Underwriter/Sales-Ops correctly lack it. RmPerformance_WhenCallerLacksViewRmPerformancePermission_ShouldReturn403 proves the deny path. RmPerformanceStore applies an explicit TenantId == _tenantContext.TenantId predicate on every read (brokers/leads/quotes/versions/assignments); the drill path (RmDrillRowQuery -> ListDrillRowsAsync) enforces the Q-6/A-17 breadth rule via callerHasViewAll (restricting to the caller's assigned leads when false), matching LeadStore. No cross-tenant leakage path. No high/critical/major security findings.",
+      "status": "closed",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    },
+    {
+      "id": "E-035-5",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "summary": "Ruling on F-035-2/3/4/5: all documented deviations/assumptions are defensible MVP simplifications; none drops a REQUIRED AC-057/FR-58 capability. Accepted non-blocking; two items recommended for human confirmation.",
+      "detail": "F-035-3(a) turnaround RM-level not team: MVP has no team entity; AC-057 requires 'turnaround bars with dashed SLA target' (present), not team grouping; the RM/Team filter is still exposed — ACCEPT. (b) watchlist RM-only vs prototype mixed RM+broker: AC-057 requires 'watchlist with suggested-action chips' (present); SuggestedActionRule already works for brokers so extension is a drop-in — ACCEPT. (c) turnaround metric dropdown omitted: single MVP turnaround metric; not an AC-057 requirement — ACCEPT. (d) Top Brokers ranked by won premium vs prototype quote volume: AC-057 requires 'RM/broker rankings' without prescribing the metric; DTO carries quoteVolume for a future variant; consistent with the won-premium leadership framing (the matrix x-axis still uses quote volume) — ACCEPT. F-035-2 (suggested-action thresholds) and F-035-4 (insight selection): documented, isolated in one unit-tested Domain class each, tunable in one place — ACCEPT, surface thresholds/selection rules for human confirmation. F-035-5(a) follow-up-compliance open-commitment proxy: reasonable given the FollowUp log lacks the prior committed date, delegates to MetricDefinitions — ACCEPT, flag for human confirmation of the literal PRD 22 semantics. F-035-5(b) 'Won Premium YTD' computed over the active filter window (not calendar YTD): consistent with the shared-filter architecture across all dashboards and with the prototype's label, but the 'YTD' wording is technically misleading when a sub-year date filter is active — ACCEPT non-blocking, RECOMMEND a human decide whether to relabel (e.g. 'Won Premium') or anchor to a calendar-YTD window. None of these block PASS.",
+      "status": "open",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    },
+    {
+      "id": "E-035-6",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "test-coverage",
+      "summary": "Test suites independently RUN and green; V-070 grep re-run green; e2e describe.fixme deferral accepted.",
+      "detail": "Backend (real Postgres/Keycloak via Testcontainers, docker verified up): Domain.Tests 383/383 (incl. 23 Dashboards: SuggestedActionRuleTests + LeadershipInsightRulesTests); Api.Tests Dashboards filter 28/28 with no T-031/32/33/34 regression, of which RmPerformanceTests 4/4 (RanksRmsByWonPremium, FollowUpCompliance_ShouldMatchMetricDefinition, TurnaroundBars_ShouldFlagRmsBeyondSlaTarget, 403 gate) against a hand-computed fixture. dotnet build clean (0 warn/0 err). Frontend: tsc --noEmit clean; vitest RmPerformancePage.test.tsx 8/8 (6 KPIs + all widgets, RM/Team+Broker Type variant labels, SLA marker + beyond-target flag, watchlist chip tone classes, 5 insights, watchlist/KPI drill navigation, error banner); V-070 no-raw-hex grep over src ts/tsx = 0 hits. Tests are meaningful, not tautological. Stray-line hygiene: no </content> or <content> artifacts in any created backend or frontend file. e2e_tests/tests/dashboard-rm.spec.ts has 5 real ready-to-run bodies kept as describe.fixme pending T-041 seed data + a live compose stack — deferral accepted per the T-032/T-033/T-034 precedent given the backend+frontend coverage.",
+      "status": "closed",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T23:30:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-58, PRD 15.2/15.4)"
+    },
+    {
+      "timestamp": "2026-07-13T21:45:00-04:00",
+      "event": "amended",
+      "message": "Amended by T-043 (approved plan docs/ui-remediation/plan.md): must use the shared design-system layer and pass a per-screen prototype side-by-side fidelity check before IMPLEMENTED."
+    },
+    {
+      "timestamp": "2026-07-14T09:55:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1/10). Test-first full-stack build on the T-031 framework + T-043 design system. Reuses T-034's shared quadrantPalette.ts + Domain QuadrantClassifier for the BrokerMatrix; MUST consolidate the duplicate palette per T-034 F-034-4 (delete/re-export components/dashboards/palettes.ts QUADRANT_PALETTE so only the single source remains). Isolates SuggestedActionRule + LeadershipInsightRules as named, unit-tested Domain rule classes (PRD 15.4). Last dashboard before T-036 completes the wave toward T-040."
+    },
+    {
+      "timestamp": "2026-07-14T10:15:00-04:00",
+      "event": "tests_written",
+      "message": "Test-first. Domain unit tests: QuoteIQ.Domain.Tests/Dashboards/SuggestedActionRuleTests.cs (SuggestedActionRule_GivenPerformanceProfiles_ShouldAssignExpectedLabels — all 7 PRD 15.4 labels + null-conversion/boundary/label-tone cases) and LeadershipInsightRulesTests.cs (LeadershipInsightRules_GivenFixture_ShouldProduceFiveInsightTypes + per-type subject selection + sparse-tenant degrade). Backend integration: QuoteIQ.Api.Tests/Dashboards/RmPerformanceTests.cs (4 real-Postgres/Keycloak cases against a hand-computed RM-ownership fixture: RankRmsByWonPremium, FollowUpCompliance_ShouldMatchMetricDefinition, TurnaroundBars_ShouldFlagRmsBeyondSlaTarget, ViewRmPerformance 403 gate). Frontend: features/dashboards/__tests__/RmPerformancePage.test.tsx (8 cases) + FilterBar rm-variant coverage."
+    },
+    {
+      "timestamp": "2026-07-14T10:20:00-04:00",
+      "event": "implementation_written",
+      "message": "Backend: Domain.Dashboards.SuggestedActionRule (+SuggestedAction enum, PerformanceProfile) and LeadershipInsightRules (+LeadershipInsightType/LeadershipInsight/InsightSubject/LeadershipInsightContext), both pure/DB-free/isolated per AC-080. Application/Features/Dashboards/RmPerformance/* (query, DTO, RmWidgetKeys rm.*, RmDrillRowQuery, handler delegating every formula to MetricDefinitions [ConversionRate, AverageTurnaroundDays, FollowUpCompliance], quadrants to QuadrantClassifier, actions/insights to the two rule classes). Abstractions/IRmPerformanceStore + Infrastructure/Dashboards/RmPerformanceStore (safe prefetch-then-merge, accountable-owner resolution like PipelineDashboardStore, RM/Team + Broker-Type filters, no correlated-subquery projections), registered in DashboardsServiceCollectionExtensions + DrillWidgetRegistry, GET /api/v1/dashboards/rm-performance gated by dashboards.view_rm_performance. Frontend: rmApi.ts (matrix reuses shared BrokerMatrixDto), RmPerformancePage.tsx + rm/{RmKpiRow,WonPremiumRanking,TurnaroundByRm,WatchlistTable,InsightsPanel}.tsx reusing brokers/BrokerMatrixScatter + quadrantPalette single source, FilterBar rm variant binds teamOrRmId/brokerTypeId, dashboardFiltersSlice extended with those two fields, route /rm-performance un-stubbed. F-034-4 consolidated (see F-035-6)."
+    },
+    {
+      "timestamp": "2026-07-14T10:25:00-04:00",
+      "event": "e2e_tests_written",
+      "message": "e2e_tests/tests/dashboard-rm.spec.ts written with real, ready-to-run bodies (RM-variant filter bar, 6 KPIs, Top RMs/Top Brokers rankings, shared quadrant matrix, turnaround bars + dashed SLA marker + beyond-target flag, watchlist action chips, five leadership insights, watchlist-row drill), kept as describe.fixme per the T-032/T-033/T-034 precedent (blocked on T-041 seed data + a live compose stack); playwright --list discovers all 5 tests."
+    },
+    {
+      "timestamp": "2026-07-14T10:35:00-04:00",
+      "event": "gates_run",
+      "message": "Backend: dotnet build QuoteIQ.slnx clean (0 warn/0 err); full dotnet test QuoteIQ.slnx GREEN — Domain 383 (+23: SuggestedActionRuleTests + LeadershipInsightRulesTests), Application 32, Infrastructure 91, Api 301 (+4: RmPerformanceTests) = 807 total, 0 failed; NO regression to T-031/T-032/T-033/T-034 dashboard/drill/QuadrantClassifier tests. Frontend: tsc --noEmit clean; eslint over src shows ONLY the pre-existing baseline (TenantFormPage.tsx _removed error + 3 warnings), none from new files; vite build OK; vitest 382 passed / 78 files (incl. 8 RmPerformancePage + FilterBar rm-variant). V-070 no-raw-hex grep over src *.ts/*.tsx = GREEN (0 hits). Playwright --list discovers 5 dashboard-rm tests (no live run — seed stack unavailable, per fixme convention)."
+    },
+    {
+      "timestamp": "2026-07-14T10:40:00-04:00",
+      "event": "prototype_fidelity_check",
+      "message": "Side-by-side vs docs/prototype/screenshots/QuoteIQ - RM Performance.png at ~1670px. MATCH: RM-variant filter bar (Date/Product Line/RM-Team/Broker Type/Region/Clear); six KPI cards in the exact prototype order (Active RMs, Active Brokers, Won Premium YTD, RM Conversion Rate, Broker Conversion Rate, Follow-up Compliance); Top Relationship Managers + Top Brokers rankings (conversion column) beside the four-quadrant Broker Performance Matrix (shared palette legend); Turnaround-by-RM horizontal bars with a dashed SLA target marker + target-days label; full Performance Watchlist (RM, Quotes, Won Premium, Conversion, Avg TAT, Overdue, color-coded Suggested Action chips); Leadership Insights panel with the five PRD 15.2 insight types + icon halos. DOCUMENTED DEVIATIONS (see findings): KPI deltas null vs prototype period deltas (no prior-period baseline, Broker/Pipeline precedent); Turnaround is RM-level not team/segment (MVP has no team entity, task-sanctioned); turnaround metric dropdown omitted (single MVP metric); watchlist RM-only vs prototype's mixed RM+broker rows; Top Brokers ranked by won premium vs prototype quote volume; suggested-action chip labels follow PRD 15.4 verbatim ('and' not '&'); shared FilterBar renders Broker Type before RM/Team. Fidelity: PASS with documented deviations."
+    },
+    {
+      "timestamp": "2026-07-14T10:40:00-04:00",
+      "event": "task_passed",
+      "message": "T-035 PASS (iteration 1/10). Evaluator independently re-ran dotnet test QuoteIQ.slnx (807 passed/0 failed: Domain 383 incl. 23 new rule-class tests, Application 32, Infrastructure 91, Api 301 incl. RmPerformanceTests 4/4 real Testcontainers; no T-031/32/33/34 regression) + frontend (typecheck clean, vitest RmPerformancePage 8/8, build clean, lint baseline only) and RE-RAN V-070 grep = GREEN. GRADED AC-080/V-080 rigorously satisfied: grep of GetRmPerformanceQueryHandler found NO formula arithmetic bypassing MetricDefinitions (only comments); ConversionRate/AverageTurnaroundDays/FollowUpCompliance all delegate, quadrants->QuadrantClassifier, actions->SuggestedActionRule, insights->LeadershipInsightRules (pure DB-free unit-tested Domain classes). F-034-4 CONFIRMED consolidated (no live QUADRANT_PALETTE/resolveMatrixQuadrant/ScatterChartWidget; single quadrantPalette.ts source; no lost coverage). dashboards.view_rm_performance gate correct (Sales Head + Executive Viewer reach it, others 403), tenant/breadth isolation verified, no high/critical security findings. All 6 flags ruled non-blocking incl. F-035-3 deviations (none drops a required AC-057/FR-58 capability); F-035-5 surfaced for human confirmation (follow-up-compliance proxy + 'Won Premium YTD' computed over the filter window - possible relabel). e2e describe.fixme deferral accepted. 38 PASS, 0 FAIL."
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "T-002",
+  "title": "Vault secrets integration and per-environment configuration",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-001"],
+  "objective": "All secrets (DB, Keycloak admin, S3/MinIO, Hangfire) come from HashiCorp Vault in every environment including local; per-environment appsettings files exist for local/dev/qa/stage/uat/prod with placeholders (spec §8, §16, Q-7).",
+  "scope": [
+    "Vault configuration provider loading secrets into IConfiguration at startup, fail-fast with a clear error listing missing keys",
+    "appsettings.Local.json fully working; appsettings.{Development,QA,Staging,UAT,Production}.json with placeholder Vault paths/endpoints",
+    "Local compose Vault (dev mode) seeded with local secrets by an init script",
+    "No secret values in any checked-in file"
+  ],
+  "out_of_scope": ["Keycloak realm setup (T-004)", "S3 usage (T-021)"],
+  "implementation_details": [
+    "Use VaultSharp (MIT). Infrastructure/Secrets/VaultConfigurationSource.cs + VaultConfigurationProvider.cs reading KV v2 mount 'quoteiq' path per environment (e.g., quoteiq/local/db, quoteiq/local/keycloak, quoteiq/local/s3)",
+    "Program.cs: builder.Configuration.AddVault(options from appsettings: Vault address, mount, base path; token auth locally via VAULT_TOKEN env var, AppRole placeholders for hosted envs)",
+    "Secrets consumed as standard configuration keys: ConnectionStrings:QuoteIq, Keycloak:AdminClientSecret, S3:AccessKey, S3:SecretKey, Hangfire:ConnectionString",
+    "infra/vault/seed-local-secrets.sh executed by a compose init container: writes postgres, keycloak admin, minio keys into Vault dev instance",
+    "Startup validation class SecretsStartupCheck: verifies presence of required keys, throws with the list of missing keys (never their values)",
+    "Testcontainers-based fixture VaultContainerFixture for integration tests"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Infrastructure/Secrets/VaultConfigurationSource.cs",
+    "src/api/QuoteIQ.Infrastructure/Secrets/VaultConfigurationProvider.cs",
+    "src/api/QuoteIQ.Infrastructure/Secrets/SecretsStartupCheck.cs",
+    "src/api/QuoteIQ.Api/appsettings.Local.json",
+    "src/api/QuoteIQ.Api/appsettings.Production.json",
+    "infra/vault/seed-local-secrets.sh",
+    "docker-compose.yml",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Secrets/VaultConfigurationProviderTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "VaultConfigurationProvider_WhenSecretsPresent_ShouldExposeConfigurationKeys (Vault Testcontainer)",
+      "SecretsStartupCheck_WhenSecretMissing_ShouldFailFastListingKeyNames",
+      "Repository scan check: no secret literals in appsettings files"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-072", "AC-081"],
+  "verification_ids": ["V-072", "V-081"],
+  "findings": [],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (§8, §16, Q-7)" },
+    { "timestamp": "2026-07-11T13:06:00-04:00", "event": "task_started", "message": "Dependencies satisfied (T-001 PASS); marked IN_PROGRESS; delegated to Implementor (iteration 1)" },
+    { "timestamp": "2026-07-11T13:25:00-04:00", "event": "implementation_written", "message": "Implementor iteration 1 complete: VaultSharp KV v2 configuration provider (Options/Source/Provider/BuilderExtensions/SecretMapping), SecretsStartupCheck fail-fast listing missing key names only, appsettings.Local.json working + Development/QA/Staging/UAT/Production placeholders (Vault:Enabled=false with _placeholder note), infra/vault/seed-local-secrets.sh (LF verified) run by new compose vault-init service, VaultContainerFixture (Testcontainers, manual bounded poll workaround for hanging HTTP wait strategy), .gitattributes forcing LF for *.sh. Tests 7/7 backend green (5 new Infrastructure incl. Vault Testcontainer + secret-literal scan, 2 pre-existing Api). Live verified: seed populates quoteiq mount, API boots under Local env with 5 required keys, fail-fast demo on deleted s3 secret (names path only, no values), volumes preserved on teardown. Frontend untouched. Status EVALUATING." },
+    { "timestamp": "2026-07-11T16:10:00-04:00", "event": "task_passed", "message": "Evaluator verdict PASS (iteration 1/10). Tests 7/7 twice (deterministic). Live: vault-init idempotent seed OK, kv get quoteiq/local/db OK, API booted Local env (secrets check passed for 5 keys), /health 200, boot log contains zero secret values, teardown preserved volumes. AC-072 and AC-081 SATISFIED; V-081 hosted negative test not automatable (no hosted Vault, Q-7) - Local fail-fast accepted as POC-equivalent coverage. No blocking findings. Advisories (non-blocking): A-1 placeholder envs boot with Vault disabled (revisit when hosted envs exist / T-003 DB wiring), A-2 literal-scan test is fixed-list not pattern-based, A-3 seeded conn string uses Host=postgres which host-run dotnet cannot reach (reconcile in T-003), A-4 sync Load() is framework-imposed, A-5 InternalsVisibleTo seam acceptable." }
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "id": "T-050",
+  "title": "Dashboard drill row-query layer: port the five per-dashboard drill queries and register all 31 widget keys",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-035",
+    "T-036",
+    "T-037"
+  ],
+  "objective": "Port the drill row-query layer that was never migrated. All 31 widget keys the five dashboards emit currently resolve to no drill query, so every drill chevron in the product returns 404 UNKNOWN_WIDGET. This is a user-visible functionality gap, not a refactor.",
+  "scope": [
+    "Port the five per-dashboard drill row queries (Executive, Pipeline, Broker, Rm, Loss), their *DrillScope enums and ScopesByKey maps, and the store-side ListDrillRowsAsync bodies (~358 lines: Exec 76, Pipeline 73, Broker 64, RM 85, Loss 60).",
+    "Register ALL 31 widget keys and wire the registry through defaultDashboardsDeps, which today leaves drillWidgets unset so only the generic 'leads.filtered' key resolves.",
+    "Satisfy the RE-AMENDED AC-076/V-095: registry completeness; the non-empty superset invariant on every widget; breadth applied to aggregates as well as drills; exact equality for lead-count widgets with unshared keys; and a tested documented population for every other widget.",
+    "Apply the date filter to a drill ONLY where doing so cannot make the drill narrower than its aggregate - i.e. never date-filter a drill whose aggregate reads the full population."
+  ],
+  "out_of_scope": [
+    "Redesigning the dashboard aggregates themselves (T-035/T-036/T-037, all measured and reviewed)",
+    "SPA changes - the chevrons already send the correct keys; this is a backend gap"
+  ],
+  "implementation_details": [
+    "MEASURED STATE, verified by the orchestrator: drill.service.ts:93-95 returns a one-entry Map containing only LEADS_FILTERED_WIDGET_KEY ('leads.filtered'); index.ts:50 carries a comment claiming 'T-036/T-037 override it to add their dashboard widget keys' - neither ever did; and the 31 keys defined across the *_WIDGET_KEYS tables (exec 7, pipeline 8, broker 5, rm 5, loss 6) include none of them.",
+    "THE HUMAN RULING APPLIES HERE (AC-076, ledger entry 13): an aggregate the user cannot reconcile by drilling into it is worse than a smaller aggregate. Breadth narrows aggregates as well as drills. The date filter is applied per widget: KPI cards are date-scoped (BuildKpis filters the snapshot by the resolved period), while aging, trend, pipeline-by-stage and high-value read the whole snapshot - so their drills must NOT apply from/to. This is a DELIBERATE DIVERGENCE from the reference, which date-filtered every drill.",
+    "The reference's own drill comment (ExecutiveDashboardStore.cs:299) claims 'Same non-date + date dimensions the aggregation applies, so a drill list matches its widget' - it states the invariant and does not achieve it. Do not port that comment as-is; make it true or make it accurate."
+  ],
+  "files": [
+    "src/server/domains/dashboards/drill.service.ts",
+    "src/server/domains/dashboards/",
+    "src/server/domains/dashboards/index.ts",
+    "src/server/tests/"
+  ],
+  "test_plan": {
+    "unit": [
+      "Scope-to-key mapping is total: every key in every *_WIDGET_KEYS table resolves to a registered query"
+    ],
+    "integration": [
+      "RECONCILIATION per widget: aggregate value equals the drill's totalCount (and summed value where the widget is a value) for the same filter and caller. This is the assertion; shape is not.",
+      "BREADTH: a caller with leads.view_all and one without BOTH reconcile aggregate-to-drill, AND the restricted caller's numbers are strictly smaller on a corpus where another user owns leads - proving breadth reached the AGGREGATE, not only the drill.",
+      "DATE per widget, asserted in BOTH directions: under a narrow from/to, a KPI card's aggregate and drill both narrow, while aging/trend/pipeline-by-stage/high-value both stay full-population.",
+      "A registry-completeness test: every emitted widget key resolves. The existing 'unregistered key 404s' test must be kept but is NOT sufficient - it passes today precisely because all 31 real keys are unregistered.",
+      "Tenant isolation independently on the drill path."
+    ],
+    "e2e": [
+      "Drill-through chevrons adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-076",
+    "AC-075",
+    "AC-021"
+  ],
+  "verification_ids": [
+    "V-095",
+    "V-093"
+  ],
+  "findings": [
+    {
+      "id": "F-050-01",
+      "severity": "blocker",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "AC-076's per-widget reconciliation bar (drill totalCount EQUALS its aggregate) is structurally unsatisfiable for most of the 31 keys: drills are lead-population predicates, many aggregates are quote counts, premium sums, rates, day-averages or alert counts.",
+      "detail": "RESOLVED BY THE RE-AMENDED AC-076. The exact-equality bar was withdrawn by human ruling and replaced with the non-empty superset invariant, which IS satisfiable for lead-row drills over quote/premium/day/alert aggregates: the drill returns the lead-projection closure of every aggregate sharing its key. Exact equality is retained only for the enumerable subset (pipeline.lost, the funnel Lost bar, whose value is lostLeads.length) and is asserted there. Every other key has its documented population asserted exactly, and the invariant itself is asserted generically by walking all five real payloads and requiring that every non-zero widget value drills into at least one row."
+    },
+    {
+      "id": "F-050-02",
+      "severity": "blocker",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "Widget keys map MANY-to-one onto drill scopes (~60 emission sites, 31 keys, 25 distinct scope predicates), so several aggregates provably share one drill population and at most one of them can equal it.",
+      "detail": "RESOLVED. Co-keyed aggregates cannot all EQUAL one drill population, but they can all be CONTAINED by it. Each scope predicate is now the union over every aggregate that emits its key, measured per emission site rather than inferred from the key name -- e.g. pipeline.open_pipeline admits the funnel bars' PROGRESSION_CATEGORIES (open, quoted, won) plus any lead carrying an open-category quote, and pipeline.won admits leads with a SENT quote because proposal_to_win_rate's denominator is sent quotes."
+    },
+    {
+      "id": "F-050-03",
+      "severity": "blocker",
+      "status": "wont_fix",
+      "raised_by": "implementor",
+      "summary": "The SPA sends no row/dimension context with a drill, only widget + the eight shared filter params, so a per-row widget (a funnel bar, a loss reason bar, a broker row) cannot narrow to the population that row displayed.",
+      "detail": "ACCEPTED AS DESIGNED, not fixed. The SPA still sends no per-row dimension, so a bar drill still lands on its widget's whole population rather than its own bar. Under the superset invariant that is CORRECT rather than a defect: a wider drill never omits a lead the aggregate counted. Narrowing to the clicked bar would require a new wire dimension per dashboard and is a scoped follow-up with its own acceptance criteria, not a T-050 gap."
+    },
+    {
+      "id": "F-050-04",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "Reference contradiction found while measuring: the Executive/Pipeline aggregate narrows the RM dimension by the accountable-owner slot while the reference's Executive drill does not apply the RM dimension at all, so an RM-filtered drill is WIDER than its aggregate in the reference.",
+      "detail": "RULED, not ported. The reference Executive/Pipeline drill applies no RM dimension while its aggregate narrows by the accountable owner, making an RM-filtered reference drill WIDER than its aggregate -- superset-compatible, so not a violation. The port applies the RM dimension anyway, through accountableOwnerPredicate (the rm SLOT, matching the aggregate, not the Leads list any-assignment rule), because equality is strictly stronger than wider and is what makes the lead-count widgets reconcile exactly. Recorded in drill.queries.ts contradiction (a)."
+    },
+    {
+      "id": "F-050-05",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "Date-scoping measured per dashboard contradicts the brief's hypothesis: the Broker dashboard's ENTIRE lead population is date-filtered, so all its widgets are date-scoped, while Executive/Pipeline date-scope only the KPI cards.",
+      "detail": "MEASURED AND ACTED ON. Broker/RM/Loss load through leadFilterWhere, so their whole populations are date-scoped and their drills apply from/to. snapshotPredicates pushes no date, so Executive/Pipeline populations are full and their drills apply NO date -- a deliberate divergence from the reference, which date-filtered every drill and thereby made every Executive/Pipeline drill narrower than its own headline. Executive/Pipeline KPI dates sit on quote.prepared_date / quote.decision_date, which a lead-row drill cannot express, so those widgets satisfy the superset invariant rather than date equality. Asserted in both directions."
+    },
+    {
+      "id": "F-050-06",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "Three of the reference's own drill scopes EXCLUDE leads their aggregate counts, so porting them verbatim would have violated the superset invariant on the shared metric fixture itself. Widened, documented and pinned by test.",
+      "detail": "Measured against the fixture, not hypothesised. (b) OpenPipeline: openPipelineOf sums OPEN-category QUOTES, and Q9 is open on L5, whose LEAD category is lost; the reference scope is a lead-category test that drops L5, while the fixture's own expected openQuotePremium includes Q9. (c) Won: won_premium sums won QUOTES, and Q2 is won on L2, whose lead category is quoted; the same key also carries the won-vs-LOST trend, so the scope is DECIDED. (d) AtRisk: leads_at_risk is atRiskLeadIds.size, built from unresolved alerts with no category test, so a won lead with an open alert is counted while the reference scope requires an open category. Each widening is asserted by a dedicated test naming the lead the reference would have dropped (L5, L2, L4 respectively)."
+    },
+    {
+      "id": "F-050-07",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "FLAGGED CHANGE TO A SHIPPED AGGREGATE: the Pipeline dashboard's alert-backed counts were tenant-wide and honoured neither the dashboard filter nor caller breadth, which made six widgets structurally unreconcilable. They now count over the snapshot's own lead population.",
+      "detail": "sla_breaches and five of the eight Immediate Actions read countOpenAlertsByType(db, tenantId) -- unfiltered and unbreadthed -- while their drill (pipeline.at_risk / pipeline.leads) honours both. A restricted or filtered caller therefore saw a non-zero count that drilled into nothing, exactly the failure AC-076 forbids. They now read snapshot.openAlertCountsByType, computed from the alert rows the snapshot already loads for its at-risk sets, so the change costs no additional query. This narrows shipped numbers under a filter and is FLAGGED for the orchestrator as a deliberate, invariant-driven behaviour change rather than a refactor. The Alerts Centre's own use of countOpenAlertsByType is untouched."
+    },
+    {
+      "id": "F-050-08",
+      "severity": "minor",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "The five dashboard payload endpoints previously resolved no breadth at all, so applying breadth to aggregates required widening DashboardActor and making dashboardActorFrom async across all five routes; three suites' fixture users needed a leads.view_all grant they had never held.",
+      "detail": "broker/rm/loss services took a bare tenantId and now take a DashboardActor. dashboardActorFrom resolves canViewAllLeads through the same per-request resolver the route guard uses and fails CLOSED with a 500 when the resolver is absent, never defaulting to \"sees everything\". dashboard-broker/rm/loss tests granted their viewer only dashboards.view_*; every assertion in them is about tenant-wide numbers, which now legitimately require leads.view_all, so the grant was added to the FIXTURE. No assertion was weakened or deleted; the executive/pipeline suites call their services directly and set canViewAllLeads: true explicitly for the same reason."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-20T15:30:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS. Reproduced first-hand rather than taken on trust: (1) F-050-06 confirmed true against both the fixture JSON and the reference-scope comments in drill.queries.ts -- L5 is 'lost' (lead category) yet carries Q9, an OPEN quote counted in openQuotePremium/openPipelinePremium (contradiction b); L2 is 'quoted' yet carries Q2, a WON quote whose boundPremium (2400.00) is exactly the fixture's expected boundPremium (contradiction c); L4 is 'won' and the drill-corpus-extras seed explicitly attaches an unresolved alert to it, which snapshot.ts's atRiskLeadIds (built from unresolved alerts with no category predicate) counts (contradiction d). All three widenings are genuine reference defects, not port artefacts, and each carries a dedicated test naming the dropped lead ('contains the leads the aggregate counted that the reference scope would have dropped'). (2) Registry completeness confirmed non-hand-maintained: the completeness test enumerates Object.values(EXECUTIVE_WIDGET_KEYS | PIPELINE_WIDGET_KEYS | BROKER_WIDGET_KEYS | RM_WIDGET_KEYS | LOSS_WIDGET_KEYS) -- the SAME constants each service.ts tags drillWidgetKey with -- against defaultDrillWidgetRegistry(), and the old 'unregistered key 404s' test is confirmed still present and now non-trivial. (3) Superset invariant confirmed asserted two ways as claimed: an exact DOCUMENTED_POPULATION table for all 31 keys plus a generic nonZeroDrillKeys() walk over five real payloads (both broad and restricted) requiring every non-zero widget to drill non-empty. Attempted to construct a violation by re-deriving `exec.at_risk` under the reference's narrower (open-category-only) scope; the existing dedicated test ('contains the leads...') would have caught it, confirming the suite discriminates. (4) F-050-08 fail-closed path read directly: dashboardActorFrom throws InternalError (500, verified in lib/errors/index.ts) when tenant or resolveAccess is undefined, never defaulting canViewAllLeads to true -- correct direction for an authorization input, though this specific branch has no dedicated unit/integration test exercising the missing-middleware case (unreachable via the composed app; noted, not blocking). Confirmed by grep that dashboard-broker/rm/loss.test.ts each grant the viewer session leads.view_all as an ADDITIVE fixture change alongside their existing dashboards.view_* grant, with a comment explaining why (T-050 breadth), and that no assertion elsewhere in those suites was weakened -- full three-suite run 100/100 pass. (5) Discriminating-corpus claim confirmed by direct read of the 'shows the restricted caller a smaller, non-empty drill' and 'narrows the ... AGGREGATES' tests: every listed case is non-empty and strictly smaller than its broad count (e.g. exec.quotes 4->2, broker.leads 4->3), never 0-vs-0. (6) MUTANT 4 REPRODUCED FIRST-HAND: swapped overdueFollowUp/committedFollowUp between broker.overdue_follow_ups and rm.committed_follow_ups in drill.queries.ts (sha256 02f12843...->3b495e85..., 607 lines unchanged both sides, tsc clean after fixing an incidental unused-destructure that the swap itself introduced), ran the full dashboard-filters suite: exactly 1 failure, 'admits an on-time follow-up commitment to the RM scope but not the Broker one' (rm.overdue returned only L2 instead of L1,L2), matching the claimed kill exactly. Restored and confirmed sha256 back to 02f12843... byte-identical. (7) TEST-FIRST DEVIATION RULING: reproduced the claimed pre-implementation RED by reverting defaultDrillWidgetRegistry() to the one-entry map (drill.service.ts sha256 9ae4e00a...->clean tsc after a trivial unused-import fix), ran dashboard-filters.test.ts: exactly 15 of 77 tests failed, all within the 'dashboard drill widget keys' describe block, matching the implementor's claimed count exactly. Restored and confirmed sha256 back to 9ae4e00a... byte-identical, full suite re-passes 77/77. RULING: the deviation is ACCEPTED as equivalent evidence, not waved through. The scope predicates under test could not have been correctly specified before F-050-06's contradictions were measured against the fixture -- a literal chronological red-first cycle would necessarily have started from WRONG expected populations (the reference's own narrower scopes) and required a second red/green pass once the contradictions surfaced, which is not meaningfully stronger evidence than what was produced. The reproduced RED is not a trivial compile/import failure (tsc was clean both times) and is not a tautological mirror of the implementation: the DOCUMENTED_POPULATION table and its per-key comments read as independently reasoned (fixture-lead-level justification, not 'whatever the code returns'), and the dedicated named-lead tests and the constructed-future-date test (rule 6/mutant 4) show the suite finding real bugs rather than being shaped around the implementation. Flag for the human: this is the third disclosed test-first deviation this session; if a hard chronological-only reading of the harness's test-first rule is wanted, this would need a documented standing exception for 'derive-then-assert' work, which the human has implicitly allowed twice already this session by ruling on rather than rejecting the pattern. (8) F-050-07 confirmed reasoned correctly (Pipeline's tenant-wide/breadth-blind countOpenAlertsByType replaced by the snapshot's own alert rows for sla_breaches and the five Immediate Actions) and is recorded as a major, clearly-flagged finding in this task file; no separate 'AC-095 ledger' artifact exists in the repository to cross-check the 'entry 14' claim against -- session_state.json's own last_event message uses the same 'ledger entry 14' phrasing informally, so this is accepted as consistent internal terminology rather than verified against a schema-defined ledger file. (9) F-050-03 wont_fix ruling reviewed and CONCURRED: the superset invariant is defined at the widget-population level, and a wider-than-clicked-bar drill is a superset by construction, so 'wont_fix, not a violation' is the correct classification; narrowing to a clicked bar is genuinely new wire surface (a per-row dimension parameter), not a T-050 gap. GATES reproduced in this evaluation: full dashboard suite (dashboard-filters + executive + pipeline + broker + rm + loss + auth-wiring) 320/320 pass; typecheck 0 (both before and after each mutant restore); lint 0 on every touched file; byte-level NUL/CRLF scan clean on all four touched files (0 NUL, 0 CRLF, LF throughout). Full 94-file/3414-test sweep NOT independently re-run in this evaluation pass (relied on the orchestrator's already-reproduced clean serial sweep per the brief); the dashboard-scoped subset that IS this task's surface was independently reproduced. No findings block PASS; F-050-08's untested fail-closed branch and the test-first deviation are recorded here as reviewed-and-accepted rather than as new blocking findings.",
+      "raised_by": "evaluator"
+    },
+    {
+      "timestamp": "2026-07-20T10:00:00-04:00",
+      "event": "task_created",
+      "message": "Created by the orchestrator after an implementor REFUSED to implement the AC-076 ruling and surfaced the reason instead: the layer the ruling operates on was never ported. It reported rather than absorbing a new feature across a task boundary, and rather than landing the breadth half alone - which was implementable but unverifiable to the amended bar, and would have shrunk five shipped dashboards' numbers while delivering none of the reconciliation that justified the change. Orchestrator independently verified every claim: the registry holds one key, drillWidgets is set nowhere, and the 31 emitted keys include none of it. MISSED BY THREE IMPLEMENTORS, TWO EVALUATIONS AND EVERY ORCHESTRATOR BRIEF, because all drill testing used the single generic 'leads.filtered' key - and because a test asserting '404s with UNKNOWN_WIDGET for an unregistered widget key' passes trivially in a codebase where every real widget key is unregistered, documenting the bug as correct behaviour."
+    },
+    {
+      "timestamp": "2026-07-20T14:30:00-04:00",
+      "event": "blocked_pending_ruling",
+      "message": "Implementor measured the drill/aggregate relationship before writing code and STOPPED rather than absorbing. The registry gap is confirmed exactly as briefed (defaultDrillWidgetRegistry returns a one-entry Map; drillWidgets set nowhere; 31 emitted keys include none of 'leads.filtered'), and the port itself is implementable. What is NOT implementable within this task is the amended AC-076 verification bar: drills return LEAD rows while most aggregates are quote counts, premium sums, rates, day-averages or alert counts (F-050-01); 31 keys share only 25 scope predicates across ~60 emission sites so co-keyed aggregates provably cannot all equal one drill population (F-050-02); and the SPA sends no per-row dimension so a bar drill cannot narrow to its bar (F-050-03). Two further measured contradictions recorded: the reference's Executive drill ignores the RM dimension its aggregate applies (F-050-04), and the Broker dashboard date-filters its whole population unlike Executive/Pipeline (F-050-05). No production code written; no tests weakened; no schema change. Needs a human ruling on the reconciliation bar's scope before implementation proceeds."
+    },
+    {
+      "timestamp": "2026-07-20T12:00:00-04:00",
+      "event": "scope_amended",
+      "message": "Human ruled option 1 after T-050 proved the previous bar unachievable. The requirement of exact aggregate-to-drill equality across every widget was the ORCHESTRATOR'S over-formalisation and has been withdrawn. Replaced with the NON-EMPTY SUPERSET INVARIANT, which is achievable, applies to every widget, and directly prevents the failure the human described - a headline you drill into and find short or empty. Exact equality is retained only for the enumerable subset where it is meaningful; every other widget must document its drill population AND have that documentation asserted by test. The date rule is restated as a consequence of the invariant rather than as a per-widget flag: never date-filter a drill whose aggregate reads the full population, because that is precisely what makes a drill narrower than its headline."
+    },
+    {
+      "timestamp": "2026-07-20T18:30:00-04:00",
+      "event": "implemented",
+      "message": "Ported the drill row-query layer and satisfied the RE-AMENDED AC-076/V-095. All 31 widget keys now resolve; defaultDrillWidgetRegistry() carries them by DEFAULT (not as an override) so a composition that forgets drillWidgets still gets a working product, and defaultDashboardsDeps wires it explicitly. Scope predicates were ported from each store body and then MEASURED against the TypeScript aggregates rather than inferred from key names: three reference scopes provably exclude leads their own aggregate counts on the shared metric fixture (F-050-06) and were widened. Breadth now narrows all five AGGREGATES as well as the drills; breadthPredicate(), previously called by nothing, is called by snapshot.ts and by the broker/rm/loss lead queries. Date is applied to Broker/RM/Loss drills (their populations are date-scoped) and NOT to Executive/Pipeline (theirs are full) -- the inverse of the reference, asserted in both directions. Added 15 integration tests: registry completeness by ENUMERATION over every emitted key, an exact documented population for all 31 keys, exact equality for the one unshared lead-count key, the superset invariant walked generically over all five real payloads for both a broad and a restricted caller, per-dashboard breadth discrimination on aggregates, the date rule both ways, tenant isolation across every key, and a counted query budget (3 statements, 4 for high-value, fixed regardless of matching rows). RED observed before green by re-applying the pre-implementation registry (15 failures). Six mutants applied with hash/line-count proof and all killed by their intended tests, each restored byte-identical and hash-verified. Gates: dashboard suites 277/277; full npm test 3414/3414 across 94 files, exit 0; typecheck 0; lint 0. No schema change; db:validate not run; ci:test floor untouched."
+    }
+  ]
+}

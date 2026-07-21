@@ -1,0 +1,199 @@
+{
+  "id": "T-036",
+  "title": "Executive Overview and Pipeline & Conversion dashboard endpoints",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-035",
+    "T-033"
+  ],
+  "objective": "Port the Executive Overview (KPIs, deltas, escalation panel, charts) and Pipeline & Conversion (funnel, conversion metrics, aging, SLA views) dashboard payload endpoints with metric parity against the shared fixtures and the reference DTOs (P-10).",
+  "scope": [
+    "Executive Overview endpoint: implemented KPI/chart/table/panel composition incl. the escalation panel (executive escalation rule via T-033/T-035 modules), direction-aware deltas, tenant display-currency formatting data, generatedAt footer timestamp",
+    "Pipeline & Conversion endpoint: funnel by status/reporting category, Lead-to-Quote and Quote-to-Win rates, aging buckets, SLA/turnaround views per the implemented composition",
+    "Both honor the full shared filter bar (T-035 filter applier) and expose drill-through contexts",
+    "Performance: <= 2s at seed volumes through the pooler with RLS active (N-04)"
+  ],
+  "out_of_scope": [
+    "Broker/RM/Loss dashboards (T-037)",
+    "Dashboard UI (exists; unchanged)",
+    "Exports (T-039)"
+  ],
+  "implementation_details": [
+    "DTO parity: field names/structures exactly match the reference payloads consumed by the existing recharts components (A-3).",
+    "SQL aggregations implement the documented metric semantics and are asserted against the T-035 shared fixtures (same numbers from SQL as from pure functions — P-10).",
+    "Escalation panel reuses the alert/escalation rule outputs (T-033) — no formula duplication.",
+    "Set-based queries; no N+1; measure timing in integration tests at seed volume (informal budget assertion)."
+  ],
+  "files": [
+    "src/server/domains/dashboards/composition.ts",
+    "src/server/domains/dashboards/snapshot.ts",
+    "src/server/domains/dashboards/executive.service.ts",
+    "src/server/domains/dashboards/executive.routes.ts",
+    "src/server/domains/dashboards/pipeline.service.ts",
+    "src/server/domains/dashboards/pipeline.routes.ts",
+    "src/server/domains/dashboards/index.ts",
+    "src/server/lib/router/app.ts",
+    "src/server/tests/integration/dashboard-executive.test.ts",
+    "src/server/tests/integration/dashboard-pipeline.test.ts",
+    "src/server/tests/integration/helpers/exec-pipeline-corpus.ts",
+    "src/server/tests/unit/dashboard-composition.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new (formulas unit-tested in T-035)"
+    ],
+    "integration": [
+      "Fixture-based payload assertions: KPIs/funnel/aging/SLA values match shared-fixture expectations; filters change results correctly; drill contexts round-trip",
+      "Tenant isolation (tenant B data never included); permission-bound access; generatedAt + currency metadata present",
+      "Timing sanity at seed volume (<= 2s local budget note)"
+    ],
+    "e2e": [
+      "Executive + Pipeline dashboard specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-074",
+    "AC-075",
+    "AC-077",
+    "AC-079"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-092",
+    "V-093",
+    "V-094",
+    "V-096",
+    "V-097",
+    "V-100"
+  ],
+  "findings": [
+    {
+      "id": "F-036-01",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "MEASURED: the Executive/Pipeline snapshot is NOT narrowed by the from/to filter; the date range is the KPI comparison period only.",
+      "detail": "T-036 scope says both dashboards 'honor the full shared filter bar (T-035 filter applier)'. The reference does not. ExecutiveDashboardStore.ApplyNonDateDimensions (:249-267) and PipelineDashboardStore.ApplyNonDateDimensions (:243-261) apply EXACTLY productLineId, brokerId and regionId. from/to reach only ResolvePeriod (:57-67), which sets the KPI window. Every non-KPI widget (aging donut, 8-week + 6-month trend, 6-month product stacks, high-value table, at-risk table, heatmap) deliberately reads the whole population as-of today -- a 6-month stacked chart under a 1-month filter would render 5 empty columns, and 'open quotes aging' is a statement about now, not about March. T-035's leadFilterWhere() was therefore NOT used for the snapshot (it also pushes from/to and brokerTypeId); reference behaviour was ported and this is flagged rather than resolved. NOTE the reference's own internal asymmetry: its DRILL query DOES apply from/to (ApplyDrillDateAndRegion :313-344), so for these two dashboards a drill can be narrower than the aggregate it came from along the date dimension. That is reference behaviour and bears on AC-076. | RESOLVED 2026-07-20 by T-050, which ported the drill row-query layer and applied the human's ruling: all 31 widget keys now resolve, breadth is applied to aggregates as well as drills, and the non-empty superset invariant is asserted per widget. Verified by the orchestrator on a clean serial sweep (94 files / 3414 passed). Queued for evaluator confirmation alongside T-050."
+    },
+    {
+      "id": "F-036-02",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "MEASURED: dashboard AGGREGATES are not breadth-filtered by leads.view_all; only the drill is. Contradicts T-035's stated AC-076 rationale.",
+      "detail": "T-035's filters.ts documents breadthPredicate() as narrowing the population BEFORE aggregation so 'drill reconciles with its aggregate' holds for a restricted caller. The reference does not do this for these two dashboards: BuildSnapshotAsync carries no breadth predicate, while ListDrillRowsAsync does (ExecutiveDashboardStore.cs:174-185). So a caller without leads.view_all sees TENANT-WIDE aggregates but only their own rows on drill-through. This looks deliberate -- each dashboard is gated on its own dashboards.view_* permission rather than on leads.view, which makes tenant-wide aggregation an explicit grant -- but it is an information-disclosure design decision, it contradicts T-035's comment, and it was NOT silently picked. Reference behaviour ported; escalating for a ruling. | RESOLVED 2026-07-20 by T-050, which ported the drill row-query layer and applied the human's ruling: all 31 widget keys now resolve, breadth is applied to aggregates as well as drills, and the non-empty superset invariant is asserted per widget. Verified by the orchestrator on a clean serial sweep (94 files / 3414 passed). Queued for evaluator confirmation alongside T-050."
+    },
+    {
+      "id": "F-036-03",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "summary": "MEASURED: no dashboard payload carries a generatedAt timestamp, contradicting T-036 scope. Its absence is pinned by test.",
+      "detail": "T-036 scope names a 'generatedAt footer timestamp'. ExecutiveOverviewDto.cs:76-83 and PipelineDashboardDto.cs:102-111 carry only CurrencyCode; GeneratedAt exists solely on export/report metadata (ExportDocument.cs:33). The SPA's ExecutiveOverviewDto/PipelineDashboardDto declare no such field. Adding one would widen a preserved wire contract (A-3) with a field no consumer reads. T-035 recorded the same contradiction independently (payload.ts:112-123). Both suites assert the field is ABSENT so it cannot drift back in."
+    },
+    {
+      "id": "F-036-04",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "summary": "MEASURED: brokerTypeId is accepted on the wire by these two endpoints and applied by neither.",
+      "detail": "DashboardEndpoints.cs binds all eight filter parameters on every dashboard route, but neither ExecutiveDashboardStore nor PipelineDashboardStore references BrokerTypeId. It is applied only by the Broker/RM dashboards' own snapshot queries (T-037). Ported as-is: a caller may send brokerTypeId to /dashboards/executive and it will be ignored. The SPA sends neither brokerTypeId nor teamOrRmId to these two endpoints, so no shipped client is affected."
+    },
+    {
+      "id": "F-036-05",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "summary": "REAFFIRMED from T-035: two incompatible aging-bucket schemes remain, one per dashboard, deliberately not unified.",
+      "detail": "Executive Overview emits the FOUR-bucket scheme ending '15+ days' (GetExecutiveOverviewQueryHandler.cs:228-234); Pipeline emits the SIX-bucket scheme ending '60+' (GetPipelineDashboardQueryHandler.cs:273-284). This task owns both dashboards, so it is the one place the two could be conflated. Each service imports its scheme BY NAME from T-035's metrics module and never spells the labels out. Each suite asserts its own scheme's labels literally AND asserts the counterpart scheme is absent, and two mutants (M1, M3) that swap the schemes are killed. Unifying them would silently change what two shipped dashboards report; still flagged for a product ruling."
+    },
+    {
+      "id": "F-036-06",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "summary": "Q-8 'overdue quotes' is measured against sla_received_to_sent_days because tenant_settings has no prepared-to-sent target.",
+      "detail": "GetPipelineDashboardQueryHandler.cs:418-424 records the same gap and the same rendering. An overdue quote is a pre-sent OPEN quote whose days-since-prepared STRICTLY exceeds that target. If a dedicated prepared-to-sent setting is wanted it needs its own migration and acceptance criterion."
+    },
+    {
+      "id": "F-036-07",
+      "severity": "minor",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "summary": "Four deliberate, documented divergences from the reference, each narrower or more deterministic than what it replaces.",
+      "detail": "(1) The RM dimension resolves through T-035's effectiveRmUserId (teamOrRmId beats rmUserId); the reference's two stores read filter.RmUserId directly and would ignore a lone teamOrRmId. No client sends one to these endpoints, so behaviour coincides for every real caller, and it keeps all five dashboards agreeing on one precedence rule. (2) The accountable-owner lateral is 'order by la.id limit 1'; the reference's ToDictionary(LeadId) THROWS if a lead carries two rm-slot assignment rows, which the schema permits. (3) The funnel's Lost bar picks its stage from an ORDERED list; the reference's FirstOrDefault over an unordered list is non-deterministic when a tenant configures more than one lost status. Identical with a single lost status. (4) Trend axis labels ('Mar 2026', 'Mar 4') come from an explicit month table; the reference passes no culture to ToString, making a shipped chart's labels depend on the host locale while the SPA matches on those strings. All four are asserted by test."
+    },
+    {
+      "id": "F-036-08",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-20T08:30:00-04:00",
+      "summary": "V-093 (corrected 2026-07-20) requires each deliberate filter erasure to be explicitly asserted as accepted-but-unchanged. F-036-04's brokerTypeId erasure on Executive/Pipeline is not asserted that way.",
+      "detail": "MEASURED: dashboard-executive.test.ts:986 ('accepts all eight measured filter parameters on the wire') asserts only response.status===200 for a request carrying brokerTypeId; it does not compare the brokerTypeId-filtered result against the unfiltered result to prove the parameter is accepted AND inert. dashboard-pipeline.test.ts contains ZERO occurrences of 'brokerTypeId' (grep-verified) - the parameter is not even exercised there, let alone proven inert. The corrected V-093 explicitly requires: 'assert the endpoint still ACCEPTS the parameter ... and that the result is UNCHANGED by it. The erasure must be explicit and asserted, so it reads as deliberate rather than forgotten.' The current suites satisfy 'accepted' (no 400) but not 'unchanged', so V-093 as corrected is not yet fully covered by either dashboard's suite. This is a test-authoring gap, not a suspected implementation defect - the erasure reasoning in filters.ts/F-036-04 reads correctly on inspection and typecheck/full suite still pass.",
+      "suggested_fix": "Add, per dashboard, a test that computes the same query with and without brokerTypeId set (holding all other params fixed) and asserts the two payloads are deep-equal (or at minimum the same KPI/table values), then keep the existing 200-not-400 assertion alongside it.",
+      "resolved_at": "2026-07-20T09:10:00-04:00",
+      "resolution": "CLOSED by two new tests, one per dashboard, each asserting the FULL payload is deep-equal between the brokerTypeId-filtered and unfiltered calls. dashboard-executive.test.ts: 'leaves the whole payload UNCHANGED by brokerTypeId, which this dashboard deliberately does not apply' (the pre-existing 'accepts all eight measured filter parameters on the wire' 200-not-400 test was kept, not weakened). dashboard-pipeline.test.ts: 'accepts brokerTypeId and leaves the payload unchanged, because this dashboard ignores it' -- the suite previously had ZERO references to brokerTypeId. Each test first PROVES its filter value discriminating by direct SQL against the corpus, so the deep-equal cannot pass vacuously: brokerTypeT1 selects exactly 2 of the 5 exec/pipeline corpus leads (B1/Tier 1 carries L1 and L3; B2/Tier 2 carries L2 and L5; L4 carries no broker), a proper non-empty subset, and that split is asserted as {matching:'2', total:'5'}. MUTATION PROOF: a brokerTypeId EXISTS-over-brokers predicate was ADDED to snapshotPredicates() in snapshot.ts (the erasure on these two dashboards is an omission, so the mutant restores the dimension). Application proved by sha256 07f7297... -> f7e7237... and line count 496 -> 501; the mutant typechecks (tsc -p tsconfig.server.json exit 0) so the kill proves a NUMBER MOVED and not a compile error. Both new tests went RED and only those two (98 passed / 2 failed across the two suites). Restored and re-verified byte-identical: sha256 back to 07f7297..., 496 lines."
+    },
+    {
+      "id": "F-036-09",
+      "severity": "blocker",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T10:05:00-04:00",
+      "summary": "BLOCKED: the AC-076/V-095 ruling cannot be implemented as briefed -- the five dashboards' 30 drill widget keys are NOT registered in the TS drill registry, so there is no drill to reconcile an aggregate against. The reference's per-dashboard drill row-query layer was never ported.",
+      "detail": "MEASURED BLOCKER, reported instead of implemented. The ruling's stated mechanism -- 'the widget registry already binds each widget key to a scope object, carry the flag there' -- describes the .NET REFERENCE, not the TypeScript port. In the port the registry is `ReadonlyMap<string, DrillRowQuery>` (drill.service.ts:91) with no scope object, and `defaultDrillWidgetRegistry()` (:93-95) contains EXACTLY ONE entry, 'leads.filtered'. `defaultDashboardsDeps()` (index.ts:53-55) returns `{ db: getDb() }` and leaves `drillWidgets` unset, so that default registry is what production serves; `runDrill` (:134-140) throws NotFoundError/UNKNOWN_WIDGET for every other key. Grep-verified: `drillWidgets` appears in src/server ONLY in drill.service.ts and in an index.ts COMMENT that says 'T-036/T-037 override it to add their dashboard widget keys' -- neither task ever did.\n\nCONSEQUENCE FOR THE RULING: all 30 widget keys the five dashboards emit (EXECUTIVE_WIDGET_KEYS 7, PIPELINE_WIDGET_KEYS 8, BROKER_WIDGET_KEYS 5, RM_WIDGET_KEYS 5, LOSS_WIDGET_KEYS 6) are unregistered and 404. AC-076/V-095 as amended assert RECONCILIATION -- 'compute the aggregate, then page the drill for the same filter and caller, and assert the drill's totalCount EQUALS the aggregate'. That assertion cannot be written for 30 of the 31 keys, because there is no drill to page. Change 2 (date filter on drill, per widget) is therefore 100% blocked: it is a change to drill behaviour that does not exist in TS. Change 1 (breadth on aggregates) is implementable in isolation, but its own verification bar is also reconciliation, so it too cannot be verified to the amended bar on these dashboards.\n\nSEPARATELY AND INDEPENDENTLY OF THE RULING, THIS IS A SHIPPED-FUNCTIONALITY GAP: the SPA renders every KPI card, chart and table row with an onClick that navigates to `/dashboards/drill/:widgetKey` (e.g. BrokerPerformancePage.tsx:122, BrokerKpiRow.tsx:48, TopBrokersRanking.tsx:33) and DrillListPage issues `GET /dashboards/drill?widget=...` (dashboardsApi.ts:46) with the key the payload supplied. Every drill chevron on all five dashboards currently 404s. app.ts:477's own comment anticipates exactly this failure mode ('every chart 404ing with the chevron still working').\n\nUNPORTED SURFACE, sized: the reference has a per-dashboard drill layer none of which was ported -- ExecutiveDrillRowQuery.cs, PipelineDrillRowQuery.cs, BrokerDrillRowQuery.cs, RmDrillRowQuery.cs, LossDrillRowQuery.cs; five *DrillScope enums (IExecutiveDashboardStore.cs:57, IPipelineDashboardStore.cs:57, IBrokerPerformanceStore.cs:48, IRmPerformanceStore.cs:51, ILossAnalysisStore.cs:33); five ScopesByKey maps; and DrillWidgetRegistry.cs:24-64 wiring them. The store-side ListDrillRowsAsync bodies alone are ~358 lines of query logic (Executive 76, Pipeline 73, Broker 64, Rm 85, Loss 60).\n\nWHY THIS WAS NOT SILENTLY ABSORBED: porting that layer is a new feature across a task boundary, not the flag change the brief scoped. AC-076's task_ids list T-035, which owns drill.service.ts and the registry; T-036/T-037 own the payload endpoints. Implementing it here would broaden scope well past both task files, and delivering Change 1 alone would shrink the numbers five shipped dashboards report for every caller without leads.view_all while delivering none of the reconciliation that is the ruling's entire justification. NO PRODUCTION CODE WAS CHANGED and no test was written; status left IN_PROGRESS rather than IMPLEMENTED, because neither change can be honestly claimed. Requesting a scope ruling: either extend these tasks (or re-open T-035) to port the drill row-query layer first, or sequence a new task for it and re-run this ruling after."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-20T15:30:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS, on re-review focused on F-036-01/F-036-02's T-050 resolution per the brief (full task was already evaluated to iteration 1). Confirmed F-036-01/F-036-02 genuinely satisfied: breadth now reaches the Executive/Pipeline aggregates (dashboard-filters.test.ts 'narrows the Executive and Pipeline AGGREGATES, not only their drills' -- reproduced passing, total_leads 4->3, total_quotes 8->6 for the restricted caller) and all seven Executive/Pipeline widget keys resolve with an asserted documented population. The seven erasure tests from iteration 1 (F-036-08: two tests, exec + pipeline, brokerTypeId-unchanged deep-equal) read intact and unweakened by direct inspection -- same assertion shape, same discriminating-split proof ({matching:'2',total:'5'}) -- and pass in a fresh run (dashboard-executive.test.ts + dashboard-pipeline.test.ts included in a 320/320 dashboard-suite sweep run in this pass). No regression found in previously-verified behaviour (aging schemes, money handling, generatedAt absence, brokerTypeId erasure) on inspection of the surrounding code, which is unchanged by T-050 except for the breadth predicate now reaching snapshotPredicates. Minor open findings F-036-03/04/05/06 remain open as documented, non-blocking product-decision flags, unchanged by this task.",
+      "raised_by": "evaluator"
+    },
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-10 (Executive, Pipeline), N-04, A-3 DTO parity."
+    },
+    {
+      "timestamp": "2026-07-19T09:15:00-04:00",
+      "event": "note",
+      "message": "OBLIGATION INHERITED FROM T-008 (evaluator, iteration 5, categorised as consumer-side not a T-008 finding): the money-type pins guarantee that `numeric` columns are typed string (never number) throughout the Kysely schema, on Select/Insert/Update. That guarantee is bypassable from consumer code via raw `sql<number>` casts. When this task reads, aggregates or writes premium/threshold values, do NOT cast money to number - keep it string and do arithmetic in SQL (numeric) or with an explicit decimal-safe path. The T-008 pin cannot catch a cast written here. Background: this pin was defeated SIX times during T-008 (three vacuity axes, sampling, nullability mismatch, write-path), so treat money typing as a known-fragile area and assert it in this task's own tests."
+    },
+    {
+      "timestamp": "2026-07-20T08:05:00-04:00",
+      "event": "implemented",
+      "message": "T-036 implemented test-first. RED observed before any production code: both integration suites failed 48/48 on missing getExecutiveOverview/executiveDashboardRoutes and getPipelineDashboard/pipelineDashboardRoutes (96 failing). GREEN: 120 tests (50 executive integration, 48 pipeline integration, 22 composition unit). GATES (serial, after the suites): npm run typecheck 0; npm run lint 0; npm run db:types:check 0 (no schema change -- NO MIGRATION ADDED). Residue verified by direct query: 0 rows for every t36e-/t36p- token across tenants/leads/quotes/reference_items/brokers/parties, and 0 rows total in alerts/lead_assignments/tenant_settings. PORTED FROM THE REFERENCE, NOT FROM CRITERIA WORDING: GetExecutiveOverviewQueryHandler.cs + ExecutiveDashboardStore.cs and GetPipelineDashboardQueryHandler.cs + PipelineDashboardStore.cs, with the wire shapes pinned against the SPA's executiveApi.ts/pipelineApi.ts. Seven measured contradictions recorded as findings F-036-01..07 rather than silently resolved. AGING SCHEMES: Executive emits the FOUR-bucket scheme (labels asserted literally, six-bucket scheme asserted absent); Pipeline emits the SIX-bucket scheme plus the Total column (four-bucket labels asserted absent). Each service imports its scheme by name from T-035 metrics. MONEY: every premium is summed as exact bigint cents via money.ts and widened by Number() exactly once, at the DTO boundary where the SPA contract is a JSON number. The high-value threshold is read as text straight from the column rather than through business-rules findSettings(), which widens it to a double at its own DTO boundary -- honouring the T-008 obligation recorded on this task. MUTATION TESTING: 13 mutants, 13 KILLED, every application proved by sha256 delta (plus line-count delta for the two that add/remove lines) and every restore verified byte-identical against a recorded baseline. Two were initially SURVIVORS and were NOT accepted: M11 (quote aging reference date sent??prepared) and M13 (accountable owner = rm slot) are equivalent under the seeded corpus, so the discriminating state was CONSTRUCTED by direct SQL -- M11 by moving a quote so its prepared and sent dates straddle a bucket boundary, M13 by configuring an underwriter slot and re-inserting the RM row so the underwriter assignment carries the LOWER id that the owner lateral order-by-id would otherwise select. Both then killed. PROCESS FAULTS CAUGHT AND CORRECTED MID-RUN, REPORTED RATHER THAN HIDDEN: (a) M10's restore was correctly REFUSED because its replacement string occurs twice in the file -- the exact trap the brief warns about -- which left composition.ts mutated and produced three FALSE kills for M11/M12/M13; those three were re-run on a hash-verified clean baseline, which is how M11 and M13 were exposed as survivors at all. (b) The Python harness's text-mode I/O rewrote every LF as CRLF, detected only because the restore hashes did not match baseline; both affected files were repaired to LF and the harness moved to binary I/O. (c) M1/M3 were rewritten because their first form would have died on a missing import (a ReferenceError), which proves nothing; the final forms are valid TS and valid JS so the kill proves a NUMBER MOVED. (d) A stray NUL character typed into executive.service.ts as a map-key separator was found by the same hash discipline and replaced with an explicit \\u0000 escape plus a comment. SHARED STATE: index.ts and app.ts were edited LAST, additively, re-read immediately before editing; T-037 had already landed its three routes and both merges are clean. NO existing shared dashboards code was CHANGED -- composition.ts and snapshot.ts are new files added alongside. T-037 independently added an owner.ts accountable-owner predicate that overlaps conceptually with this task owner lateral; not consumed here, flagged for the orchestrator. One test expectation was wrong and the implementation right: open_pipeline_value under a broker filter is 275 (the sum of OPEN QUOTE premium), not 2500 (the lead current quoted premium) -- the exact population conflation this dashboard exists to avoid. The corrected test now asserts both numbers side by side."
+    },
+    {
+      "timestamp": "2026-07-20T08:35:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: NEEDS_FIXES (iteration 1/10). Full suite reproduced first-hand: dashboard-executive.test.ts + dashboard-pipeline.test.ts + dashboard-composition.test.ts = 120/120 pass; typecheck exits 0. Aging-scheme-by-name claim confirmed by direct read (EXECUTIVE_AGING_BUCKETS / PIPELINE_AGING_BUCKETS imported, never spelled out). breadthPredicate() confirmed defined in filters.ts but NOT called anywhere in composition.ts/snapshot.ts/executive.service.ts/pipeline.service.ts -- F-036-02's claim that aggregates are not breadth-filtered is verified true. open_pipeline_value=275-not-2500 correction verified reasoned correctly against the conflation it guards. Reproduced mutant M11 first-hand: flipped executive.service.ts:408 from `quote.sentDate ?? quote.preparedDate` to the reversed form, confirmed sha256 changed, ran dashboard-executive.test.ts and got exactly 1 failure ('ages an open quote from its SENT date...') with the exact expected/received bucket-count shift reported by the implementor, then restored and confirmed sha256 matches the pre-mutation baseline exactly. NEW FINDING F-036-08 (major, evaluator): the corrected V-093 requires each deliberate filter erasure (F-036-04's brokerTypeId) to be asserted as BOTH accepted (no 400) AND result-unchanged; dashboard-executive.test.ts only proves the former (status 200), and dashboard-pipeline.test.ts contains zero references to brokerTypeId at all (grep-verified). F-036-01 and F-036-02 remain OPEN and are NOT to be closed by this evaluation -- they are escalated to the human per the task brief; see the evaluator's final response for the recommendation on each. All other findings (F-036-03, 05, 06, 07) verified consistent with the code and tests on inspection. This task returns to the Implementor solely to close F-036-08 (add accepted-but-unchanged assertions for brokerTypeId to both suites); F-036-01/02 require a human ruling, not an Implementor fix, and should not block re-submission once F-036-08 is closed unless the human's ruling on 01/02 also requires code changes."
+    },
+    {
+      "timestamp": "2026-07-20T09:10:00-04:00",
+      "event": "implemented",
+      "message": "F-036-08 CLOSED. Test-authoring only: NO production code changed, no schema change, no migration. Two tests added. dashboard-executive.test.ts gained 'leaves the whole payload UNCHANGED by brokerTypeId, which this dashboard deliberately does not apply'; dashboard-pipeline.test.ts gained 'accepts brokerTypeId and leaves the payload unchanged, because this dashboard ignores it'. Both compare the FULL DTO with toEqual between the filtered and unfiltered call (not status, not shape). No existing test was weakened or removed -- the pre-existing 'accepts all eight measured filter parameters on the wire' 200-not-400 test remains. DISCRIMINATION ESTABLISHED, NOT ASSUMED: each test opens with a direct SQL count over the exec/pipeline corpus pinning that brokerTypeT1 selects a PROPER, NON-EMPTY subset -- {matching:'2', total:'5'} (B1/Tier 1 holds L1+L3, B2/Tier 2 holds L2+L5, L4 has no broker) -- so an id matching everything or nothing cannot make the deep-equal pass vacuously. MUTATION: the erasure here is an OMISSION, so the mutant ADDS the missing predicate to snapshotPredicates() in snapshot.ts (shared by both dashboards, so one mutant covers both tests). Applied: sha256 07f729765493251b6f44dd679be5fc43a705623bd5743c131fa944b4153f6a51 -> f7e7237aac442a07ae1899bb925ccb8615ec6df4704bbeed0384a3513b2fefb4, lines 496 -> 501. Mutant typechecks clean (tsc exit 0), so the kill is a moved NUMBER and not a syntax/import error. Result: both new tests RED, 2 failed / 98 passed. Restored and hash-verified byte-identical (07f7297..., 496 lines). GATES, serial: the four touched suites isolated 167/167 exit 0; full npm test 94 files / 3397 tests / exit 0 (floor 3390 NOT touched); npm run typecheck 0 (run after the full suite); npm run lint 0. Residue verified by direct query: 0 tenants matching any t36e-/t36p-/t37b-/t37l-/t37r- token and 0 orphaned rows across leads, quotes, brokers, reference_items, parties, lead_assignments, business_assignments, tenant_settings, broker_contacts, quote_versions, audit_log and user_tenants. Touched files checked byte-wise for NUL and CRLF: none, LF throughout. F-036-01 and F-036-02 remain OPEN and untouched -- they await the human ruling, not an Implementor fix."
+    },
+    {
+      "timestamp": "2026-07-20T10:05:00-04:00",
+      "event": "blocked",
+      "message": "STOPPED AND REPORTED WITHOUT IMPLEMENTING, per the brief's instruction to stop rather than silently widen scope. The ruling's mechanism premise is false against this codebase: there is no per-widget 'scope object' in the TS drill registry to carry a date-scoped flag on, and 30 of the 31 dashboard widget keys resolve to no drill query at all (default registry holds only 'leads.filtered'). The amended AC-076/V-095 bar is aggregate-to-drill reconciliation, which is unwritable for those 30 keys. Change 2 is fully blocked; Change 1 (breadth on aggregates) is implementable but unverifiable to the amended bar and would change five shipped dashboards' numbers while delivering none of the reconciliation that justifies it, so it was NOT landed unilaterally. Recorded as F-036-09. No production code, tests, schema or migrations touched; no gates run (nothing to gate); status left IN_PROGRESS and iteration_count left at 1. Also surfaced independently of the ruling: every drill chevron on all five dashboards 404s today, because the SPA navigates on the drillWidgetKey the payload emits."
+    },
+    {
+      "timestamp": "2026-07-20T10:00:00-04:00",
+      "event": "task_blocked",
+      "message": "BLOCKED on T-050. The human's AC-076 ruling cannot be implemented or verified here: the drill row-query layer it operates on was never ported, so 30 of the 31 widget keys these dashboards emit resolve to no drill query. The breadth half is implementable in isolation but unverifiable to the amended V-095 bar, and landing it alone would shrink these dashboards' numbers for every caller without leads.view_all while delivering none of the reconciliation that justifies the change. T-050 ports the layer; this ruling is then applied and verified against it."
+    },
+    {
+      "timestamp": "2026-07-20T14:00:00-04:00",
+      "event": "task_unblocked",
+      "message": "BLOCKED -> IMPLEMENTED. T-050 landed the drill row-query layer these findings were blocked on and applied the human's reconciliation ruling. Nothing in this task's own aggregates changed except the breadth predicate now reaching them, which is the ruling. Handed to the Evaluator with T-050."
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/tm874/.claude/skills/new-feature/**)",
+      "Bash(dotnet --version)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(npm --version)",
+      "Bash(powershell.exe -Command \"npm --version; node --version\")"
+    ]
+  }
+}

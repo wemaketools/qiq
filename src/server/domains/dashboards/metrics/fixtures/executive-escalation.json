@@ -1,0 +1,250 @@
+{
+  "$comment": [
+    "ExecutiveEscalationRule truth table (ExecutiveEscalationRule.cs:26-54, spec FR-61, PRD 18.1).",
+    "",
+    "  qualifies = (highValue AND (stalled OR overdue OR expiring)) OR (strategicParty AND stalled)",
+    "",
+    "The cases below are chosen to make every clause INDEPENDENTLY falsifiable: for each of the three",
+    "high-value triggers there is a case that fires on that trigger alone, and for each AND there is a",
+    "case with one side removed. A truth table that only ever varies two things at once cannot tell a",
+    "dropped clause from a correct one."
+  ],
+
+  "settings": {
+    "highValueThreshold": "100000.00",
+    "stalledLeadDays": 7,
+    "stalledQuoteDays": 14,
+    "quoteExpiryAlertDays": 5
+  },
+  "now": "2026-04-01T00:00:00.000Z",
+  "today": "2026-04-01",
+
+  "cases": [
+    {
+      "name": "high-value and stalled pre-quote qualifies",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-20T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": true,
+      "$why": "12 idle days > stalledLeadDays 7, and 150000 > 100000."
+    },
+    {
+      "name": "high-value and overdue follow-up qualifies with no stall",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-03-30",
+        "quotes": []
+      },
+      "expected": true,
+      "$why": "1 idle day is not stalled; the OVERDUE branch alone carries it."
+    },
+    {
+      "name": "high-value and expiring quote qualifies with no stall and no overdue",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": true,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-05-01",
+        "quotes": [{ "isOpen": true, "validUntil": "2026-04-06" }]
+      },
+      "expected": true,
+      "$why": "validUntil is 5 days out, exactly quoteExpiryAlertDays -- the INCLUSIVE boundary."
+    },
+    {
+      "name": "expiring boundary is exclusive one day further out",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": true,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-05-01",
+        "quotes": [{ "isOpen": true, "validUntil": "2026-04-07" }]
+      },
+      "expected": false,
+      "$why": "6 days out > quoteExpiryAlertDays 5."
+    },
+    {
+      "name": "already-expired quote does not count as expiring",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": true,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-05-01",
+        "quotes": [{ "isOpen": true, "validUntil": "2026-03-25" }]
+      },
+      "expected": false,
+      "$why": "validUntil >= today is required; a lapsed quote is a different alert."
+    },
+    {
+      "name": "closed quote does not count as expiring",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": true,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-05-01",
+        "quotes": [{ "isOpen": false, "validUntil": "2026-04-02" }]
+      },
+      "expected": false
+    },
+    {
+      "name": "high-value alone does not qualify",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-05-01",
+        "quotes": []
+      },
+      "expected": false,
+      "$why": "No stall, no overdue, no expiring -- the AND has nothing on its right."
+    },
+    {
+      "name": "stalled alone does not qualify when not high value and not strategic",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "500.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-01T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": false
+    },
+    {
+      "name": "strategic party and stalled qualifies at any premium",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "500.00",
+        "isStrategicParty": true,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-01T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": true,
+      "$why": "The second disjunct is premium-independent."
+    },
+    {
+      "name": "strategic party alone does not qualify without a stall",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "500.00",
+        "isStrategicParty": true,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-31T00:00:00.000Z",
+        "nextFollowUpDate": "2026-03-01",
+        "quotes": []
+      },
+      "expected": false,
+      "$why": "Overdue does NOT pair with strategic -- only stalled does. This case fails if the rule is written as (strategic AND (stalled OR overdue))."
+    },
+    {
+      "name": "high-value threshold is strictly greater, not greater-or-equal",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "100000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-01T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": false,
+      "$why": "premium > threshold, not >=. Exactly at the threshold is not high value."
+    },
+    {
+      "name": "post-quote leads use the longer stalled-quote threshold",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": false,
+        "hasAnyQuote": true,
+        "lastActivityAt": "2026-03-22T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": false,
+      "$why": "10 idle days exceeds stalledLeadDays 7 but NOT stalledQuoteDays 14. Fires if the two thresholds are swapped."
+    },
+    {
+      "name": "null last activity is never stalled",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": true,
+        "hasAnyQuote": false,
+        "lastActivityAt": null,
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": false,
+      "$why": "IsStalled returns false on a null LastActivityAt rather than treating it as infinitely idle."
+    },
+    {
+      "name": "closed leads are never evaluated",
+      "lead": {
+        "isOpen": false,
+        "premiumAtRisk": "150000.00",
+        "isStrategicParty": true,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-01T00:00:00.000Z",
+        "nextFollowUpDate": "2026-03-01",
+        "quotes": []
+      },
+      "expected": false
+    },
+    {
+      "name": "null premium is never high value",
+      "lead": {
+        "isOpen": true,
+        "premiumAtRisk": null,
+        "isStrategicParty": false,
+        "hasAnyQuote": false,
+        "lastActivityAt": "2026-03-01T00:00:00.000Z",
+        "nextFollowUpDate": null,
+        "quotes": []
+      },
+      "expected": false
+    }
+  ],
+
+  "unsetThreshold": {
+    "$comment": "With no configured high-value threshold the rule NEVER fires on the high-value disjunct, however stalled/overdue/expiring the lead is (ExecutiveEscalationRule.cs:46-47).",
+    "settings": {
+      "highValueThreshold": null,
+      "stalledLeadDays": 7,
+      "stalledQuoteDays": 14,
+      "quoteExpiryAlertDays": 5
+    },
+    "lead": {
+      "isOpen": true,
+      "premiumAtRisk": "999999999.00",
+      "isStrategicParty": false,
+      "hasAnyQuote": false,
+      "lastActivityAt": "2026-03-01T00:00:00.000Z",
+      "nextFollowUpDate": "2026-03-01",
+      "quotes": []
+    },
+    "expected": false
+  }
+}

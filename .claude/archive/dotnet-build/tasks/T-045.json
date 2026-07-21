@@ -1,0 +1,122 @@
+{
+  "id": "T-045",
+  "title": "Global-permission session model: zero-membership Internal users can drive the shell",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-044"
+  ],
+  "objective": "Close the gap T-044 flagged: a zero-membership Internal user (seeded internal1, spec FR-16) got an empty memberships array from GET /me, so the SPA had no permission context at all — empty sidebar, Forbidden landing, and no way to reach Tenant Manager or switch into tenants despite holding global.view_any_tenant/tenants.*. The session model now carries tenant-less global grants end-to-end and supports cross-tenant switching per PRD 5.3.",
+  "scope": [
+    "API: GetMeResult gains globalPermissions (EffectivePermissionResolver.ResolveAsync with a null tenant scope = exactly the tenant-less grants)",
+    "API: SetMePreferences accepts a lastTenantId the caller is NOT a member of when ITenantAccessValidator says Ok (member OR Internal cross-tenant grant) — same validator the tenant-context middleware uses; still 403 for plain non-members",
+    "SPA session: SessionState.globalPermissions; selectHasPermission/selectHasAnyPermission union tenant-scoped + global grants (faithful to the backend resolver, which already unions global grants into every tenant's effective set)",
+    "SPA: DefaultLanding includes global grants, so internal1 lands on Tenant Manager",
+    "SPA: TenantSwitcher offers every active tenant (GET /tenants) to global.view_any_tenant holders; picking a non-member tenant synthesizes a session membership whose permission set is the global grants, then corrects the display currency from the tenant's business rules",
+    "SPA: AuthProvider rehydrates a persisted cross-tenant lastTenantId on reload (GET /tenants/{id} + the same synthesized-membership pattern), falling back to first membership when the selection is not restorable"
+  ],
+  "out_of_scope": [
+    "Granting Internal users tenant-workspace permissions (leads etc.) — inside a switched tenant they can do exactly what their global grants allow, per least privilege",
+    "An 'all tenants' switcher for multi-membership users WITHOUT global.view_any_tenant (their switcher remains memberships-only)"
+  ],
+  "implementation_details": [
+    "A synthesized cross-tenant membership's permission set = the caller's global grants — exactly what EffectivePermissionResolver yields for a non-member in any tenant, so UI gates match backend enforcement",
+    "Tenant-scoped API calls from a switched-in Internal user pass TenantContextMiddleware via its existing IsCrossTenant path (no middleware change needed)",
+    "Display currency for a cross-tenant context starts as a BWP placeholder and is corrected via the membership-only GET /settings/business-rules read (T-044)"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Me/GetMe/GetMeQuery.cs + GetMeQueryHandler.cs",
+    "src/api/QuoteIQ.Application/Features/Me/SetPreferences/SetMePreferencesCommandHandler.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Me/GetMeTests.cs + SetMePreferencesTests.cs",
+    "src/ui/src/app/slices/sessionSlice.ts (+ sessionSlice.test.ts)",
+    "src/ui/src/api/me.ts",
+    "src/ui/src/auth/AuthProvider.tsx",
+    "src/ui/src/app/DefaultLanding.tsx (+ app/__tests__/DefaultLanding.test.tsx)",
+    "src/ui/src/components/shell/TenantSwitcher.tsx (+ __tests__/TenantSwitcher.test.tsx)"
+  ],
+  "test_plan": {
+    "unit": [
+      "sessionSlice: selectors resolve global grants with no active tenant (new)",
+      "DefaultLanding: zero-membership internal with global tenants.view lands on Tenant Manager (new)",
+      "TenantSwitcher: zero-membership internal sees all active tenants (removed tenants excluded); picking one synthesizes a membership from global grants and corrects currency (2 new)"
+    ],
+    "integration": [
+      "GetMe_WhenZeroMembershipInternalUser_ShouldReturnGlobalPermissionsWithNoMemberships (new)",
+      "SetPreferences_WhenInternalUserPicksNonMemberTenant_ShouldPersist (new); SetPreferences_WhenLastTenantIdNotAMember_ShouldReturn403 unchanged and still green (plain users still rejected)",
+      "Full dotnet test QuoteIQ.slnx regression gate"
+    ],
+    "e2e": [
+      "Scripted internal1 flow: lands on /admin/tenants (no Forbidden), switcher lists every active tenant, switch into The Brittany works, full reload rehydrates the cross-tenant context, zero failing API calls",
+      "7-role crawl: 0 distinct API failures, permitted landing for every persona including internal1",
+      "Existing Playwright suite stays green"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-084"
+  ],
+  "verification_ids": [
+    "V-084"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "verification",
+      "description": "V-084 designates a scripted Playwright internal1 flow as the e2e verification for AC-084 (lands on /admin/tenants, all-tenants switcher, switch into The Brittany, cross-tenant context survives a full reload, zero failing API calls), and the gate report claims 'live internal1 flow verified incl. reload rehydration'. No such spec exists as a committed, repeatable Playwright test in e2e_tests/tests/ (grep for internal1/crawl across e2e_tests excluding node_modules returns nothing); it was run ad-hoc from the scratchpad. The reload-rehydration path (AuthProvider.resolveCrossTenantMembership) and the all-tenants switcher are only covered by frontend unit tests, so the end-to-end reload/persistence claim of AC-084 is not reproducible in CI.",
+      "evidence": "ls e2e_tests/tests/ shows no internal1/cross-tenant flow spec; AC-084 test_levels include e2e; V-084 api.approach describes the scripted internal1 login+switch+reload flow.",
+      "suggested_fix": "Commit a Playwright spec (e.g. e2e_tests/tests/internal-cross-tenant.spec.ts) that logs in as internal1, asserts the /admin/tenants landing and full tenant list, switches into a non-member tenant, reloads, and asserts the cross-tenant context is restored with zero failing API calls.",
+      "status": "resolved",
+      "resolution_confirmed": "Evaluator re-audit (iteration 2, 2026-07-14): CONFIRMED. internal-cross-tenant.spec.ts faithfully implements V-084's scripted internal1 e2e flow: land on /admin/tenants (sidebar-nav visible, forbidden-page count 0, tenant-list visible), all-tenants switcher lists non-member 'The Brittany', switch into it while awaiting the PUT /me/preferences that persists the non-member lastTenantId, then a REAL full page.reload() followed by rehydration assertions (active-tenant-name still 'The Brittany', nav-tenant-manager visible, no Forbidden) - the AuthProvider cross-tenant rehydration path that was previously unit-only is now genuinely exercised end-to-end. The >=400 /api/v1 listener is attached before loginAs and asserted empty. Selectors match TenantSwitcher.tsx (tenant-switcher/active-tenant-name and the real select/option tenant-name structure), tenant-list, sidebar-nav, forbidden-page, nav-tenant-manager - all existing production testids; none added. The V-084 negative 'force-navigate a switched-in Internal to a permission-lacking route -> Forbidden' is not in this spec but is an api.negative_tests item (Forbidden behavior is separately covered by rbac-visibility.spec.ts); the F-001 blocker was specifically the missing land/switch/full-reload-rehydration flow, which is now closed. seed-authz-e2e.sh only resets internal1's password / clears required actions - grants no permissions, so the zero-membership premise is preserved. tsc --noEmit exit 0; playwright test --list discovers the test. Live-stack run not possible in this environment (accepted limitation).",
+      "resolution": "Committed e2e_tests/tests/internal-cross-tenant.spec.ts: logs in as internal1@thebrittany.test (zero-membership Internal, global grants), asserts sidebar-nav visible + forbidden-page count 0 + landing URL /admin/tenants with tenant-list visible, asserts the all-tenants switcher lists the non-member tenant 'The Brittany' (removed-exclusion remains unit-covered by TenantSwitcher.test since no removed tenant is seeded), switches into it (awaiting the PUT /me/preferences that persists a non-member lastTenantId), then performs a full page.reload() and asserts the cross-tenant context is rehydrated (active-tenant-name still 'The Brittany', nav-tenant-manager visible, no Forbidden) — the AuthProvider reload path previously only unit-covered. A page-level response listener asserts zero /api/v1 responses >= 400 throughout. The T-041 personas are made loggable-in by the added e2e_tests/seed/seed-authz-e2e.sh. tsc --noEmit over e2e_tests passes (exit 0); playwright --list discovers the test. NOT executed against the live stack here (global-setup fails fast — API/Keycloak/SPA + T-041 seed not running); reproducible via: dotnet run --project QuoteIQ.Api -- seed, then bash e2e_tests/seed/seed-authz-e2e.sh, then npx playwright test internal-cross-tenant.spec.ts.",
+      "created_at": "2026-07-14T03:40:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "Security review of the global-permission session model passed with no escalation path. EffectivePermissionResolver.ResolveAsync(userId, null) filters every grant path to null-scoped rows only (up.TenantId == null; role/group TenantId == null), so GlobalPermissions carries exactly the tenant-less grants and never leaks tenant-scoped permissions; this equals a non-member's effective set in any tenant, so the SPA's synthesized cross-tenant membership (TenantSwitcher/AuthProvider, permissions = globalPermissions) matches backend enforcement. SetMePreferences gates a non-member lastTenantId through the same ITenantAccessValidator the middleware uses, so a plain non-member still gets 403 (SetPreferences_WhenLastTenantIdNotAMember_ShouldReturn403) while an Internal view-any-tenant holder persists it. No privilege escalation found.",
+      "evidence": "src/api/QuoteIQ.Infrastructure/Security/EffectivePermissionResolver.cs (null-tenant filters); GetMeQueryHandler.cs line 64; SetMePreferencesCommandHandler.cs lines 64-71; sessionSlice.ts selectHasPermission union; AuthProvider.tsx resolveCrossTenantMembership; Me/GetMeTests + SetMePreferencesTests.",
+      "suggested_fix": "None — informational; no security issue found.",
+      "status": "open",
+      "created_at": "2026-07-14T03:40:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-14T04:20:00-04:00",
+      "event": "task_passed",
+      "message": "T-045 PASS (fix iteration 2/10). Evaluator re-audit CONFIRMED F-001 resolved: committed internal-cross-tenant.spec.ts faithfully implements V-084 (internal1 lands /admin/tenants, all-tenants switcher lists non-member 'The Brittany', switch awaits PUT /me/preferences, REAL page.reload() + rehydration assertions exercising the previously unit-only AuthProvider path, >=400 listener asserted empty); existing TenantSwitcher testids only; seed helper preserves the zero-membership premise; tsc exit 0, playwright --list discovers it. Security clean (F-002). Live-stack run deferred to CI (accepted env limitation). 34 tasks PASS, 0 FAIL.",
+      "iteration_count": 2
+    },
+    {
+      "timestamp": "2026-07-14T01:10:00-04:00",
+      "event": "created",
+      "message": "Created from the user's report that internal1 still saw 'You don't have permission' — the session-model gap T-044 had flagged as out of scope."
+    },
+    {
+      "timestamp": "2026-07-14T03:50:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-045 NEEDS_FIXES -> fix iteration 2/10 (iteration_count 1->2). Evaluator confirmed implementation + security are sound (ResolveAsync(userId,null) yields only tenant-less grants = non-member effective set, no leakage; SetMePreferences gates non-member lastTenantId via ITenantAccessValidator - plain non-members still 403; no escalation) and re-ran all runnable suites green. Sole blocker F-001 (major, verification): the V-084 internal1 cross-tenant flow (land Tenant Manager, all-tenants switcher, switch, full-reload rehydration, zero failing calls) is not committed as a repeatable Playwright spec; reload path only unit-covered. Routed to Implementor to commit e2e_tests/tests/internal-cross-tenant.spec.ts. F-002 info (security clean).",
+      "iteration_count": 2
+    },
+    {
+      "timestamp": "2026-07-14T02:20:00-04:00",
+      "event": "implementation_written",
+      "message": "Tests first (4 UI suites extended + 2 API tests), then GetMe globalPermissions, SetMePreferences validator swap, session union selectors, cross-tenant switcher, and AuthProvider rehydration."
+    },
+    {
+      "timestamp": "2026-07-14T02:40:00-04:00",
+      "event": "gates_run",
+      "message": "All gates green: frontend typecheck/lint-baseline/build clean, vitest 348/348; backend full suite (Api 277 incl. 2 new, Application 32, Infrastructure 91, exit 0); Playwright 27 passed / 24 pre-existing fixme; live internal1 flow verified incl. reload rehydration; 7-role crawl 0 failures."
+    },
+    {
+      "timestamp": "2026-07-14T09:30:00-04:00",
+      "event": "implementation_written",
+      "message": "Fix iteration 2/10, F-001 (verification) resolved. Committed e2e_tests/tests/internal-cross-tenant.spec.ts (V-084/AC-084): logs in as internal1@thebrittany.test, asserts the /admin/tenants landing (no Forbidden) with tenant-list visible, asserts the all-tenants switcher lists non-member tenant 'The Brittany', switches into it (awaiting PUT /me/preferences), then a full page.reload() and asserts the cross-tenant context is rehydrated (active-tenant-name 'The Brittany', nav-tenant-manager visible, no Forbidden), with a page-level >= 400 /api/v1 response listener asserting zero failing calls. No production/backend/session/test changes; reuses existing data-testids (sidebar-nav, forbidden-page, tenant-list, tenant-switcher, active-tenant-name, nav-tenant-manager) — no testids added. Relies on the shared e2e_tests/seed/seed-authz-e2e.sh (added under T-044) to give internal1 a known password. Gates run here: `npx tsc --noEmit -p tsconfig.json` over e2e_tests = exit 0; `npx playwright test --list` discovers the test. Could NOT run against the live stack (global-setup fails fast: API not reachable at http://localhost:5080/health; no running Keycloak/SPA + T-041 seed). Remaining to run against a live seeded stack: `dotnet run --project QuoteIQ.Api -- seed`, then `bash e2e_tests/seed/seed-authz-e2e.sh`, then `npx playwright test internal-cross-tenant.spec.ts`.",
+      "iteration_count": 2
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "id": "T-018",
+  "title": "Leads backend core: create, list, get, edit, references, duplicate check, bulk reassign",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-017", "T-010", "T-011"],
+  "objective": "Leads can be created per the FR-29/FR-30 intake contract (with system ref generation, inline party creation, duplicate warning, priority derivation), listed with full filtering and breadth-permission enforcement, edited (facts only), and bulk-reassigned (spec FR-29..FR-32, FR-43 backend, §9.3).",
+  "scope": [
+    "Tables: leads, lead_assignments, lead_notes, reference_sequences (all partitioned except reference_sequences keyed by tenant)",
+    "CreateLead, UpdateLead, GetLead, ListLeads, BulkReassign handlers + endpoints",
+    "ReferenceSequenceService + lead ref formatting",
+    "DuplicateLeadChecker",
+    "Party list lead-counts columns + GET /api/v1/parties/{id}/leads (completes T-017 list)"
+  ],
+  "out_of_scope": ["Workflow operations and status history (T-019)", "API intake endpoint (T-030)", "Quotes (T-020)"],
+  "implementation_details": [
+    "Liquibase 090-leads: leads with all spec §11.3 columns (status_id FK reference_items lead status; policy_term text check + policy_term_other text null per Q-11; source text check in ('browser','api'); intake_credential_id bigint null; region_id bigint not null — lead region required per Q-9 clarification; broker_id nullable; unique (tenant_id, lead_ref)); lead_assignments (tenant_id, id, lead_id, business_assignment_id, user_id, unique (tenant_id, lead_id, business_assignment_id)); lead_notes; reference_sequences (tenant_id, entity_type, year, next_value, PK (tenant_id, entity_type, year))",
+    "Infrastructure/Sequences/ReferenceSequenceService.cs: AllocateAsync(entityType) -> next value via SELECT ... FOR UPDATE within ambient transaction; combined with ReferenceFormatTemplate (T-010) in LeadReferenceGenerator",
+    "Features/Leads/CreateLead: CreateLeadCommand carrying Party selection (PartyId XOR InlineParty payload reusing CreatePartyCommand rules), IsExistingClient (required), DateReceived (required, not future), RequestChannelId (required), BrokerId (required iff channel is_broker_channel else optional), OwnerUserId (required; must be eligible for the accountable-owner role via T-011 eligibility), RegionId (required; defaults applied client-side from party), ExternalRef (only when tenant manual_external_ref_enabled; non-blocking uniqueness warning), ProductLineId + CoverTypeId (required; cover type must belong to product line), SumInsured?/EstimatedPremium? (>0 when present), PolicyTerm + PolicyTermOther (required iff Other), Priority (derived High when EstimatedPremium > tenant high_value_threshold, overridable), IntakeNotes -> lead_notes row; handler: generate lead_ref, insert lead with status = canonical 'new' reference item, insert accountable-owner lead_assignment when owner set... note: owner presence at create means status stays New until Assign operation? Per PRD 10.4 New->Assigned happens when accountable owner set via Assign; but intake Owner field is required in browser — decision recorded in spec FR-29/PRD 9.3: browser-created leads store the owner assignment AND remain status New; the T-019 Assign operation transitions status. Implementor must surface this in GetLead availableOperations so Assign is the primary action for New leads with a pre-set owner (it confirms/records date_assigned)",
+    "DuplicateLeadChecker: open lead (reporting category open/quoted) same party + product line within tenant duplicate_check_days -> returns warning payload {duplicates:[{leadId, leadRef, status, dateReceived}]}; POST /leads accepts createAnyway:true to bypass; response without createAnyway returns 409-style warning envelope {warnings, requiresConfirmation:true} and does not persist",
+    "ListLeadsQuery: filters status[], ownerUserId, brokerId, productLineId, regionId, requestChannelId, dateReceived range, myLeads bool, search (lead_ref/party/broker prefix+trigram); breadth: without PermissionCatalog.Leads.ViewAll restrict to leads having any lead_assignment with current user; sort whitelist, default date_received desc; page size 25; row DTO computes age days, premium display (estimated vs current quoted — quoted branch activates in T-020), flags placeholder",
+    "UpdateLeadCommand: intake facts only (FR-30/FR-32); rejects when lead closed (reporting category terminal) unless caller has Leads.CorrectClosed; BulkReassignCommand{leadIds[], newOwnerUserId, note (required per Q-12)} -> per-lead: swap accountable-owner assignment, audit entry per lead; GET /api/v1/parties/{id}/leads + open/total counts and last_activity on party list"
+  ],
+  "files": [
+    "src/api/db/changelog/090-leads/*.xml",
+    "src/api/QuoteIQ.Domain/Entities/Lead.cs",
+    "src/api/QuoteIQ.Domain/Entities/LeadAssignment.cs",
+    "src/api/QuoteIQ.Infrastructure/Sequences/ReferenceSequenceService.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/CreateLead/*.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/UpdateLead/*.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/ListLeads/*.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/GetLead/*.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/BulkReassign/*.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/DuplicateLeadChecker.cs",
+    "src/api/QuoteIQ.Api/Endpoints/LeadEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Leads/CreateLeadTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Leads/ListLeadsTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Leads/BulkReassignTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "LeadReferenceGenerator_WhenSeq4_ShouldFormatLikeL20260421 (pure, with fixed sequence input)"
+    ],
+    "integration": [
+      "CreateLead_WithExistingParty_ShouldCreateWithGeneratedRefAndStatusNew",
+      "CreateLead_WithInlineParty_ShouldCreatePartyAndLeadAtomically",
+      "CreateLead_WhenBrokerChannelWithoutBroker_ShouldReturnValidationError",
+      "CreateLead_WhenCoverTypeNotOfProductLine_ShouldReturnValidationError",
+      "CreateLead_WhenPolicyTermOtherWithoutText_ShouldReturnValidationError",
+      "CreateLead_WhenOpenDuplicateInWindow_ShouldReturnWarningAndNotPersist_UntilCreateAnyway",
+      "CreateLead_WhenPremiumAboveThreshold_ShouldDerivePriorityHigh",
+      "ParallelCreates_ShouldAllocateUniqueSequentialRefs",
+      "ListLeads_WithoutViewAll_ShouldReturnOnlyAssignedLeads",
+      "ListLeads_MyLeadsToggle_ShouldFilterToAssignments",
+      "BulkReassign_WithoutNote_ShouldReturnValidationError; WithNote_ShouldSwapOwnerAndAuditPerLead",
+      "UpdateLead_OnClosedLead_WithoutCorrectionPermission_ShouldReturn403"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-028", "AC-029", "AC-030", "AC-065"],
+  "verification_ids": ["V-028", "V-029", "V-030", "V-065"],
+  "findings": [
+    {
+      "id": "F-054",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "documentation",
+      "description": "Stale/contradictory comment in the leads changelog: 090-leads.xml lines 29-32 + header L11-12 state reference_sequences is 'deliberately excluded from create_tenant_partitions.sql' and 'created as a single flat table', but the 093 changeset actually creates it LIST-partitioned with composite (tenant_id,id) PK and it IS registered in create_tenant_partitions.sql:19. Only the earlier prose is out of date; no functional impact.",
+      "evidence": "src/api/db/changelog/090-leads/090-leads.xml:11-12,29-32 vs the 093 changeset + create_tenant_partitions.sql:19.",
+      "recommendation": "Update the stale comment prose to match the partitioned reality. Non-blocking documentation cleanup.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T11:40:00-04:00"
+    },
+    {
+      "id": "F-055",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "V-030 lists 'outside window -> no warning' as a negative; the closed-status negative (WhenExistingLeadIsClosed_ShouldNotWarnAsDuplicate) is present, but there is no explicit integration test for a duplicate whose date_received is older than duplicate_check_days. The window logic (DateReceived >= sinceDateReceived) is trivial and one negative branch is covered, so minor.",
+      "evidence": "DuplicateLeadChecker window predicate; no window-boundary test in CreateLeadTests.",
+      "recommendation": "Add a window-boundary test (a same-party+product-line open lead just OUTSIDE duplicate_check_days -> no warning) when convenient. Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T11:40:00-04:00"
+    },
+    {
+      "id": "F-056",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "IsExistingClient is a non-nullable bool, so an omitted value deserializes to false rather than producing a 422 - 'required' is satisfied structurally, not by validation. Acceptable; the intake form always supplies it.",
+      "evidence": "CreateLeadRequest.IsExistingClient (non-nullable bool).",
+      "recommendation": "If strict presence-validation is desired later, make it nullable + Required-validated. Acceptable as-is.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T11:40:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-29..FR-32, FR-43, §9.3, Q-11, Q-12)" },
+    { "timestamp": "2026-07-13T09:35:00-04:00", "event": "task_started", "message": "T-018 IN_PROGRESS; delegated to Implementor (iteration 1/10). Deps T-017 (parties) + T-010 (business rules incl. ReferenceFormatTemplate, high_value_threshold, duplicate_check_days, manual_external_ref) + T-011 (business assignments / accountable-owner eligibility) all PASS. Large backend task, test-first (real Postgres+Keycloak Testcontainers, no mocks, AAA): Liquibase 090-leads (leads all spec 11.3 cols, lead_assignments, lead_notes, reference_sequences); ReferenceSequenceService (SELECT..FOR UPDATE) + LeadReferenceGenerator; CreateLead (FR-29 intake contract: PartyId XOR InlineParty, required region per Q-9, broker required iff broker-channel, cover-type-belongs-to-product-line, policy_term_other iff Other per Q-11, priority High derivation from high_value_threshold overridable, ExternalRef non-blocking uniqueness warning iff manual enabled, status canonical 'new' + accountable-owner lead_assignment); DuplicateLeadChecker (open lead same party+product-line within duplicate_check_days -> 409-style requiresConfirmation envelope, createAnyway bypass, no persist without confirm); ListLeads (full filters + breadth: no Leads.ViewAll -> only assigned; trigram search; page 25); UpdateLead (facts only, closed needs Leads.CorrectClosed); BulkReassign (note required per Q-12, per-lead owner swap + audit); GET /parties/{id}/leads + party lead-counts. AC-028/029/030/065." },
+    { "timestamp": "2026-07-13T11:30:00-04:00", "event": "implementation_written", "message": "T-018 IMPLEMENTED (iteration 1/10), test-first, integration-heavy (real Postgres+Keycloak Testcontainers). Liquibase 090-leads (leads all 11.3 cols incl. region_id NOT NULL Q-9, policy_term+policy_term_other Q-11, source check browser|api, unique tenant+lead_ref; lead_assignments unique tenant+lead+business_assignment; lead_notes; reference_sequences PK tenant+entity_type+year), registered in create_tenant_partitions + master, applied live + idempotent. ReferenceSequenceService.AllocateAsync (INSERT ON CONFLICT DO NOTHING then SELECT next_value FOR UPDATE then UPDATE, in ambient IUnitOfWork tx - race-safe) + pure LeadReferenceGenerator. Features/Leads Create/Update/List/Get/BulkReassign/GetPartyLeads + DuplicateLeadChecker. KEY DECISIONS honored: New-stays-New (CreateLead stores accountable-owner LeadAssignment but leaves StatusId canonical 'new'; LeadDto.ComputeAvailableOperations surfaces 'assign' for new - minimal seam pending T-019 full legality matrix); duplicate-check CreateLeadOutcomeDto success(201) vs confirm-gated (Lead=null, DUPLICATE_LEAD warning, RequiresConfirmation=true, 409, nothing persists), createAnyway bypass (verified by DB counts); breadth resolved SERVER-side via ICurrentUser/IEffectivePermissionResolver + EXISTS(lead_assignments) predicate (not client-supplied); IUnitOfWork.ExecuteInTransactionAsync commit-on-success/rollback (inline-party atomicity proven both directions). PermissionCatalog +Leads.Reassign (bulk, distinct from T-019 single Leads.Assign) +Leads.CorrectClosed (checked in handler for closed leads), MIRRORED to src/ui/src/features/userManager/permissionCatalog.ts (T-015 drift-guard enforces pairing). Added IReferenceDataStore.FindActiveAsync/FindByCanonicalKeyAsync. NOTABLE [EVALUATOR verify - touches PASSED T-011]: BusinessAssignmentStore.HasLiveAssignmentsAsync now really checks lead_assignments (its own documented T-018 follow-up; quote_assignments stays safe no-op for T-020); retired T-011 test RemoveRoleConfiguration_WhenLeadQuoteAssignmentTablesAbsent_ShouldSucceedAsSafeNoOp (its Assert.False(tableExists) now correctly fails since lead_assignments exists) and REPLACED with RemoveRoleConfiguration_WhenNoLiveLeadAssignments_ShouldSucceed + _WhenLiveLeadAssignmentExists_ShouldReturn409 exercising the real in-use predicate - this is T-011's deferred guard activating as designed, not a weakening. Also added tests/QuoteIQ.Api.Tests/xunit.runner.json capping collection parallelism to 4 (Docker container-start flake mitigation for ~20 container-per-class classes; not a real failure). AMBIGUITIES FLAGGED: UpdateLeadCommand deliberately excludes PartyId reassignment + OwnerUserId (owner changes belong to T-019 Assign/Reassign, not Edit); Party.LastActivityAt driven by lead creation only (documented reading of 'lead-activity events'). Tests: Domain LeadReferenceGeneratorTests (pure) + Api 20 net new (9 CreateLead, 2 ListLeads, 2 BulkReassign, 3 UpdateLead, 2 PartyLeads, +2 replacing 1 retired). ParallelCreates_ShouldAllocateUniqueSequentialRefs fires 8 concurrent real HTTP creates -> contiguous 1..8, passed first try. Playwright lead-intake.spec.ts 3 test.fixme (Leads UI T-026; every assertion proven server-side). Full suite twice: Domain 11/11, Infrastructure 45/45, Api 199/199 = 255/255 both runs after Docker cleanup. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T11:40:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS. AC-028/029/030/065 all met with covering tests; no critical/high/major security findings. Independent suite (first pass, no pruning needed, no flakes): Domain 11/11, Infrastructure 45/45, Api 199/199 = 255/255, build clean. Contract rulings all confirmed: New-stays-New (owner LeadAssignment stored, StatusId canonical new, availableOperations=[assign], tested); duplicate-confirm envelope correct + distinct from T-017 non-blocking (RequiresConfirmationFor before tx, nothing persists, DB-count verified); sequence concurrency genuinely race-safe (INSERT ON CONFLICT DO NOTHING + SELECT next_value FOR UPDATE + UPDATE on ambient tx, row lock held to commit, ParallelCreates 8-concurrent contiguous 1..8 passed on evaluator run); atomicity (validation before tx, invalid inline-party leaves party count 1, no orphan); breadth resolved server-side from IEffectivePermissionResolver/ICurrentUser with EXISTS predicate, ownerUserId filter composes on top so cannot bypass breadth. T-011 TOUCH RULED CORRECT EVOLUTION (not regression): HasLiveAssignmentsAsync now real lead_assignments EXISTS, quote_assignments still guarded no-op for T-020; retired test's Assert.False(tableExists) is now genuinely impossible; 2 replacements exercise the real predicate (WhenNoLive->200, WhenLive->409 ASSIGNMENT_ROLE_IN_USE); no still-relevant behavior lost. Tenant isolation/404/F-035 hold. Parallelism cap legitimate (parallelizeTestCollections stays true, only maxParallelThreads=4; per-tenant isolation, order-independent, hides nothing). Playwright lead-intake.spec.ts 3 legit test.fixme (Leads UI T-026) mapped to server-side proofs. Non-blocking info findings F-054 (stale changelog comment vs partitioned reality), F-055 (minor: no explicit duplicate-window-boundary test), F-056 (IsExistingClient structural-required not validated). Recommend PASS." },
+    { "timestamp": "2026-07-13T11:42:00-04:00", "event": "task_passed", "message": "T-018 PASS (iteration 1/10). Backend suite 255/255 (Domain 11, Infrastructure 45, Api 199). AC-028/029/030/065 satisfied; V-028/029/030 Playwright carried as test.fixme until T-026 Leads UI, V-065 backend portion covered. The central lead-intake domain: race-safe refs, confirm-gated duplicate, server-side breadth, transactional inline-party, bulk reassign, T-011 in-use guard activated. Non-blocking findings F-054/F-055/F-056 recorded OPEN. T-018 PASS UNBLOCKS T-019 (Lead workflow engine; dep T-018), T-027 (Leads list UI; deps T-013+T-018), T-030 (API intake; deps T-018+T-016) to READY. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

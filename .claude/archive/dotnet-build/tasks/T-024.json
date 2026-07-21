@@ -1,0 +1,87 @@
+{
+  "id": "T-024",
+  "title": "Alerts backend: rules, evaluation job, queue/summary/badge endpoints",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-023"],
+  "objective": "All eleven alert types are materialized by a reconciliation job driven by tenant thresholds, exposed via summary/queue/badge endpoints with per-user new-since-last-visit semantics, and re-evaluated after workflow operations (spec FR-61..FR-63, A-6, §9.4).",
+  "scope": [
+    "alerts + user_alert_views tables",
+    "IAlertRule implementations for the 11 types incl. ExecutiveEscalationRule (Q-10)",
+    "AlertEvaluationJob (15 min) + targeted re-evaluation via IAlertReevaluationQueue",
+    "Endpoints: GET /alerts/summary, GET /alerts, GET /alerts/badge, POST /alerts/badge/reset",
+    "Alert clearing/downgrade when the triggering condition resolves"
+  ],
+  "out_of_scope": ["Alerts center UI (T-037)", "Dashboard attention panels (T-032/T-033 consume these endpoints)"],
+  "implementation_details": [
+    "Liquibase 130-alerts: alerts (tenant_id, id, type text check in ('unassigned_lead','overdue_follow_up','stalled_lead','stalled_quote','quote_expiring','quote_expired','sla_breach','high_value_stalled','pending_pricing_approval','awaiting_underwriting','executive_escalation'), lead_id, quote_id null, severity text, premium_at_risk numeric null, created_at, resolved_at null, resolved_reason text null, unique open alert per (tenant_id,type,lead_id,coalesce(quote_id,0)) via partial index); user_alert_views (user_id, tenant_id, last_opened_at, PK(user_id,tenant_id))",
+    "Domain/Alerts/IAlertRule.cs: interface { AlertType Type; IReadOnlyList<AlertCandidate> Evaluate(AlertEvaluationContext ctx); } with pure implementations per type parameterized by TenantSettings — one class per rule under Domain/Alerts/Rules/ (UnassignedLeadRule: lead status new + age > unassigned_lead_hours; OverdueFollowUpRule; StalledLeadRule (open pre-quote, no activity stalled_lead_days); StalledQuoteRule; QuoteExpiringRule (valid_until within quote_expiry_alert_days); QuoteExpiredRule; SlaBreachRule (assignment/underwriting/received-to-sent targets); HighValueStalledRule; PendingPricingApprovalRule (pending > pricing_approval_target_days); AwaitingUnderwritingRule; ExecutiveEscalationRule per Q-10: highValue && (stalled || overdue || expiring) || strategicParty && stalled); AlertEvaluationContext carries prefetched lead/quote snapshots so rules stay pure and unit-testable",
+    "Infrastructure/Jobs/AlertEvaluationJob.cs (recurring */15 min): per tenant, compute candidates, reconcile with open alert rows: insert missing (created_at now), resolve rows whose condition cleared (resolved_reason 'rule_cleared'); workflow operations that touch an item enqueue targeted re-evaluation (Hangfire fire-and-forget) implementing IAlertReevaluationQueue from T-019 — completing an action thereby clears or downgrades its alert (FR-62 Action column semantics)",
+    "Features/Alerts: GetAlertSummaryQuery -> category cards {type, definition, count} + rollup {premiumAtRisk, quoteCount}; ListAlertsQuery {tab: all|escalated|overdue|expiring|sla, ownerUserId, productLineId, coverTypeId, regionId, priority, paged} joining lead/quote display fields (ref, client, broker or 'Direct', premium at risk, stage chip data, age, owner, flags); GetBadgeQuery -> count of alerts created after user_alert_views.last_opened_at (0 when no row); ResetBadgeCommand upserts last_opened_at=now",
+    "Tab mapping: escalated -> executive_escalation + high_value_stalled; overdue -> overdue_follow_up; expiring -> quote_expiring + quote_expired; sla -> sla_breach + awaiting_underwriting + pending_pricing_approval"
+  ],
+  "files": [
+    "src/api/db/changelog/130-alerts/*.xml",
+    "src/api/QuoteIQ.Domain/Alerts/IAlertRule.cs",
+    "src/api/QuoteIQ.Domain/Alerts/Rules/*.cs",
+    "src/api/QuoteIQ.Domain/Alerts/ExecutiveEscalationRule.cs",
+    "src/api/QuoteIQ.Infrastructure/Jobs/AlertEvaluationJob.cs",
+    "src/api/QuoteIQ.Infrastructure/Alerts/AlertReevaluationQueue.cs",
+    "src/api/QuoteIQ.Application/Features/Alerts/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/AlertEndpoints.cs",
+    "src/api/tests/QuoteIQ.Domain.Tests/Alerts/AlertRuleTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Alerts/AlertEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "EachAlertRule_GivenBoundaryFixtures_ShouldMatchThresholdSemantics (11 rules, at/over/under threshold cases)",
+      "ExecutiveEscalationRule_PerQ10Composition_ShouldTriggerOnlyOnDefinedCombinations"
+    ],
+    "integration": [
+      "EvaluationJob_ShouldCreateOpenAlertsForSeededConditions",
+      "EvaluationJob_WhenConditionCleared_ShouldResolveAlert",
+      "WorkflowOperation_ShouldTriggerTargetedReevaluationAndClearAlert",
+      "Badge_NewSinceLastVisitSemantics_PerUser",
+      "AlertQueue_TabFiltersAndPremiumRollup",
+      "Alerts_ShouldBeTenantIsolated"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-036", "AC-060", "AC-062", "AC-080"],
+  "verification_ids": ["V-036", "V-060", "V-062", "V-080"],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "The GET /alerts 'ownerUserId' filter matches a lead where the user holds ANY lead assignment role, while the row's displayed owner (OwnerUserId/OwnerName) is resolved from the accountable-owner assignment only. Filtering by a user who is, e.g., the underwriter but not the accountable owner returns rows whose owner column shows a different person, so the filter and the displayed 'owner' can disagree.",
+      "evidence": "AlertStore.ListAsync (src/api/QuoteIQ.Infrastructure/Alerts/AlertStore.cs:204-209) filters on LeadAssignments.Any(a => a.LeadId == x.lead.Id && a.UserId == ownerUserId) with no IsAccountableOwner predicate, whereas GetAccountableOwnersAsync (lines 296-307) joins BusinessAssignments.IsAccountableOwner to populate the owner column.",
+      "suggested_fix": "Constrain the ownerUserId filter to the accountable-owner assignment (join BusinessAssignments and require IsAccountableOwner) so the filter and the displayed owner use the same 'owner' definition.",
+      "status": "open",
+      "created_at": "2026-07-14T02:35:00-04:00",
+      "blocking": false
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "The alert type 'unassigned_lead' is materialized/resolved correctly and appears in the 'all' queue tab and feeds the badge/rollup, but it is not represented on any of the five summary category cards nor mapped to any queue tab. As a result the sum of the five category-card counts can be less than the 'all' tab total (unassigned alerts are uncarded). This follows PRD 18.2's literal five-card list (Escalated/Stalled/Overdue/Expiring/SLA), so it is likely by-design, but flagged for the T-037 Alerts Center UI to resolve deliberately rather than surface an unexplained count gap.",
+      "evidence": "AlertDefinitions.Categories (src/api/QuoteIQ.Application/Features/Alerts/AlertDefinitions.cs:39-46) omits AlertType.UnassignedLead from all five cards and TypesForTab (lines 29-36) omits it from every tab; ListAsync 'all' (no type filter) still returns it.",
+      "suggested_fix": "Confirm with the PRD/human whether unassigned_lead should live under the SLA Breaches card (assignment SLA) or its own card; if intentionally uncarded, document it so T-037 does not present a card-sum vs all-tab discrepancy as a bug.",
+      "status": "open",
+      "created_at": "2026-07-14T02:35:00-04:00",
+      "blocking": false
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-61..FR-63, A-6, §9.4, Q-10)" },
+    { "timestamp": "2026-07-13T22:12:00-04:00", "event": "task_started", "message": "T-024 IN_PROGRESS (iteration 1/10). Sole dependency T-023 PASS unblocked it to READY; selected as next eligible task and dispatched in parallel with the frontend T-027 (backend vs frontend - no file conflict). Implementor launched test-first (real Postgres+Keycloak Testcontainers): Liquibase 130-alerts (alerts + user_alert_views with partial-unique open-alert index), 11 pure IAlertRule implementations incl. ExecutiveEscalationRule (Q-10 composition), AlertEvaluationJob (*/15 min recurring on the T-023 Hangfire setup) reconciling open alerts (insert missing / resolve cleared 'rule_cleared'), IAlertReevaluationQueue (fire-and-forget targeted re-eval wired to the T-019 workflow hook so completing an action clears/downgrades its alert), and endpoints GET /alerts/summary, GET /alerts (tab/owner/product/cover/region/priority filters + premium rollup), GET /alerts/badge (new-since-last-visit per user_alert_views), POST /alerts/badge/reset. AC-036/AC-060/AC-062/AC-080. Alerts NEVER change status (that boundary is owned by T-023) - alerts only." },
+    { "timestamp": "2026-07-13T23:45:00-04:00", "event": "tests_and_implementation_written", "message": "Test-first, real Postgres+Keycloak Testcontainers. Domain: QuoteIQ.Domain/Alerts (IAlertRule, AlertType/AlertSeverity/AlertCandidate/AlertEvaluationContext with LeadAlertSnapshot+QuoteAlertSnapshot, AlertRuleCatalog) + Rules/*.cs (all 11 types) + ExecutiveEscalationRule (Q-10, shares IsStalled(lead,settings,now) with HighValueStalledRule). Entities/Alert.cs, Entities/UserAlertView.cs. Liquibase db/changelog/140-alerts/140-alerts.xml (numbered 140 not 130 -- T-023 already claimed 130-jobs; flagged) registered in db.changelog-master.xml and create_tenant_partitions.sql. Deviated from the task brief's literal 'PK(user_id,tenant_id)' for user_alert_views: PartitioningConventionsChecker (pre-existing repo-wide architecture test) requires every tenant-scoped table to have a bigint identity id + composite (tenant_id,id) PK, so user_alert_views instead follows that same shape plus a separate unique(tenant_id,user_id) constraint (TenantSettings precedent) -- flagged explicitly, not silently resolved. Infrastructure: AlertStore (IAlertStore: BuildContextAsync/ListOpenAsync/AddAsync/GetCategoryCountsAsync/GetRollupAsync/ListAsync/GetNewSinceLastVisitCountAsync/ResetLastOpenedAsync), AlertReconciler (shared insert-missing/resolve-cleared logic), AlertEvaluationJob (ExecuteAsync full 15-min pass + ExecuteForLeadAsync targeted pass, registered in HangfireSetup alongside T-023's jobs, Cron.MinuteInterval(15)), AlertReevaluationQueue (real IAlertReevaluationQueue: resolves Hangfire IBackgroundJobClient lazily via IServiceProvider.GetService, gracefully no-ops when Hangfire isn't wired -- true in every WebApplicationFactory-based test host per HangfireSetup's own Vault-gating precedent -- so LeadOperationExecutor/QuoteOperationExecutor construction never breaks; replaced NoOpAlertReevaluationQueue, deleted). Application: Features/Alerts (AlertDefinitions isolating the 5 category cards + 4 tab->type mappings per AC-080, GetAlertSummaryQuery, ListAlertsQuery, GetBadgeQuery, ResetBadgeCommand). Api: AlertEndpoints (GET /alerts/summary, GET /alerts, GET /alerts/badge, POST /alerts/badge/reset, all gated by PermissionCatalog.Alerts.View). Tests: QuoteIQ.Domain.Tests/Alerts/AlertRuleTests.cs (unit, 22 facts + 9-case Q-10 theory covering all 11 rules at/over/under boundaries), QuoteIQ.Infrastructure.Tests/Alerts/AlertEvaluationJobTests.cs + AlertStoreTests.cs (integration, real Postgres: create/resolve/duplicate-prevention/targeted-reevaluation/tenant-isolation/badge-per-user/tab-filters-and-rollup), QuoteIQ.Api.Tests/Alerts/AlertEndpointsTests.cs (integration, real Postgres+Keycloak: summary/list-tab-filter/badge-reset-per-user/tenant-isolation/403-without-permission). Full suite after this task: Domain 328/328, Application 28/28, Infrastructure 57/57, Api 265/265 (all passing; T-023 baseline was 635/635, now 678/678). Confirmed: AlertEvaluationJob/AlertReconciler/every IAlertRule only ever insert/resolve alerts rows -- zero writes to Lead.StatusId/Quote.StatusId anywhere in this task's code (grep-verified), preserving AC-041's boundary exclusively owned by T-023's expiry jobs. Status left IN_PROGRESS per explicit Implementor instruction; handing to Evaluator." },
+    { "timestamp": "2026-07-14T01:20:00-04:00", "event": "evaluation_started", "message": "T-024 EVALUATING (iteration 1/10). Backend Evaluator launched to audit AC-036/AC-060/AC-062/AC-080 vs V-036/V-060/V-062/V-080; safe to run the full backend suite now because the only other active agent (T-025 Evaluator) is frontend-only (no Testcontainers contention). Verify: all 11 rule threshold semantics (at/over/under) incl. Q-10 ExecutiveEscalation composition; AlertEvaluationJob reconcile (insert-missing / resolve-cleared 'rule_cleared') + duplicate-open-alert prevention via the partial-unique index; targeted re-eval via the real AlertReevaluationQueue replacing NoOp (and the graceful no-op when Hangfire absent in test hosts - confirm this does not hide a production gap); badge new-since-last-visit per-user semantics; tab->type mapping + premium rollup dedup; tenant isolation; 403 without Alerts.View. CRITICAL boundary re-audit (independent grep): alerts NEVER write Lead.StatusId/Quote.StatusId - AC-041 automatic-status-change boundary stays exclusively T-023's. Rule on the 5 flagged ambiguities (user_alert_views PK shape vs PartitioningConventionsChecker; 140 vs 130 changelog numbering; SlaBreach/AwaitingUnderwriting non-overlap split; 5 summary cards vs 4 tabs with null-Tab Stalled card; severity taxonomy + rollup dedup) - accept-as-info vs finding. Run full suite (expect 678/678); security review of the recurring cross-tenant job + endpoints." },
+    { "timestamp": "2026-07-14T02:35:00-04:00", "event": "evaluator_pass", "message": "Evaluator returned PASS (iteration 1/10). Ran the full suite independently (real Testcontainers): Domain 328, Application 28, Infrastructure 57, Api 265 = 678/678, 0 failures, +43 over the 635 baseline, no regression. All 5 criteria MET: 11 rules parameterized by TenantSettings (every threshold prop exists) + exact Q-10 composition; */15 reconcile with resolved_reason 'rule_cleared' + partial-unique open-alert index; targeted re-eval wired into both Lead+Quote executors; endpoints correct + tab->type mapping exact; boundary tests exercise the at-threshold edge correctly (strict-> rules don't fire at threshold, inclusive expiring does); integration tests real (create/resolve/dup-prevention/targeted-reeval/tenant-isolation/per-user-badge/tab-filters/deduped-rollup). SECURITY clean (per-tenant scope+TenantContext, every query TenantId-filtered, tenant-isolation tests both job+api level; all 4 endpoints Alerts.View-gated w/ real 403; no PII logged). PRODUCTION RE-EVAL CONFIRMED LIVE: Program.cs registers Hangfire IBackgroundJobClient under vaultOptions.Enabled + schedules the job, so AlertReevaluationQueue enqueues for real in prod; the graceful no-op is strictly the Vault-disabled test-host condition. AC-041 boundary re-audited: alerts only insert/resolve rows, zero Lead/Quote StatusId writes. All 5 flagged ambiguities ACCEPTED (user_alert_views PK to repo invariant; 140 changelog ordering; SlaBreach/AwaitingUnderwriting disjoint; Stalled card null-Tab; severity+rollup-dedup reasonable). Two NON-BLOCKING advisory findings for downstream T-037: F-001 (minor - ownerUserId filter matches any assignment role vs accountable-owner display column) + F-002 (info - unassigned_lead alerts appear in all-tab/badge/rollup but map to no summary card, so card-sum < all-total, likely by PRD 18.2 design)." },
+    { "timestamp": "2026-07-14T02:36:00-04:00", "event": "task_passed", "message": "T-024 PASS (iteration 1/10, full suite 678/678, no blocking findings). Alerts backend complete: 11 rules + Q-10 ExecutiveEscalation, */15 evaluation/reconciliation job on the T-023 Hangfire setup, real AlertReevaluationQueue wired to the T-019 workflow hook (targeted re-eval live in prod), summary/queue/badge/reset endpoints; AC-041 automatic-status-change boundary preserved (alerts never mutate status). F-001 (minor) + F-002 (info) left open as non-blocking advisories for T-037 (Alerts center UI) to handle deliberately. Unblocks T-041 (Seed data - its only dep) to READY. T-032/T-033/T-037 still blocked on their other deps (T-031/T-028). 26 tasks now PASS, 0 FAIL." }
+  ]
+}

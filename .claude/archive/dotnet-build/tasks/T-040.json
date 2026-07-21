@@ -1,0 +1,186 @@
+{
+  "id": "T-040",
+  "title": "Reports screen, print-ready report views, report CSVs",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-032",
+    "T-033",
+    "T-034",
+    "T-035",
+    "T-036",
+    "T-039"
+  ],
+  "objective": "On-demand reporting per spec FR-64/FR-65 / PRD 19: report-card grid, print-ready views (browser-print PDF per A-5) and CSV per standard report; no scheduling.",
+  "scope": [
+    "Route /reports grid + /reports/{key} print-ready views",
+    "Report catalog: executive-weekly, pipeline-conversion, broker-performance, rm-performance, loss-analysis, sla-turnaround, pipeline-aging, escalation-queue, tenant-configuration, internal-tenant-overview",
+    "GET /api/v1/reports, GET /api/v1/reports/{key}, GET /api/v1/reports/{key}/csv",
+    "SLA/Turnaround report content per PRD 17 (incl. SLA breaches by stage, underwriting delay queue)"
+  ],
+  "out_of_scope": [
+    "Scheduled distribution (explicit non-goal)",
+    "Server-side PDF rendering (A-5)"
+  ],
+  "implementation_details": [
+    "Features/Reports/ReportCatalog.cs: registry {key, name, description, icon, permission, audience} — internal-tenant-overview and tenant-configuration permission-bound (Internal / tenant admin); GET /reports returns the caller-visible catalog",
+    "Report queries reuse dashboard query handlers where content overlaps (executive-weekly wraps GetExecutiveOverviewQuery etc.); new queries: SlaTurnaroundReportQuery (metrics per PRD 17.1, SLA breaches by stage bar data, underwriting delay queue rows), PipelineAgingReportQuery (open items by age/stage/owner/premium), EscalationQueueReportQuery (reuses alerts queue), TenantConfigurationReportQuery (reference lists + business rules snapshot), InternalTenantOverviewQuery (tenant status, active users, lead/quote volumes — cross-tenant, Internal permission)",
+    "Each report payload carries ReportHeader {tenantName, reportDate, dataPeriod, currency, lastRefreshed, filtersEcho} per FR-65",
+    "features/reports/ReportsPage.tsx: intro line + card grid (icon, name, description, Open report primary + CSV secondary buttons); ReportViewPage.tsx: print-optimized layout (print.css: white background, page margins, no shell chrome via print media query, page-break rules between sections, header block from ReportHeader) with a 'Print / Save as PDF' button calling window.print()",
+    "CSV per report via GET /reports/{key}/csv reusing T-039 writers; active dashboard filters passed through query params",
+    "T-043 amendment (docs/ui-remediation/plan.md, AC-082): build every screen part of this task on the shared design-system layer from T-043 — src/ui/src/theme/components.css classes (.qiq-card, .qiq-btn, .qiq-chip, .qiq-table-wrap, .qiq-kpi-*, .qiq-menu) and components/common/Icon.tsx — never ad-hoc inline styling or new CSS files. Before marking IMPLEMENTED, do a side-by-side check against docs/prototype/screenshots/QuoteIQ - Reports.png at ~1670px: layout regions, card composition, chart types, chip/color semantics must match the prototype (subject to the PRD's documented deviations for this screen, e.g. lead-vs-quote labeling, excluded prototype-only widgets). Record the comparison result in this task's history."
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Reports/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/ReportEndpoints.cs",
+    "src/ui/src/features/reports/ReportsPage.tsx",
+    "src/ui/src/features/reports/ReportViewPage.tsx",
+    "src/ui/src/features/reports/print.css",
+    "src/api/tests/QuoteIQ.Api.Tests/Reports/ReportEndpointsTests.cs",
+    "e2e_tests/tests/reports.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "ReportCatalog_ShouldFilterByCallerPermissions",
+      "SlaTurnaroundReport_ShouldComputePrd171Metrics",
+      "ReportCsv_ShouldIncludeHeaderMetadataAndRespectFilters",
+      "InternalTenantOverview_WithoutInternalPermission_ShouldReturn403"
+    ],
+    "e2e": [
+      "reports.spec.ts: reports grid shows permitted cards only; Open report renders print-ready view with tenant/period/currency header; CSV button downloads; no scheduling UI present"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-059",
+    "AC-063",
+    "AC-064"
+  ],
+  "verification_ids": [
+    "V-059",
+    "V-063",
+    "V-064"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "status": "accepted_risk",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "Cross-tenant isolation VERIFIED (no leak). internal-tenant-overview is the only report reading across tenants (ReportStore.BuildInternalTenantOverviewAsync uses IgnoreQueryFilters on UserTenants/Leads/ReferenceItems/Quotes). It is reachable only via ReportContentComposer.ComposeInternalOverviewAsync, which both GetReportViewQueryHandler and GetReportCsvQueryHandler invoke ONLY after ReportAuthorizer.AuthorizeAsync confirms the descriptor's binding permission (global.cross_tenant_reporting). Every other report stays tenant-scoped (explicit TenantId == _tenantContext.TenantId predicate + active EF query filters). InternalTenantOverviewRow field order (LeadCount, QuoteCount, OpenLeadCount) matches the store's positional constructor call (leads.Total, quotes, leads.Open) — no field swap.",
+      "evidence": "ReportAuthorizer.cs:30-47; GetReportViewQuery.cs:33-41; GetReportCsvQuery.cs:37-50; ReportStore.cs:151-196; IReportStore.cs:57-64",
+      "suggested_fix": "None — correct as implemented."
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "status": "accepted_risk",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "Per-key authorization (IDOR-class) VERIFIED. GET /reports/{key} and /reports/{key}/csv do NOT trust the catalog listing — both independently call ReportAuthorizer.AuthorizeAsync, which returns 403 (ReportForbidden) when the caller lacks the report's binding permission, so a user cannot fetch by key a report the catalog would hide. The internal CSV is additionally double-gated: GetReportCsvQueryHandler requires global.cross_tenant_export (FR-65) AND ExportService.AuthorizeAsync enforces the cross-tenant-context export gate. InternalTenantOverview_WithoutInternalPermission_ShouldReturn403 proves denial through the shared authorizer.",
+      "evidence": "ReportEndpoints.cs:31-33; GetReportCsvQuery.cs:47-58; ReportEndpointsTests.cs:132-143",
+      "suggested_fix": "None."
+    },
+    {
+      "id": "F-003",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "status": "resolved",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "FLAG 1 (per-report permission bindings, PRD 19.1 prose) RULED ACCEPT / non-blocking. The concrete binding table is defensible and internally consistent: dashboard-backed reports inherit their dashboards.view_* permission (you cannot obtain a report whose on-screen dashboard you cannot view), escalation-queue -> alerts.view, tenant-configuration -> tenants.manage_settings, internal-tenant-overview -> global.cross_tenant_reporting (+ global.cross_tenant_export for its CSV). Enforced consistently in ListReportsQuery (catalog filtering) and ReportAuthorizer (per-key). No seeded-role regression (SeedUsers grants CrossTenantReporting to the Internal persona; drift guard + all suites green).",
+      "evidence": "ReportCatalog.cs:47-88; ListReportsQuery.cs:31-41; SeedUsers.cs:33",
+      "suggested_fix": "Confirm the binding table with the product owner if PRD 19.1 is later made explicit; no code change needed now."
+    },
+    {
+      "id": "F-004",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "status": "resolved",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "FLAG 2 (PRD 17.1 SLA metric set) RULED ACCEPT — sufficient for AC-059/V-059. SlaTurnaroundReportQueryHandler renders received->assignment, received->quote-prepared, prepared->sent, sent->decision, underwriting-time, and received->sent turnaround (the last delegated to MetricDefinitions.AverageTurnaroundDays per AC-080's single-home rule); breaches-by-stage reuse the T-024 tenant SLA thresholds (sla_assignment/underwriting/received_to_sent_days); underwriting delay queue; turnaround-by-product-line. Cover-type / RM-team turnaround breakdowns are correctly deferred to the RM Performance dashboard's turnaround bars per FR-60/AC-059 placement (AC-059 distributes SLA visibility across Pipeline, RM Performance, Brokers, the Alerts SLA tab, and this report). No required report metric is missing.",
+      "evidence": "SlaTurnaroundReportQueryHandler.cs:44-139; ReportEndpointsTests.cs:74-101 (received_to_assignment==2, underwriting breach==1, delay-queue contains breaching lead)",
+      "suggested_fix": "None."
+    },
+    {
+      "id": "F-005",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "status": "resolved",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "FLAG 3 (CSV filter pass-through) RULED ACCEPT. The view and CSV endpoints bind the identical DashboardFilter query params (from/to/productLineId/brokerId/rmUserId/regionId/teamOrRmId/brokerTypeId); the CSV handler composes the same ReportContent through the one ReportContentComposer, echoes the filters into the FR-65 metadata header (ReportFilterDescription), and renders via the shared T-039 ExportService (inheriting the injection guard + the export audit row, auditEntityType 'report'). ReportCsv_ShouldIncludeHeaderMetadataAndRespectFilters proves the productLineId filter is applied (motor lead present, property lead absent) and the metadata header (Tenant/Currency/Last refreshed/Data period) is emitted with the {tenant}-pipeline-aging-yyyyMMdd.csv filename.",
+      "evidence": "ReportEndpoints.cs:56-72; GetReportCsvQuery.cs:60-90; ReportEndpointsTests.cs:103-130",
+      "suggested_fix": "None."
+    },
+    {
+      "id": "F-006",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "status": "accepted_risk",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "Non-blocking test-coverage observation. Direct per-key 403 denial is proven for the internal report VIEW endpoint only (InternalTenantOverview_WithoutInternalPermission_ShouldReturn403); there is no dedicated test asserting (a) GET /reports/internal-tenant-overview/csv returns 403 without cross_tenant_reporting/cross_tenant_export, nor (b) GET /reports/{dashboard-key} view returns 403 for a caller who lacks that dashboards.view_* (only catalog-hiding of loss-analysis is asserted). The authorization mechanism is shared and generic (ReportAuthorizer, used by both view and CSV handlers), so the behavior is covered by construction and all suites are green; adding the two explicit cases would harden regression protection. Not blocking.",
+      "evidence": "ReportEndpointsTests.cs:40-72, 132-143",
+      "suggested_fix": "Add a CSV 403 case for internal-tenant-overview and a view 403 case for a dashboard report the caller lacks, in a future iteration."
+    },
+    {
+      "id": "F-007",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "verification",
+      "status": "accepted_risk",
+      "created_at": "2026-07-14T19:10:00-04:00",
+      "description": "E2E deferral (reports.spec.ts, describe.fixme) RULED ACCEPTABLE, matching the established dashboard-overview.spec/exports.spec precedent. The four specs have real, ready-to-run bodies covering V-063/V-059/V-064 (permitted-card grid + no scheduling/cadence UI, print-ready header metadata, SLA underwriting-delay-queue section, per-report CSV download filename) and are blocked only on the T-041 seed persona/data + live compose stack. V-059/V-063/V-064 behavior is already proven by the real-Testcontainers backend suite and the frontend component suites. Un-fixme once T-041 lands.",
+      "evidence": "e2e_tests/tests/reports.spec.ts:41-95",
+      "suggested_fix": "Remove describe.fixme after T-041 provides the reports persona + seed data."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-64/FR-65, PRD 17/19, A-5)"
+    },
+    {
+      "timestamp": "2026-07-13T21:45:00-04:00",
+      "event": "amended",
+      "message": "Amended by T-043 (approved plan docs/ui-remediation/plan.md): must use the shared design-system layer and pass a per-screen prototype side-by-side fidelity check before IMPLEMENTED."
+    },
+    {
+      "timestamp": "2026-07-14T14:25:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1/10). All 6 dependencies PASS (dashboards T-032..T-036 + exports T-039). The reporting capstone: report-card grid + print-ready views (browser-print PDF per A-5, no server-side rendering) + per-report CSV reusing the T-039 writers. Reuses dashboard query handlers where content overlaps (executive-weekly wraps GetExecutiveOverviewQuery etc.) and the T-024 alerts queue for escalation-queue; new queries for SLA/Turnaround (PRD 17.1), pipeline-aging, tenant-configuration, and cross-tenant internal-tenant-overview (Internal permission). ReportHeader metadata per FR-65; NO scheduling (explicit non-goal). Frontend gates: typecheck + build reported SEPARATELY from vitest per the tightened discipline."
+    },
+    {
+      "timestamp": "2026-07-14T17:05:00-04:00",
+      "event": "tests_written",
+      "message": "Backend integration tests FIRST (real Testcontainers, no mocks): src/api/tests/QuoteIQ.Api.Tests/Reports/ReportEndpointsTests.cs — ReportCatalog_ShouldFilterByCallerPermissions (tenant-admin sees tenant-configuration not internal-tenant-overview; Internal user with global.cross_tenant_reporting sees internal-tenant-overview; dashboard reports filtered by dashboards.view_*), SlaTurnaroundReport_ShouldComputePrd171Metrics (received->assignment == 2 days, underwriting breach == 1, underwriting delay queue contains the breaching lead), ReportCsv_ShouldIncludeHeaderMetadataAndRespectFilters (pipeline-aging CSV carries Tenant/Currency/Last refreshed/Data period header, includes the motor lead, excludes the property lead under productLineId filter, {tenant}-pipeline-aging-yyyyMMdd.csv filename), InternalTenantOverview_WithoutInternalPermission_ShouldReturn403. Frontend component tests: features/reports/__tests__/{ReportsPage,ReportViewPage,reportsApi}.test.tsx (permitted card grid + no scheduling UI, Open-report nav, CSV download path, print-ready header metadata, KPI/table sections, window.print()). Playwright: e2e_tests/tests/reports.spec.ts (describe.fixme, real bodies, blocked on T-041 seed + live stack per established convention)."
+    },
+    {
+      "timestamp": "2026-07-14T17:10:00-04:00",
+      "event": "implementation_written",
+      "message": "Backend (Application/Features/Reports/*): ReportKeys, ReportCatalog (registry {key,name,description,icon,permission,audience,isCrossTenant} + VisibleTo/Find), ReportContracts (ReportViewDto/ReportSectionDto/ReportTableDto/ReportKpiDto/ReportHeaderDto/ReportCatalogDto), ReportErrors, ReportFormatting, ReportFilterDescription, ReportAuthorizer (per-report permission gate), ReportContentComposer (dispatches 10 report keys -> sections + primary CSV table; reuses GetExecutiveOverviewQuery/GetPipelineDashboardQuery/GetBrokerPerformanceQuery/GetRmPerformanceQuery/GetLossAnalysisQuery via mediator), ListReportsQuery, View/GetReportViewQuery, Csv/GetReportCsvQuery (reuses ExportService for metadata+audit+writers), Sla/SlaTurnaroundReportQuery(+Dto+Handler; NEW PRD 17.1 metrics via MetricDefinitions.AverageTurnaroundDays), Aging/PipelineAgingReportQuery, Escalation/EscalationQueueReportQuery (reuses T-024 ListAlertsQuery), TenantConfig/TenantConfigurationReportQuery, Internal/InternalTenantOverviewQuery. Abstractions/IReportStore + Infrastructure/Reports/ReportStore (SLA snapshot incl. underwriting entered/exited from lead_status_history; tenant-config; cross-tenant overview via IgnoreQueryFilters) + AddReports DI. Api/Endpoints/ReportEndpoints.cs (GET /reports, /reports/{key}, /reports/{key}/csv; base reports.view; per-report + cross-tenant-export gates in-handler) registered in EndpointRegistration. Application DI: ReportContentComposer + ReportAuthorizer. Frontend: features/reports/{reportsApi.ts, ReportsPage.tsx (intro + card grid, Open report primary + CSV ghost, no scheduling), ReportViewPage.tsx (header metadata block + KPI/table sections + Print/Save-as-PDF -> window.print()), print.css (@media print hides shell chrome, @page margins, section page-breaks, --qiq-* tokens only)}; router.tsx wired /reports + /reports/:reportKey to real pages."
+    },
+    {
+      "timestamp": "2026-07-14T17:12:00-04:00",
+      "event": "gates_run",
+      "message": "Backend: dotnet test QuoteIQ.slnx GREEN, no regressions — Domain.Tests 400 passed, Application.Tests 32 passed, Api.Tests 316 passed (incl. the 4 new ReportEndpointsTests + the reused dashboard/export suites), Infrastructure.Tests 100 passed. Frontend (reported separately per tightened discipline): npm run typecheck GREEN; npm run build (tsc -b && vite build) GREEN; vitest 84 files / 417 tests passed (13 in the 3 new reports suites); npm run lint has the pre-existing baseline (1 error in tenantManager/TenantFormPage.tsx `_removed`, unrelated to this task; eslint over src/features/reports exits 0). V-070 no-raw-hex grep over src/features/reports (incl. print.css) returns no matches (tokens only) — GREEN. Playwright: npx playwright test reports.spec.ts --list discovers all 4 tests; no live run (compose stack + T-041 seed not available), describe.fixme per the dashboard-overview.spec/exports.spec precedent."
+    },
+    {
+      "timestamp": "2026-07-14T17:14:00-04:00",
+      "event": "prototype_fidelity_check",
+      "message": "Side-by-side vs docs/prototype/screenshots/QuoteIQ - Reports.png (structural, no live seed stack). MATCH: layout regions (intro line + responsive report-card grid), card composition (accent icon chip + name + description + 'Open report' primary + 'CSV' secondary/ghost buttons), on the T-043 .qiq-* design-system layer (.qiq-card/.qiq-card-head/.qiq-card-title/.qiq-card-sub/.qiq-btn/.qiq-chip--accent + Icon). DOCUMENTED DEVIATIONS honored: the prototype's 'Scheduled & recent' panel (Sent/Scheduled chips) and the 'Cadence: Weekly · Mondays 08:00' chip are intentionally OMITTED per FR-64 'No scheduling' (explicit non-goal; e2e asserts absence). ADDITIONS beyond the prototype's 6 cards: 4 PRD-19.1 permission-bound reports (pipeline-aging, escalation-queue, tenant-configuration, internal-tenant-overview) shown only to permitted callers. FLAGGED AMBIGUITIES (CLAUDE.md, not silently resolved): (1) per-report permission bindings are this task's concrete rendering of PRD 19.1 prose — dashboard reports inherit their dashboards.view_* permission, escalation-queue->alerts.view, tenant-configuration->tenants.manage_settings, internal-tenant-overview->global.cross_tenant_reporting (+ global.cross_tenant_export for its CSV); (2) PRD 17.1 SLA metric set rendered as received->assignment / received->quote-prepared / prepared->sent / sent->decision / underwriting-time / received->sent turnaround, breaches-by-stage reusing the T-024 alert SLA thresholds, underwriting delay queue, and turnaround-by-product-line (cover/RM-team turnaround deferred to the RM dashboard's turnaround bars per FR-60 placement); (3) filters pass to /reports/{key}/csv via the same DashboardFilter query params as the view, echoed into the FR-65 metadata header and applied by the store."
+    },
+    {
+      "timestamp": "2026-07-14T15:15:00-04:00",
+      "event": "task_passed",
+      "message": "T-040 PASS (iteration 1/10). Security-weighted Evaluator independently re-ran all suites (backend Domain 400/App 32/Api 316 incl. 4 new ReportEndpointsTests/Infra 100, no regression to reused handlers; frontend npm run typecheck GREEN + npm run build GREEN separately + vitest 417; V-070 incl. print.css green). CROSS-TENANT ISOLATION VERIFIED (no leak): internal-tenant-overview is the ONLY IgnoreQueryFilters report, reachable only after ReportAuthorizer confirms global.cross_tenant_reporting; every other report tenant-scoped; NO IDOR - /reports/{key} and /{key}/csv independently enforce per-report permission (not trusting the catalog); internal CSV double-gated (+global.cross_tenant_export). New permission catalogued+mirrored+drift-guarded, no seeded-role regression. Reuse faithful (5 dashboard DTOs + T-024 ListAlertsQuery + T-039 ExportService with injection guard + audit; SLA via MetricDefinitions - no divergent formulas). PRD 17.1 metrics sufficient; A-5 window.print/no-scheduling confirmed. All 3 Implementor flags ruled non-blocking; F-006 (optional 403 test hardening) + F-007 (e2e describe.fixme) non-blocking. 41 PASS, 0 FAIL. Reporting capstone complete; T-042 now needs only T-030 + T-037."
+    }
+  ]
+}

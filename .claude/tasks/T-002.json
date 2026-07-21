@@ -1,0 +1,166 @@
+{
+  "id": "T-002",
+  "title": "Supabase local stack: config.toml, pg_cron/pgmq/pg_net extensions, asymmetric JWT signing keys, lifecycle scripts",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-001"
+  ],
+  "objective": "Stand up the reproducible local Supabase development stack (database, auth, storage, studio) via Supabase CLI + Docker so that a clean checkout can run supabase start and obtain a working local platform including Auth with asymmetric JWT signing keys and the pg_cron, pgmq, and pg_net extensions (M-19, A-4, A-10, Q-7).",
+  "scope": [
+    "supabase/config.toml: project config for local stack — auth enabled (email/password), site URL + additional redirect URLs for the SPA password-reset flow, storage enabled, studio enabled; asymmetric JWT signing keys enabled locally per A-10",
+    "Ensure pg_cron, pgmq, and pg_net are available/enabled in the local stack (config plus a first extensions migration if needed here or deferred to T-003 — decide and document; the extensions must exist before T-003 migrations apply)",
+    "Lifecycle scripts wired for real: supabase:start, supabase:stop, supabase:reset (supabase db reset), db:migrate (supabase db push / migration up against local)",
+    ".env.local.example updated with the local-stack values shape (VITE_SUPABASE_URL=http://127.0.0.1:54321, anon key + service-role key placeholders as printed by supabase start)",
+    "docs/local-development.md first real content: prerequisites (Docker, Supabase CLI), start/stop/reset commands, where local keys come from"
+  ],
+  "out_of_scope": [
+    "Actual schema migrations (T-003..T-005)",
+    "Seed data (T-006, T-041)",
+    "Hosted Supabase project provisioning (human-owned, deferred per A-18)",
+    "Removing the old docker-compose stack (T-044)"
+  ],
+  "implementation_details": [
+    "supabase init if no supabase/ directory exists; pin CLI expectations in docs (minimum CLI version that supports asymmetric signing keys and pgmq locally).",
+    "config.toml [auth]: enable email provider, disable signups if the product provisions users only via Auth Admin API (User Manager) — verify against P-01/P-03 and set accordingly; configure site_url http://localhost:5173 (Vite dev) and additional_redirect_urls for the reset flow.",
+    "Asymmetric JWT signing keys: configure the local stack so auth.getClaims() verifies against JWKS offline (A-10). Document the verification expectation for tests.",
+    "Extensions: prefer enabling via the first SQL migration (CREATE EXTENSION IF NOT EXISTS pg_cron/pgmq/pg_net...) so hosted environments get them through the same migration path; config.toml only where the local stack needs it. Coordinate with T-003 so ordering is deterministic.",
+    "supabase:reset script must run migrations + seed.sql hook (seed content arrives in T-006).",
+    "Verify supabase start works from clean checkout on Windows (Docker Desktop) — document any platform caveats."
+  ],
+  "files": [
+    "supabase/config.toml",
+    "supabase/migrations/ (directory, possibly 0000 extensions migration)",
+    "package.json (script bodies)",
+    ".env.local.example",
+    "docs/local-development.md"
+  ],
+  "test_plan": {
+    "unit": [
+      "None (infrastructure task, no pure logic)"
+    ],
+    "integration": [
+      "From clean checkout: supabase start succeeds; supabase db reset succeeds with zero migrations or the extensions migration only",
+      "psql/SQL check: pg_cron, pgmq, pg_net extensions installed and usable in the local database",
+      "Local Auth: create a throwaway user via the Auth Admin API with the printed service-role key; sign in with password; verify the issued access token validates against the local JWKS (asymmetric keys active)"
+    ],
+    "e2e": [
+      "None at this stage"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-003",
+    "AC-089"
+  ],
+  "verification_ids": [
+    "V-004",
+    "V-115"
+  ],
+  "findings": [
+    {
+      "id": "F-002-1",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "verification-gap",
+      "description": "V-004 expected result #1 requires that health of the database, auth (GoTrue), AND storage services is asserted (HTTP/DB probes). The T-002 integration suites probe the database (direct SQL via pg) and auth (Admin API provisioning, sign-in, JWKS, getClaims) but contain no storage health assertion anywhere. probeLocalStack() only parses `supabase status -o json` for API_URL/DB_URL/keys, and `supabase status` exits 0 even when individual services are stopped (it merely lists them under 'Stopped services'). Consequence: if [storage] were disabled in config.toml (exactly as was deliberately done for realtime/analytics/edge_runtime) or the storage container were dead, every T-002 test would still pass - a false-green path of the class this repo has been bitten by twice. Evaluator manually confirmed storage IS healthy today (GET /storage/v1/version -> 200 '1.62.5'; docker ps shows supabase_storage_quoteiq Up (healthy)), so this is a missing regression assertion, not a broken stack.",
+      "evidence": "src/server/tests/integration/local-stack-extensions.test.ts and local-stack-auth.test.ts: no reference to /storage. src/server/tests/integration/helpers/local-stack.ts probeLocalStack() checks only API_URL/DB_URL/ANON_KEY/SERVICE_ROLE_KEY. Evaluator probe: GET http://127.0.0.1:54321/storage/v1/version -> HTTP 200 body '1.62.5'; `supabase status` exited 0 while listing 6 stopped services, proving stopped services do not fail the probe.",
+      "suggested_fix": "Add one HTTP-probe test to a T-002 integration suite (or a small local-stack-services.test.ts) asserting storage health via the running stack, e.g. GET `${stack.apiUrl}/storage/v1/version` returns 200 with a non-empty version string (optionally also GET /auth/v1/health -> 200 for symmetry). Reuse probeLocalStack()/suiteTitle() so the skip-visibility behavior is preserved.",
+      "status": "resolved",
+      "created_at": "2026-07-18T22:05:00-04:00",
+      "resolution": "Added src/server/tests/integration/local-stack-storage.test.ts (2 tests) closing the V-004 storage-health gap: GET {apiUrl}/storage/v1/version must return 200 with non-empty body, and the service-role bucket API must return a JSON array. Uses the existing probeLocalStack()/suiteTitle() helpers so the Docker-unavailable skip stays visible. PROVEN NON-HOLLOW: with supabase_storage_quoteiq stopped, both tests FAIL (exit 1); container restarted and suite green again. Also added AbortSignal.timeout(10s) because the down-container case otherwise hung ~54s on OS connection timeout, which would stall CI on exactly the failure this suite exists to catch. Verified: npm test 10 files / 108 tests passed (was 9/106), typecheck 0, lint 0.",
+      "summary": "V-004 expected result #1 requires that health of the database, auth (GoTrue), AND storage services is asserted (HTTP/DB probes)."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to M-19, A-4 (local Supabase Auth), A-10 (asymmetric keys), Q-7 (extensions), G-3."
+    },
+    {
+      "timestamp": "2026-07-18T19:45:00-04:00",
+      "event": "started",
+      "message": "Delegated to Implementor. Preflight: Docker 29.1.3 running, Supabase CLI 2.109.1."
+    },
+    {
+      "timestamp": "2026-07-18T21:45:00-04:00",
+      "event": "tests_written",
+      "message": "Integration-first: local-stack-extensions.test.ts (4 tests: presence + pg_cron schedule/unschedule, pgmq queue round-trip, pg_net request enqueue) and local-stack-auth.test.ts (5 tests: ES256 header, JWKS offline WebCrypto verification, auth.getClaims(), signup lockout, tampered-token rejection). No mocks."
+    },
+    {
+      "timestamp": "2026-07-18T21:45:00-04:00",
+      "event": "implementation_written",
+      "message": "config.toml, extensions migration, seed hook, signing-key generator, four real lifecycle scripts, .env.local.example, docs/local-development.md."
+    },
+    {
+      "timestamp": "2026-07-18T21:45:00-04:00",
+      "event": "implemented",
+      "message": "Verified from wiped Docker volumes: start -> reset -> migrate all exit 0; extensions confirmed via psql; npm test 106 passed / 0 failed / 0 skipped; typecheck, typecheck:ui, lint all exit 0; 10 stub scripts still exit 1. Handing to Evaluator. V-115 intentionally not yet satisfiable (T-042)."
+    },
+    {
+      "timestamp": "2026-07-18T22:05:00-04:00",
+      "event": "evaluated_needs_fixes",
+      "message": "Evaluator iteration 1: NEEDS_FIXES on a single minor verification-gap finding (F-002-1: no storage health assertion despite V-004 expected result #1). Everything else independently re-verified and PASSING: npm test 9 files/106 tests green with stack up (twice, incl. after a full supabase:reset); typecheck, typecheck:ui, lint all exit 0; skip-visibility fix confirmed genuine by stopping the stack (stderr '[SKIPPED] <suite>: <reason>' x2, reporter shows 'Test Files 6 passed | 2 skipped (8) / Tests 96 passed | 9 skipped' - unmistakably distinct from a passing run; exit stays 0 by design, delegated to T-010 CI stack-up assertion); supabase:start/stop/reset/db:migrate all real and exit 0 (reset replayed 20260718000000_extensions.sql from empty + ran seed hook notice; db:migrate no-op {applied:[]}); extensions pg_cron 1.6.4/pg_net 0.20.3/pgmq 1.5.1 confirmed in pg_extension post-reset with cron.database_name=postgres and no leftover cron jobs/queues (tests clean up); JWKS exposes exactly one EC P-256 ES256 public key with NO private d, kid matches issued tokens; evaluator independently verified an issued token's ES256 signature offline via WebCrypto against the JWKS AND that a tampered payload fails verification; supabase/signing_keys.json exists with private d, matched by supabase/.gitignore, single copy in repo; .env.example/.env.local.example placeholder-only, service-role key server-only-labelled, no VITE_-prefixed service key anywhere in the SPA; signup lockout + email-provider regression pinned behaviorally by tests; 5 sampled stub scripts (db:seed, dev, queue:worker, db:types, jobs:status) all exit 1 loudly. V-115 (AC-089, manual) correctly left UNSATISFIED pending T-006/T-009/T-018/T-041/T-042/T-043; docs/local-development.md states this prominently. Not verifiable yet: macOS/Linux, hosted Supabase (A-18). Stack left RUNNING."
+    },
+    {
+      "timestamp": "2026-07-18T20:30:00-04:00",
+      "event": "finding_resolved",
+      "message": "Orchestrator resolved F-002-1 directly (single additive test, no Implementor delegation needed). Storage health now asserted; non-hollowness proven by stopping the storage container and observing both tests fail, then restarting. Fast-fail timeout added. Status IMPLEMENTED, returned to Evaluator for iteration 1 re-review."
+    },
+    {
+      "timestamp": "2026-07-18T22:10:00-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator iteration 1 re-review: PASS. F-002-1 confirmed genuinely closed - evaluator independently re-proved non-hollowness by stopping supabase_storage_quoteiq: both storage tests FAIL (exit 1) via AbortSignal timeout at ~10s each (not the ~54s OS hang), then restarted the container (healthy after 10s, /storage/v1/version -> 200 '1.62.5' in ~4.5ms). The probe cannot be satisfied by a stack with [storage] disabled in config.toml: the /version test asserts HTTP 200 + non-empty body and the bucket test asserts a service-role-authenticated JSON array, neither of which a missing upstream can produce through Kong. Skip-visibility contract honoured: the new suite reuses probeLocalStack()/suiteTitle() identically to the two existing suites (stderr [SKIPPED] line + reason folded into suite title + changed reporter counts), verified by code inspection against the mechanism empirically proven in iteration 1. 10s timeout judged ADEQUATE, no raise needed: healthy-stack responses measured ~5ms (>1000x margin), the suite only runs after probeLocalStack() confirms `supabase status` healthy (which itself gates on stack readiness), and vitest testTimeout empirically exceeds 10s so the abort - not the runner - is the failure mechanism. Full re-run with stack healthy: npm test 10 files / 108 tests passed / 0 failed / 0 skipped (exit 0, exit codes captured directly, no pipes); typecheck exit 0; lint exit 0; stub db:seed exits 1 loudly. Regression spot-checks intact: signing_keys.json still git-ignored in supabase/.gitignore; [auth].enable_signup=false with [auth.email].enable_signup=true still pinned in config.toml; .env.local.example still placeholder-only (no JWT/secret material). ES256/JWKS offline verification and extensions coverage re-confirmed via the 108-test green run (0 skipped proves integration suites executed against the live stack). V-004 satisfied; V-115 (AC-089, manual) remains UNSATISFIED by design, judged at T-042. Stack left RUNNING and healthy for T-003 (all 8 containers Up, storage healthy)."
+    },
+    {
+      "timestamp": "2026-07-19T20:20:00-04:00",
+      "event": "record_migrated",
+      "message": "Schema conformance (CLAUDE.md: all generated JSON must conform to .claude/schemas/). These blocks were written by the implementor/evaluator as TOP-LEVEL keys the task schema does not allow. They are substantive audit records, so they are PRESERVED VERBATIM here rather than deleted. Moved: implementation.",
+      "migrated_top_level": {
+        "implementation": {
+          "files_created": [
+            "supabase/config.toml (via supabase init, then edited)",
+            "supabase/migrations/20260718000000_extensions.sql",
+            "supabase/seed.sql (hook only; content owned by T-006/T-041)",
+            "supabase/.gitignore (adds signing_keys.json)",
+            "scripts/db/ensure-signing-keys.mjs",
+            "src/server/tests/integration/helpers/local-stack.ts",
+            "src/server/tests/integration/local-stack-extensions.test.ts",
+            "src/server/tests/integration/local-stack-auth.test.ts"
+          ],
+          "files_modified": [
+            "package.json (real bodies for supabase:start/stop/reset and db:migrate; pinned supabase@2.109.1 devDependency; added approved deps pg, @supabase/supabase-js, @types/pg)",
+            ".env.local.example",
+            "docs/local-development.md"
+          ],
+          "decisions": [
+            "EXTENSIONS placed in migration 20260718000000_extensions.sql, not config.toml, so hosted environments receive them through the same `db push` path. Lowest timestamp in the repo; T-003 onward may assume they exist. Verified installed: pg_cron 1.6.4 (pg_catalog), pg_net 0.20.3 (extensions), pgmq 1.5.1 (pgmq).",
+            "SIGNUP POLICY: [auth].enable_signup = false (no self-service registration; identities come only from the Auth Admin API per P-01/P-03). [auth.email].enable_signup MUST remain true - it maps to GOTRUE_EXTERNAL_EMAIL_ENABLED and setting it false also rejects sign-in with 'Email logins are disabled'. Discovered by test failure; both halves now pinned by a regression test.",
+            "JWT KEYS: [auth].signing_keys_path = ./signing_keys.json, ES256 key generated per machine by scripts/db/ensure-signing-keys.mjs and git-ignored (it is a private key). Confirmed tokens are ES256 with a kid, JWKS exposes public EC keys only, and signatures verify offline via both raw WebCrypto and auth.getClaims().",
+            "CLI pinned as devDependency supabase@2.109.1 so a clean checkout needs no global install.",
+            "Realtime, Analytics/Logflare, and Edge Runtime disabled in config.toml - unused by the architecture and the heaviest/least reliable local containers.",
+            "site_url = http://localhost:5173 with additional_redirect_urls covering /reset-password on both localhost and 127.0.0.1."
+          ],
+          "commands_run": [
+            "npm run supabase:start (from wiped volumes + no signing key) -> exit 0",
+            "npm run supabase:reset -> exit 0; applied 20260718000000_extensions.sql and ran supabase/seed.sql",
+            "npm run db:migrate -> exit 0 ({\"applied\":[],\"message\":\"Migrations applied\"})",
+            "docker exec supabase_db_quoteiq psql ... pg_extension check -> pg_cron/pg_net/pgmq all present",
+            "npm test -> 9 files, 106 passed, 0 failed, 0 skipped",
+            "vitest --reporter=verbose on the two new files -> 9 passed (5 auth + 4 extensions)",
+            "npm run typecheck -> exit 0; npm run typecheck:ui -> exit 0; npm run lint -> exit 0",
+            "All 10 still-stubbed scripts -> exit 1 as intended"
+          ],
+          "notes": [
+            "Windows/Node caveat: Node 22+ refuses to spawn npx.cmd without a shell (EINVAL). Repository scripts and the test helper invoke the CLI's JS entrypoint with process.execPath instead. Documented in docs/local-development.md.",
+            "CLI 2.109.1 quirk: `supabase gen signing-key` READS signing_keys_path before writing and aborts with LegacyGenSigningKeyReadError if absent. The script seeds '[]' then uses --append, and validates the result is a non-empty ES256 key set.",
+            "Integration suites skip cleanly (no hang) when the stack is down, and the skip reason is written to stderr AND folded into the suite title, because a silently skipped suite is indistinguishable from a passing one. CI (T-010) must additionally assert the stack is up.",
+            "V-115 (AC-089) remains UNSATISFIED by design: docs/local-development.md cannot yet cover seeded sign-in credentials (T-006/T-041), running backend + SPA (T-009/T-018), or the e2e suite (T-043). Judged at T-042.",
+            "Not verified: hosted Supabase behavior (human-owned per A-18) and non-Windows platforms (only Windows 11 + Docker Desktop 29.1.3 was exercised)."
+          ]
+        }
+      }
+    }
+  ]
+}

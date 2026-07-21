@@ -1,0 +1,76 @@
+{
+  "id": "T-003",
+  "title": "Database and EF Core foundation: Liquibase, partitioning, tenant context, audit log",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-001", "T-002"],
+  "objective": "Establish the database conventions every later table follows: bigint identity PKs, tenant_id LIST partitioning with a partition-creation helper, EF Core DbContext with ambient tenant context and global query filters, and the audit_log with an audit writer (spec §11, §13, §15).",
+  "scope": [
+    "Liquibase conventions: snake_case, changelog-per-feature includes, SQL-file changesets for functions with runOnChange",
+    "Partition helper function create_tenant_partitions(bigint) maintained via Liquibase",
+    "EF Core DbContext, ITenantContext, ITenantScoped convention, global query filter, tenant stamping interceptor",
+    "audit_log table and IAuditWriter service",
+    "Testcontainers integration-test base fixture applying Liquibase to a fresh PostgreSQL"
+  ],
+  "out_of_scope": ["Business tables (later tasks)", "Authorization (T-005)"],
+  "implementation_details": [
+    "Domain/Abstractions/ITenantScoped.cs: interface { long TenantId }",
+    "Application/Abstractions/ITenantContext.cs: { long? TenantId; bool IsCrossTenant; }; Infrastructure/Tenancy/TenantContext.cs scoped implementation set by middleware (T-006)",
+    "Infrastructure/Persistence/QuoteIqDbContext.cs: OnModelCreating applies snake_case naming, UseIdentityAlwaysColumn for bigint keys, and a model-level convention adding HasQueryFilter(e => e.TenantId == _tenantContext.TenantId) for every ITenantScoped entity; SaveChanges guard throws if an ITenantScoped entity is added without matching tenant context (unless IsCrossTenant)",
+    "Infrastructure/Persistence/AuditSaveChangesInterceptor.cs stamps created_/updated_ columns from ICurrentUser (placeholder until T-005)",
+    "db/changelog/010-foundation/: audit_log table (id bigint identity PK, tenant_id bigint null, entity_type text, entity_id text, action text, actor_user_id bigint null, acted_at timestamptz, details jsonb) + indexes (tenant_id, entity_type+entity_id, acted_at)",
+    "db/changelog/functions/create_tenant_partitions.sql (runOnChange:true): iterates a static list of partitioned table names (extended by later changesets) executing CREATE TABLE IF NOT EXISTS {t}_p{tenant_id} PARTITION OF {t} FOR VALUES IN ({tenant_id}); every partitioned parent also gets a {t}_default DEFAULT partition",
+    "Application/Abstractions/IAuditWriter.cs: Task WriteAsync(AuditEntry entry, CancellationToken ct); Infrastructure/Auditing/AuditWriter.cs appends via DbContext; AuditEntry record (EntityType, EntityId, Action, Details object serialized with System.Text.Json)",
+    "tests/QuoteIQ.Infrastructure.Tests/Fixtures/PostgresFixture.cs: Testcontainers postgres + Liquibase apply (invoke liquibase via docker or Liquibase CLI wrapper) shared by all integration tests (xUnit collection fixture)"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Domain/Abstractions/ITenantScoped.cs",
+    "src/api/QuoteIQ.Application/Abstractions/ITenantContext.cs",
+    "src/api/QuoteIQ.Application/Abstractions/IAuditWriter.cs",
+    "src/api/QuoteIQ.Infrastructure/Persistence/QuoteIqDbContext.cs",
+    "src/api/QuoteIQ.Infrastructure/Persistence/AuditSaveChangesInterceptor.cs",
+    "src/api/QuoteIQ.Infrastructure/Tenancy/TenantContext.cs",
+    "src/api/QuoteIQ.Infrastructure/Auditing/AuditWriter.cs",
+    "src/api/db/changelog/010-foundation/*.xml",
+    "src/api/db/changelog/functions/create_tenant_partitions.sql",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Fixtures/PostgresFixture.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "QueryFilter_WhenTenantContextSet_ShouldReturnOnlyThatTenantsRows (two tenants, sample partitioned table)",
+      "SaveChanges_WhenTenantScopedEntityWithoutContext_ShouldThrow",
+      "CreateTenantPartitions_WhenCalled_ShouldCreatePartitionPerRegisteredTable",
+      "AuditWriter_WhenCalled_ShouldPersistAuditRowWithJsonDetails"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-008", "AC-067", "AC-068", "AC-076"],
+  "verification_ids": ["V-008", "V-067", "V-068", "V-076"],
+  "findings": [
+    {
+      "id": "F-005",
+      "severity": "major",
+      "status": "resolved",
+      "resolved_in_iteration": 2,
+      "iteration": 1,
+      "summary": "V-076's structural schema-conventions test is missing, and T-003 is the sole owner of V-076",
+      "detail": "V-076 requires a schema-inspection test (information_schema/pg_partitioned_table) asserting PKs are bigint (no uuid key columns) and tenant-scoped tables are LIST-partitioned on tenant_id with composite PKs, with an explicit negative guarantee: a new tenant-scoped table lacking partitioning fails the conventions test. task_ids for V-076 is [T-003] only, so no later task will build it. Existing CreateTenantPartitionsTests plus test-only sample tables prove the helper function and demonstrate the convention, but nothing structurally enforces it for future tables. Fix: add a conventions integration test (e.g., PartitioningConventionsTests) that enumerates the EF model's ITenantScoped entity types (and/or all DB tables with a NOT NULL tenant_id column) and asserts each is LIST-partitioned on tenant_id with composite PK (tenant_id, id) and identity bigint id, and separately asserts no uuid-typed PK columns exist anywhere in the schema, running against the existing PostgresFixture so future business tables (T-007+) are automatically checked."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (§11 keys/partitioning, §13, §15)" },
+    { "timestamp": "2026-07-11T16:12:00-04:00", "event": "task_started", "message": "Dependencies satisfied (T-001, T-002 PASS); marked IN_PROGRESS; delegated to Implementor (iteration 1), running in parallel with T-004" },
+    { "timestamp": "2026-07-11T16:45:00-04:00", "event": "implementor_stopped_by_user", "message": "Implementor iteration 1 was manually stopped by the human mid-run. Last reported state: 12/12 non-Keycloak Infrastructure tests passing; full solution suite NOT yet run; implementation files largely written to the repo but unverified end-to-end and not evaluated. Task remains IN_PROGRESS; no automatic relaunch - awaiting human direction." },
+    { "timestamp": "2026-07-11T16:50:00-04:00", "event": "implementor_resumed", "message": "Human confirmed the stop was accidental. Fresh Implementor launched (still iteration 1) to review the existing on-disk implementation against the contract, complete remaining verification (full suite run, live liquibase, A-3 reconciliation, README), and report." },
+    { "timestamp": "2026-07-11T17:05:00-04:00", "event": "tests_verified", "message": "Reviewed all on-disk T-003 deliverables against the contract: ITenantScoped, ITenantContext, IAuditWriter/AuditEntry, TenantContext, QuoteIqDbContext (snake_case via UseSnakeCaseNamingConvention, UseIdentityAlwaysColumn convention, reflection-driven per-ITenantScoped HasQueryFilter, SaveChanges/SaveChangesAsync tenant guard), AuditSaveChangesInterceptor, AuditWriter, db/changelog/010-foundation/010-audit-log.xml, db/changelog/functions/create_tenant_partitions.sql (runOnChange, empty prod array extended by feature changesets), db.changelog-master.xml includes, and db/changelog-test (test-only sample partitioned tables + override registering them) all present and correct - no gaps found, nothing rewritten. All 4 required integration tests present and passing under PostgresFixture (Testcontainers postgres:17 + dockerized liquibase applying db.changelog-test-master.xml)." },
+    { "timestamp": "2026-07-11T17:10:00-04:00", "event": "implementation_written", "message": "Fixed open A-3 advisory (flagged by T-002, unaddressed by prior interrupted run): infra/vault/seed-local-secrets.sh seeded ConnectionStrings:QuoteIq/Hangfire:ConnectionString with Host=postgres (compose-network-only DNS name), unreachable from the host-run `dotnet run` process that is the only way the API runs in local dev (no API service exists in docker-compose.yml). Changed both to Host=localhost (postgres's 5432 port is published to the host) and documented the reasoning inline and in README.dev.md's Secrets and Vault section. Live-verified via `docker compose up -d postgres vault vault-init` then `vault kv get -field=connectionString quoteiq/local/db` returning 'Host=localhost;...'; torn down with `docker compose down` (no -v)." },
+    { "timestamp": "2026-07-11T17:20:00-04:00", "event": "e2e_tests_written", "message": "No e2e scope for this task (test_plan.e2e is empty; T-003 is pure backend/DB foundation with no UI surface) - unchanged." },
+    { "timestamp": "2026-07-11T17:35:00-04:00", "event": "iteration_incremented", "message": "iteration_count set to 1 for this Implementor pass." },
+    { "timestamp": "2026-07-11T17:40:00-04:00", "event": "task_implemented", "message": "dotnet build QuoteIQ.slnx: 0 warnings/errors. dotnet test QuoteIQ.slnx: QuoteIQ.Infrastructure.Tests 12/15 passed (all 4 required T-003 tests + 8 other T-001/T-002/T-003 tests green; the 3 failures are T-004-owned KeycloakAdminServiceTests timing out waiting for a Keycloak testcontainer - not a T-003 regression, not fixed here); QuoteIQ.Api.Tests 2/4 passed (2 T-004-owned Keycloak AuthenticationTests timed out the same way - reported, not fixed); QuoteIQ.Domain.Tests and QuoteIQ.Application.Tests report 'No test is available' (pre-existing empty scaffolding projects from T-001/T-002, no business logic yet - not a T-003 regression). Live liquibase evidence: `docker compose up -d postgres` (fresh volume) -> `docker compose --profile tools run --rm liquibase` applied 010-audit-log + create_tenant_partitions cleanly on top of the existing 000-baseline changeset in DATABASECHANGELOG (incremental update, 'Previously run: 1'); second run was a clean no-op ('Previously run: 3', 0 changesets run) confirming idempotency/runOnChange correctness; psql \\d audit_log and pg_proc confirmed the table/indexes/function match spec; `docker compose down` (no -v) preserved volumes. Fixed A-3 (Host=postgres -> Host=localhost) in infra/vault/seed-local-secrets.sh and documented in README.dev.md. Frontend (src/ui, e2e_tests) untouched. Handing to Evaluator." },
+    { "timestamp": "2026-07-11T19:10:00-04:00", "event": "evaluator_result", "message": "Evaluator verdict FAIL -> NEEDS_FIXES (iteration 1/10). Full suite 19/19; live liquibase clean no-op; contract, DB conventions, tenant isolation, test quality, conventions all confirmed. Sole blocking finding F-005: missing V-076 structural schema-conventions test (T-003 is sole owner of V-076). AC-008/067/068 T-003 portions satisfied; AC-076 partially satisfied pending F-005. Advisories: A-T3-1 Deleted state not covered by tenant guard (add when file next touched), A-T3-2 IsCrossTenant baked into filter vs IgnoreQueryFilters (equivalent, verify gating in T-005/T-006), A-T3-3 QueryFilterTests Assert.All passes on empty list (strengthen), A-T3-4 AuditWriter flushes shared DbContext, A-T3-5 AuditEntry+IAuditWriter share a file (contract-specified), A-T3-6 A-3 fix appropriate (compose liquibase uses own URL)." },
+    { "timestamp": "2026-07-11T20:10:00-04:00", "event": "implementation_written", "message": "Fix iteration 2 complete. F-005: new PartitioningConventionsChecker (catalog-based, EF-model-independent: every NOT NULL tenant_id base table must be LIST-partitioned with composite PK (tenant_id,id) and bigint identity id; no uuid PKs anywhere; nullable-tenant_id tables like audit_log exempt) + PartitioningConventionsTests (6 tests: 2 positive, 1 audit_log exemption, 3 negative-path tests that create genuinely violating tables in-test, assert the checker flags them, then drop them). Implementor caught a real checker bug during dev (relkind 'p' vs 'r' - partitioned parents were silently excluded; negative tests proved detection after fix). A-T3-1: tenant guard now covers EntityState.Deleted (+2 SaveChangesGuardTests: cross-tenant delete throws, same-tenant delete succeeds). A-T3-3: QueryFilterTests strengthened (Assert.Single + DoesNotContain). Full suite 27/27 (Infrastructure 23, Api 4). Deviation justified: single-column-PK negative case is rejected by Postgres DDL itself, replaced with permitted-but-nonconforming (record_id, tenant_id) PK shape. Frontend untouched; T-004 files untouched. Status EVALUATING." },
+    { "timestamp": "2026-07-11T20:40:00-04:00", "event": "task_passed", "message": "Iteration-2 evaluator verdict PASS. F-005 RESOLVED: checker SQL verified (relkind r+p, partstrat exactly 'l' so RANGE/HASH flagged, order-sensitive (tenant_id,id) PK check, bigint identity id, schema-wide uuid PK scan); negative tests genuine (real DDL, real checker run, cleanup in finally); LIST-partitioned-by-wrong-column transitively caught; audit_log exemption nullable-based not name-based. A-T3-1/A-T3-3 hardenings sound (IsCrossTenant escape intact). Suite 27/27 twice (deterministic). Regression clean (only the 5 claimed files changed; Keycloak tests green). AC-076/V-076 fully SATISFIED incl. negative guarantee. New non-blocking advisories: A-T3-7 checker scans public schema only, A-T3-8 tenant_id column type not asserted bigint, A-T3-9 uuid-only PK rule scope (text PK would escape), A-T3-10 relname filter lacks namespace join. Task marked PASS." }
+  ]
+}

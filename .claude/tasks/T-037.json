@@ -1,0 +1,196 @@
+{
+  "id": "T-037",
+  "title": "Broker Performance, RM Performance, and Loss Analysis dashboard endpoints",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-035"
+  ],
+  "objective": "Port the remaining three dashboard payload endpoints — Broker Performance, RM Performance, and Loss Analysis — with their implemented KPI/chart/table compositions, shared filters, drill-throughs, and metric parity against shared fixtures (P-10).",
+  "scope": [
+    "Broker Performance endpoint: broker rankings/metrics (submissions, conversion, premium), broker-type/tier dimensions per implemented composition",
+    "RM Performance endpoint: per-RM/team metrics (workload, conversion, turnaround) per implemented composition",
+    "Loss Analysis endpoint: lost-reason breakdowns, trends, premium-lost views per implemented composition",
+    "All honor the shared filter bar and expose drill contexts; tenant display currency + generatedAt conventions"
+  ],
+  "out_of_scope": [
+    "Executive/Pipeline (T-036)",
+    "UI (exists; unchanged)",
+    "Exports (T-039)"
+  ],
+  "implementation_details": [
+    "DTO parity with reference payloads (A-3); SQL aggregations asserted against T-035 shared fixtures.",
+    "Loss reasons resolved via reference values incl. disabled-but-historical values (P-04 resolvability).",
+    "RM dimension derives from assignment slots (rm slot) per T-020 semantics.",
+    "Set-based queries with the carried-over indexes; timing sanity at seed volume (N-04)."
+  ],
+  "files": [
+    "src/server/domains/dashboards/broker.routes.ts",
+    "src/server/domains/dashboards/broker.service.ts",
+    "src/server/domains/dashboards/rm.routes.ts",
+    "src/server/domains/dashboards/rm.service.ts",
+    "src/server/domains/dashboards/loss.routes.ts",
+    "src/server/domains/dashboards/loss.service.ts",
+    "src/server/domains/dashboards/quadrant.ts",
+    "src/server/domains/dashboards/suggested-action.ts",
+    "src/server/domains/dashboards/insights.ts",
+    "src/server/domains/dashboards/owner.ts",
+    "src/server/domains/dashboards/index.ts",
+    "src/server/lib/router/app.ts",
+    "src/server/tests/unit/dashboard-rules.test.ts",
+    "src/server/tests/integration/helpers/dashboard-corpus.ts",
+    "src/server/tests/integration/dashboard-broker.test.ts",
+    "src/server/tests/integration/dashboard-rm.test.ts",
+    "src/server/tests/integration/dashboard-loss.test.ts",
+    "src/server/tests/integration/auth-wiring.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new (formulas in T-035)"
+    ],
+    "integration": [
+      "Fixture-based payload assertions per dashboard; filter correctness; drill round-trips; disabled lost reasons still resolve on historical data",
+      "Tenant isolation + permission binding; timing sanity at seed volume"
+    ],
+    "e2e": [
+      "Broker/RM/Loss dashboard specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-074",
+    "AC-075",
+    "AC-078",
+    "AC-079"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-092",
+    "V-093",
+    "V-094",
+    "V-098",
+    "V-099",
+    "V-100"
+  ],
+  "findings": [
+    {
+      "id": "F-037-1",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "Broker Performance and Loss Analysis accept but do not apply brokerTypeId; Broker Performance also ignores rmUserId/teamOrRmId. Reference behaviour, preserved and flagged.",
+      "detail": "Measured: BrokerPerformanceStore applies only productLineId, brokerId, regionId, from, to (LeadQuery :213-237). LossAnalysisStore applies those five plus the RM owner, and no broker-type predicate anywhere. Only RmPerformanceStore applies brokerTypeId. All five endpoints nonetheless BIND all eight parameters (DashboardEndpoints.cs), because the SPA filter bar is shared and a stale selection must not 400. Implementing the missing dimensions would make these dashboards return FEWER rows than the shipped screens do, so the omission is preserved, made greppable via an explicit filter erasure (brokerScopedFilter / lossScopedFilter) rather than a second hand-rolled predicate builder, and flagged for a product decision."
+    },
+    {
+      "id": "F-037-2",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "Broker Performance applies the date window to leads only, never to quotes, so it reports a different population than Executive Overview for the same window.",
+      "detail": "BrokerPerformanceStore's quote read (:74-79) carries no date predicate at all: it selects every quote of the already-narrowed leads. A February quote on a March lead therefore counts on this dashboard, while the Executive dashboard (T-036) filters quotes by prepared date. Asserted deliberately in dashboard-broker.test.ts ('narrows by received-date window, on the LEAD date and not the quote date'). Unifying the two would silently change what a shipped screen reports, so it is flagged rather than resolved."
+    },
+    {
+      "id": "F-037-3",
+      "severity": "minor",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "T-035's open question about the added slaStatus 'unknown' state is resolved: it still reaches no wire. RM Performance renders it as avgTurnaroundDays null plus beyondTarget false.",
+      "detail": "Measured on both sides of the wire. TurnaroundRmRowDto (:69-74) carries AvgTurnaroundDays: double? and BeyondTarget: bool and nothing else; the handler computes 'AvgTurnaroundDays is not null && > slaTarget' (GetRmPerformanceQueryHandler.cs:291); src/ui/src/features/dashboards/rmApi.ts declares exactly that pair. An RM with no sent quote therefore renders a null bar and NO breach marker, which carries strictly more information than a tri-state string would, because the null also suppresses the bar. The wire value is nevertheless DERIVED through the shared slaStatus() (=== 'breached') rather than by rewriting the comparison, so the strictly-greater boundary keeps one home, already pinned by tests/unit/metric-definitions.test.ts (slaStatus(3,3) === 'on_track'); written inline it would have been unfalsifiable without a seeded RM whose average turnaround lands exactly on the tenant target. Asserted end to end in dashboard-rm.test.ts and killed as mutant M5."
+    },
+    {
+      "id": "F-037-4",
+      "severity": "minor",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "The matrix axis splits (median), the seven suggested-action thresholds and the five leadership-insight selection rules are the reference's own undocumented choices, carried forward verbatim for human review.",
+      "detail": "The reference flagged all three itself: the PRD names the labels and the insight types but not the thresholds or the selection rules, and no tenant setting holds a configurable split. Preserved verbatim including OverdueEscalationThreshold = 3 and the narrative wording, because both are user-visible; the payload carries the resolved volumeSplit/conversionSplit so a configured-split variant stays a drop-in. Unit-tested at every boundary in tests/unit/dashboard-rules.test.ts."
+    },
+    {
+      "id": "F-037-5",
+      "severity": "minor",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "Dashboard AGGREGATES apply no leads.view_all breadth predicate; only the drill does. Reference behaviour, recorded so it is not rediscovered as a suspected bug.",
+      "detail": "BuildSnapshotAsync takes no caller and applies no breadth filter on any of the three reference stores; ListDrillRowsAsync does. The per-dashboard permission (dashboards.view_broker_performance / view_rm_performance / view_loss_analysis) is what gates the aggregate, and each is separately grantable per PRD 20.5. Preserved. Note this differs from the aggregate-narrowing rationale recorded on T-035's breadthPredicate, which governs the drill rather than these payloads. | RESOLVED 2026-07-20 by T-050, which ported the drill row-query layer and applied the human's ruling: all 31 widget keys now resolve, breadth is applied to aggregates as well as drills, and the non-empty superset invariant is asserted per widget. Verified by the orchestrator on a clean serial sweep (94 files / 3414 passed). Queued for evaluator confirmation alongside T-050."
+    },
+    {
+      "id": "F-037-6",
+      "severity": "minor",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T08:05:00-04:00",
+      "summary": "A redundant in-memory broker-type filter on the RM dashboard was proven equivalent by mutation M10 and removed; the shared SQL predicate does the work.",
+      "detail": "The reference filtered broker type in memory because its store had already materialized the rows. Here the shared filter contract's brokerTypeId predicate (an EXISTS over brokers on the lead's own broker) already enforces both halves: restrict to the type, and exclude unbrokered leads entirely, since a lead with no broker satisfies no EXISTS. Mutating the in-memory pass changed nothing (M10 survived, ruled equivalent); mutating the SQL side killed two tests (M11, Bob's quote volume 2 -> 3). The dead pass was removed rather than left reading like the protection while the SQL did the work."
+    },
+    {
+      "id": "F-037-7",
+      "severity": "major",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-20T08:30:00-04:00",
+      "summary": "V-093 (corrected 2026-07-20) requires each deliberate filter erasure to be explicitly asserted as accepted-but-unchanged. F-037-1's three erasures (Broker Performance: brokerTypeId, rmUserId, teamOrRmId; Loss Analysis: brokerTypeId) are not asserted that way anywhere in the suites.",
+      "detail": "MEASURED: dashboard-broker.test.ts contains ZERO occurrences of 'brokerTypeId', 'rmUserId' or 'teamOrRmId' (grep-verified) - none of the three dimensions F-037-1 documents as accepted-and-ignored on this dashboard is exercised by any test, so neither 'accepted' nor 'unchanged' is proven. dashboard-loss.test.ts contains ZERO occurrences of 'brokerTypeId' (grep-verified); its rmUserId/teamOrRmId tests exist but exercise the ACCOUNTABLE-OWNER predicate (which loss.service.ts DOES apply, via owner.ts) rather than an erasure, so they do not cover F-037-1's brokerTypeId erasure at all. By contrast dashboard-rm.test.ts DOES exercise brokerTypeId with exact-value assertions (lines 516, 531), because RM Performance is the one dashboard that applies it - that suite is not at issue. The corrected V-093 explicitly requires, for each dimension a dashboard deliberately does not apply: 'assert the endpoint still ACCEPTS the parameter ... and that the result is UNCHANGED by it. The erasure must be explicit and asserted, so it reads as deliberate rather than forgotten.' This is a test-authoring gap, not a suspected implementation defect: brokerScopedFilter/lossScopedFilter in broker.service.ts/loss.service.ts read correctly on inspection, the full T-037 suite (173/173) and typecheck pass, and a first-hand mutation of owner.ts's RM-slot restriction (removing `and ba.slot = 'rm'`) was correctly caught by dashboard-rm.test.ts's constructed-state test, confirming the surrounding suites are otherwise sound.",
+      "suggested_fix": "Add, per affected dashboard, one test per erased dimension that computes the same query with and without that dimension set (holding other params fixed) and asserts the payloads are unchanged, alongside a 200-not-400 acceptance assertion for a stale/foreign value of that dimension.",
+      "resolved_at": "2026-07-20T09:10:00-04:00",
+      "resolution": "CLOSED by five new tests. dashboard-broker.test.ts gained a 'deliberate filter erasures - accepted and inert (V-093)' describe with four: one each for brokerTypeId, rmUserId and teamOrRmId asserting the FULL DTO is deep-equal between the filtered and unfiltered call, plus one sending FOREIGN/stale values of all three at once (tenant B's broker type id, and a user with no tenant-A leads) proving no 400 and no cross-tenant reach. dashboard-loss.test.ts gained one brokerTypeId erasure test, deliberately placed and commented apart from its existing rmUserId/teamOrRmId tests, which exercise the APPLIED accountable-owner predicate and were left untouched. dashboard-rm.test.ts was not modified. No existing test was weakened. DISCRIMINATION ESTABLISHED BY DIRECT SQL IN EACH TEST: broker brokerTypeT1 = {matching:'3', total:'5'} broker-carrying leads (B1/Tier 1 holds L1/L3/X1, B2/Tier 2 holds L2/L4); broker rmUserId=Bob = 2 of 5; broker teamOrRmId=Bob = {rm_slot:'2', any_slot:'2', total:'5'}; loss brokerTypeT1 = 1 of the 3 lost leads (only X1 carries a broker at all). A NON-DISCRIMINATING VALUE WAS CAUGHT AND CORRECTED BY THE MUTATION RUN ITSELF: the teamOrRmId test first used ALICE, and the mutant that removes 'teamOrRmId: undefined' from brokerScopedFilter left it GREEN -- because the shared RM predicate matches ANY assignment and Alice's underwriter row on L4 means filtering by her drops only L3, a lead with no quote, no loss and no overdue follow-up, so nothing observable moved. Switched to Bob, who moves B1 to 0 quotes and B2 to 2; the mutant then killed it. That reasoning is recorded in the test's own comment so it is not undone later. MUTATION PROOF, all restores hash-verified against recorded baselines: broker.service.ts baseline e291f11cd30324c33bc923548eaece0aaef510a85011eaf94bb3e22480e9f12d / 562 lines -- M1 deleted 'brokerTypeId: undefined' (-> 88da2d9a..., 561 lines) killing the brokerTypeId test + the foreign-value test; M2 deleted 'rmUserId: undefined' (-> 6f870cb3..., 561 lines) killing the rmUserId test + the foreign-value test; M3 deleted 'teamOrRmId: undefined' (-> 4dac5ab1..., 561 lines) killing the teamOrRmId test + the foreign-value test. loss.service.ts baseline 7153cc6403dbe769f5ab3a1d33acecefa1951c5ce8bccda3a670863da090db09 / 458 lines -- M4 removed brokerTypeId from lossScopedFilter's single-line return (-> 4c47745b..., same line count, hence the sha is the proof) killing exactly the one new loss test. Every mutant is valid TypeScript, so each kill proves a NUMBER MOVED rather than a compile error. All three production files verified byte-identical to baseline after restore."
+    },
+    {
+      "id": "F-037-8",
+      "severity": "blocker",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T10:05:00-04:00",
+      "summary": "BLOCKED: the AC-076/V-095 ruling cannot be implemented as briefed -- the five dashboards' 30 drill widget keys are NOT registered in the TS drill registry, so there is no drill to reconcile an aggregate against. The reference's per-dashboard drill row-query layer was never ported.",
+      "detail": "MEASURED BLOCKER, reported instead of implemented. The ruling's stated mechanism -- 'the widget registry already binds each widget key to a scope object, carry the flag there' -- describes the .NET REFERENCE, not the TypeScript port. In the port the registry is `ReadonlyMap<string, DrillRowQuery>` (drill.service.ts:91) with no scope object, and `defaultDrillWidgetRegistry()` (:93-95) contains EXACTLY ONE entry, 'leads.filtered'. `defaultDashboardsDeps()` (index.ts:53-55) returns `{ db: getDb() }` and leaves `drillWidgets` unset, so that default registry is what production serves; `runDrill` (:134-140) throws NotFoundError/UNKNOWN_WIDGET for every other key. Grep-verified: `drillWidgets` appears in src/server ONLY in drill.service.ts and in an index.ts COMMENT that says 'T-036/T-037 override it to add their dashboard widget keys' -- neither task ever did.\n\nCONSEQUENCE FOR THE RULING: all 30 widget keys the five dashboards emit (EXECUTIVE_WIDGET_KEYS 7, PIPELINE_WIDGET_KEYS 8, BROKER_WIDGET_KEYS 5, RM_WIDGET_KEYS 5, LOSS_WIDGET_KEYS 6) are unregistered and 404. AC-076/V-095 as amended assert RECONCILIATION -- 'compute the aggregate, then page the drill for the same filter and caller, and assert the drill's totalCount EQUALS the aggregate'. That assertion cannot be written for 30 of the 31 keys, because there is no drill to page. Change 2 (date filter on drill, per widget) is therefore 100% blocked: it is a change to drill behaviour that does not exist in TS. Change 1 (breadth on aggregates) is implementable in isolation, but its own verification bar is also reconciliation, so it too cannot be verified to the amended bar on these dashboards.\n\nSEPARATELY AND INDEPENDENTLY OF THE RULING, THIS IS A SHIPPED-FUNCTIONALITY GAP: the SPA renders every KPI card, chart and table row with an onClick that navigates to `/dashboards/drill/:widgetKey` (e.g. BrokerPerformancePage.tsx:122, BrokerKpiRow.tsx:48, TopBrokersRanking.tsx:33) and DrillListPage issues `GET /dashboards/drill?widget=...` (dashboardsApi.ts:46) with the key the payload supplied. Every drill chevron on all five dashboards currently 404s. app.ts:477's own comment anticipates exactly this failure mode ('every chart 404ing with the chevron still working').\n\nUNPORTED SURFACE, sized: the reference has a per-dashboard drill layer none of which was ported -- ExecutiveDrillRowQuery.cs, PipelineDrillRowQuery.cs, BrokerDrillRowQuery.cs, RmDrillRowQuery.cs, LossDrillRowQuery.cs; five *DrillScope enums (IExecutiveDashboardStore.cs:57, IPipelineDashboardStore.cs:57, IBrokerPerformanceStore.cs:48, IRmPerformanceStore.cs:51, ILossAnalysisStore.cs:33); five ScopesByKey maps; and DrillWidgetRegistry.cs:24-64 wiring them. The store-side ListDrillRowsAsync bodies alone are ~358 lines of query logic (Executive 76, Pipeline 73, Broker 64, Rm 85, Loss 60).\n\nWHY THIS WAS NOT SILENTLY ABSORBED: porting that layer is a new feature across a task boundary, not the flag change the brief scoped. AC-076's task_ids list T-035, which owns drill.service.ts and the registry; T-036/T-037 own the payload endpoints. Implementing it here would broaden scope well past both task files, and delivering Change 1 alone would shrink the numbers five shipped dashboards report for every caller without leads.view_all while delivering none of the reconciliation that is the ruling's entire justification. NO PRODUCTION CODE WAS CHANGED and no test was written; status left IN_PROGRESS rather than IMPLEMENTED, because neither change can be honestly claimed. Requesting a scope ruling: either extend these tasks (or re-open T-035) to port the drill row-query layer first, or sequence a new task for it and re-run this ruling after."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-20T15:30:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS, on re-review focused on F-037-5's T-050 resolution and F-036-01/02-equivalent breadth question per the brief (full task was already evaluated to iteration 1). Confirmed F-037-5 genuinely satisfied: breadth now reaches the Broker/RM/Loss aggregates (dashboard-filters.test.ts 'narrows the Broker, RM and Loss AGGREGATES, not only their drills' -- reproduced passing, broker_quotes 7->6, active_rms 2->1, quotes_lost 1->0 for the restricted caller) and all 16 Broker/RM/Loss widget keys resolve with an asserted documented population. The five erasure tests from iteration 1 (F-037-7: four in dashboard-broker.test.ts -- brokerTypeId, rmUserId, teamOrRmId, foreign-value -- plus one in dashboard-loss.test.ts) read intact and unweakened by direct inspection, including the teamOrRmId test's Alice-vs-Bob vacuity-avoidance comment, which is preserved verbatim; all pass in a fresh three-suite run (100/100). No regression found in previously-verified behaviour (F-037-2 lead-date-only quote read, F-037-3 slaStatus null/beyondTarget pair, F-037-4/F-037-6 erasures, F-037-1's brokerTypeId/rmUserId/teamOrRmId erasures on Broker/Loss) on inspection; the only production change from T-050 is the breadth predicate now reaching each service. Minor open findings F-037-1/2/4/6 remain open as documented, non-blocking product-decision flags, unchanged by this task; F-037-3 and F-037-6 remain resolved.",
+      "raised_by": "evaluator"
+    },
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-10 (Broker, RM, Loss), N-04, A-3."
+    },
+    {
+      "timestamp": "2026-07-20T08:05:00-04:00",
+      "event": "implemented",
+      "message": "Ported the three remaining dashboards from src/api, treated as authoritative throughout. NEW: broker/rm/loss .service.ts and .routes.ts, plus four modules the first two share - quadrant.ts (QuadrantClassifier), suggested-action.ts (SuggestedActionRule), insights.ts (LeadershipInsightRules) and owner.ts, which carries the rm-SLOT accountable-owner predicate. That predicate is NARROWER than filters.ts's any-assignment RM predicate (business_assignments has an underwriter slot too), so the two are kept apart and documented rather than merged: using the shared one would attribute another person's leads to an RM on the one ranking this dashboard exists to produce. Built on T-035's eight-dimension filters.ts contract with no widening; each service ERASES the dimensions its reference store does not apply (see F-037-1) instead of hand-rolling a second predicate builder. Money aggregates run on money.ts bigint cents throughout and widen to number only at the DTO boundary, matching the SPA's declared wire types. TEST-FIRST, RED OBSERVED: the unit suite failed on a missing module, then the loss integration suite failed 27/27 on missing routes, both before any production code existed. TESTS ADDED: 35 unit (dashboard-rules.test.ts) + 34 broker + 33 rm + 28 loss integration + 3 app-mount pins in auth-wiring.test.ts = 133. Every assertion is an EXACT hand-computed value (7400.00 won premium, 26/3 turnaround, 2/3 conversion, 1425.00 lost premium, the six trend months, the quadrant splits) over ONE shared corpus (tests/integration/helpers/dashboard-corpus.ts) seeded from the same loadMetricFixture() the T-035 unit and SQL-parity suites read, so a fixture edit moves all of them (AC-074). The corpus adds two lost leads carrying the reasons, competitors and commentary the Executive-oriented fixture has none of, including one DISABLED lost reason retired AFTER the lead that used it (P-04). MUTATION TESTING: 12 mutants, each proven applied by sha256 plus line-count delta and restored to a verified baseline hash. KILLED outright: M1 bound-premium fallback dropped (7400 -> 7500), M2 loss premium precedence inverted (1425 -> 1700), M3 disabled reason filtered out - valid SQL, the reason degraded to Unspecified rather than erroring, M5 unknown treated as breach, M6 tenant predicate dropped from the broker roster (tenant B brokers appeared), M7 trend bucketed by received instead of decision date, M9 quadrant inclusive boundary, M11 broker-type predicate erased from the query, M12 app.ts mount line deleted. SURVIVED, then KILLED after CONSTRUCTING the discriminating state: M4 rm-slot restriction removed - the corpus held only rm-slot assignments, so an underwriter-slot assignment for Alice on Bob's lead L4 was added, after which the mutant moved won premium 2400 -> 7400; M8 overdue count ignoring open status - every lead carrying a commitment was already open, so a past follow-up date was added to a LOST lead, after which the mutant moved the count 2 -> 3. SURVIVED and RULED EQUIVALENT: M10 (see F-037-6), after which the load-bearing part was mutated instead (M11) and killed. AC-079: the query budget is asserted by COUNTING Kysely statements (<=8 broker/rm, <=6 loss) rather than by milliseconds, which cannot see an N+1 on a small corpus. AC-022: both tenants are seeded with identical corpora, so a leak shows up as a doubled aggregate and not merely as a foreign row. SHARED FILES touched additively in one pass at the end: index.ts (new exports only), app.ts (three api.route lines on the existing dashboards slot, as that slot's own comment anticipated; T-036's executive/pipeline exports were already present and were not modified), auth-wiring.test.ts (one new describe pinning the three mounts, no existing test changed). No composition-root change was needed: the three routers ride the existing defaultDashboardsDeps() object, which the existing pin already protects. NO MIGRATION and no schema change. GATES, serial and isolated: own suites 138/138 pass; full unit project 1756/1756; T-035's dashboard-filters.test.ts 60/60 unaffected; typecheck 0; lint 0; db:types:check 0. Row residue verified ZERO by direct query across tenants, leads, quotes, brokers and reference_items plus orphaned lead_assignments and tenant_settings."
+    },
+    {
+      "timestamp": "2026-07-20T08:35:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: NEEDS_FIXES (iteration 1/10). Full suite reproduced first-hand: dashboard-rules.test.ts + dashboard-broker.test.ts + dashboard-rm.test.ts + dashboard-loss.test.ts + auth-wiring.test.ts = 173/173 pass; typecheck exits 0. Read owner.ts, broker.service.ts and loss.service.ts directly: the rm-slot-vs-any-assignment split, brokerScopedFilter/lossScopedFilter erasures and F-037-2's lead-date-only quote read all match F-037-1/2/3's descriptions exactly. Reproduced mutant M4 first-hand: removed `and ba.slot = 'rm'` from owner.ts's accountableOwnerPredicate, confirmed sha256 changed, ran dashboard-rm.test.ts + dashboard-loss.test.ts: 3 failures in dashboard-rm.test.ts (teamOrRmId narrowing, the rm-slot attribution test, and the teamOrRmId-wins-over-rmUserId test) with the exact premium/roster shifts the implementor's log describes, dashboard-loss.test.ts's own rm-slot test correctly did NOT fail because its corpus fact (L4 is WON) makes the slot restriction irrelevant to the LOST population - consistent with the code comments, not a discrepancy. Restored and confirmed sha256 matches baseline exactly. Query-budget counting confirmed genuine (statement-counting via Kysely log hook, <=8 broker, <=6 loss, both grep-verified as real assertions, not timing). CORRECTED V-093 ASSESSED: the correction is TRUE against the reference (both tasks' code matches the described per-dashboard erasures) and is STRICT (it would catch a silently-dropped filter, since 'unchanged' must be proven, not merely 'not erroring') - the correction itself is sound. NEW FINDING F-037-7 (major, evaluator): neither dashboard-broker.test.ts nor dashboard-loss.test.ts actually satisfies the corrected V-093's 'accepted AND unchanged' requirement for the erasures F-037-1 documents (grep-verified zero occurrences of brokerTypeId in dashboard-broker.test.ts; zero occurrences of brokerTypeId, and no rmUserId/teamOrRmId test framed as an erasure rather than the applied owner predicate, in dashboard-loss.test.ts). This is the same class of gap as T-036's F-036-08 and should be fixed the same way. Also independently measured T-036's F-036-01/F-036-02 equivalents here: F-037-2 (Broker Performance's quote read has no date predicate) and F-037-5 (no breadthPredicate call anywhere in broker.service.ts/rm.service.ts/loss.service.ts) are both confirmed true by direct inspection and are ESCALATED alongside T-036's F-036-01/02 for a single combined human ruling, since all three dashboards in this task share the same aggregate-breadth design as Executive/Pipeline. All other findings (F-037-3, 4, 6) verified consistent with the code and tests on inspection. This task returns to the Implementor solely to close F-037-7; the F-036-01/02-equivalent breadth question is a human ruling, not an Implementor fix."
+    },
+    {
+      "timestamp": "2026-07-20T09:10:00-04:00",
+      "event": "implemented",
+      "message": "F-037-7 CLOSED. Test-authoring only: NO production code changed, no schema change, no migration. FIVE tests added. dashboard-broker.test.ts: a new 'deliberate filter erasures - accepted and inert (V-093)' describe with one test per erased dimension (brokerTypeId, rmUserId, teamOrRmId), each asserting the FULL DTO deep-equal between the filtered and unfiltered call, plus a fourth sending FOREIGN values of all three at once (tenant B's broker type, captured by binding the previously-discarded tenant-B seed result to `idsB`) which proves both no-400 and no cross-tenant reach. dashboard-loss.test.ts: one brokerTypeId erasure test, commented explicitly to distinguish it from the suite's existing rmUserId/teamOrRmId tests, which exercise the APPLIED accountable-owner predicate and were left alone. dashboard-rm.test.ts NOT touched -- RM Performance genuinely applies brokerTypeId. Nothing existing was weakened or deleted. FILTER VALUES PROVEN DISCRIMINATING IN-TEST by direct SQL over the corpus, so a deep-equal cannot pass vacuously: broker brokerTypeT1 {matching:'3', total:'5'}; broker rmUserId=Bob 2 of 5; broker teamOrRmId=Bob {rm_slot:'2', any_slot:'2', total:'5'}; loss brokerTypeT1 {matching:'1', total:'3'} lost leads. All test SQL uses count filters with no ORDER BY, so the alias-shadowing trap does not arise. A VACUOUS TEST WAS CAUGHT BY THE MUTATION RUN AND FIXED: the teamOrRmId test originally used Alice and SURVIVED M3, because the shared RM predicate is any-assignment and Alice's underwriter row on L4 means her filter drops only L3 -- a lead with no quote, no loss and no overdue follow-up. Switched to Bob and re-ran; M3 then killed. The reason is written into the test comment so the value is not innocently changed back. MUTATION PROOF (all applications proved by sha256, plus line-count delta where lines change; all restores hash-verified): broker.service.ts baseline e291f11c.../562L -- M1 drop 'brokerTypeId: undefined' -> 88da2d9a.../561L, 2 failed/36 passed; M2 drop 'rmUserId: undefined' -> 6f870cb3.../561L, 2 failed/36 passed; M3 drop 'teamOrRmId: undefined' -> 4dac5ab1.../561L, 2 failed/36 passed. loss.service.ts baseline 7153cc64.../458L -- M4 drop brokerTypeId from lossScopedFilter -> 4c47745b.../458L (single-line return, so sha alone is the application proof), 1 failed/28 passed. Every mutant is valid TS, so each kill is a moved number. Both files verified byte-identical to baseline afterwards. The mutation harness used binary I/O and REFUSES any pattern that does not occur exactly once (it printed 'REFUSED' rather than mutating on ambiguity); it was deleted after the run. GATES, serial: the four touched suites isolated 167/167 exit 0; full npm test 94 files / 3397 tests / exit 0 (floor 3390 NOT touched); npm run typecheck 0 (after the full suite); npm run lint 0. Residue verified by direct query: 0 tenants matching t37b-/t37l-/t37r-/t36e-/t36p- and 0 orphaned rows in leads, quotes, brokers, reference_items, parties, lead_assignments, business_assignments, tenant_settings, broker_contacts, quote_versions, audit_log, user_tenants. Touched test files checked byte-wise: no NUL byte, LF line endings. F-037-2 and F-037-5 remain OPEN, untouched, awaiting the combined human ruling with T-036's F-036-01/02."
+    },
+    {
+      "timestamp": "2026-07-20T10:05:00-04:00",
+      "event": "blocked",
+      "message": "STOPPED AND REPORTED WITHOUT IMPLEMENTING, per the brief's instruction to stop rather than silently widen scope. The ruling's mechanism premise is false against this codebase: there is no per-widget 'scope object' in the TS drill registry to carry a date-scoped flag on, and 30 of the 31 dashboard widget keys resolve to no drill query at all (default registry holds only 'leads.filtered'). The amended AC-076/V-095 bar is aggregate-to-drill reconciliation, which is unwritable for those 30 keys. Change 2 is fully blocked; Change 1 (breadth on aggregates) is implementable but unverifiable to the amended bar and would change five shipped dashboards' numbers while delivering none of the reconciliation that justifies it, so it was NOT landed unilaterally. Recorded as F-037-8. No production code, tests, schema or migrations touched; no gates run (nothing to gate); status left IN_PROGRESS and iteration_count left at 1. Also surfaced independently of the ruling: every drill chevron on all five dashboards 404s today, because the SPA navigates on the drillWidgetKey the payload emits."
+    },
+    {
+      "timestamp": "2026-07-20T10:00:00-04:00",
+      "event": "task_blocked",
+      "message": "BLOCKED on T-050. The human's AC-076 ruling cannot be implemented or verified here: the drill row-query layer it operates on was never ported, so 30 of the 31 widget keys these dashboards emit resolve to no drill query. The breadth half is implementable in isolation but unverifiable to the amended V-095 bar, and landing it alone would shrink these dashboards' numbers for every caller without leads.view_all while delivering none of the reconciliation that justifies the change. T-050 ports the layer; this ruling is then applied and verified against it."
+    },
+    {
+      "timestamp": "2026-07-20T14:00:00-04:00",
+      "event": "task_unblocked",
+      "message": "BLOCKED -> IMPLEMENTED. T-050 landed the drill row-query layer these findings were blocked on and applied the human's reconciliation ruling. Nothing in this task's own aggregates changed except the breadth predicate now reaching them, which is the ruling. Handed to the Evaluator with T-050."
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "id": "T-046",
+  "title": "Validation rule-code prefix defect: mixed-case prefixes bypass the explicit-code parser and leak into user-visible messages",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-024"
+  ],
+  "objective": "Fix the lib/validation explicit-rule-code parser so a mixed-case prefix is either honoured or rejected loudly, and stop the literal prefix leaking into human-readable messages. Confirmed first-hand by the evaluator while ruling on T-024-F7 and correctly left out of T-024's scope.",
+  "scope": [
+    "lib/validation: EXPLICIT_CODE currently matches only /^([A-Z][A-Z0-9_]*)\\|/, so a mixed-case prefix such as 'NotNullValidator|...' does NOT match",
+    "Two symptoms from one cause: the intended rule code is silently replaced by the DERIVED code, and the literal 'NotNullValidator|' prefix is emitted in the user-visible message",
+    "Sweep every .refine/message site in src/server for mixed-case prefixes - known affected: assignments/schemas.ts, brokers, api-access, business-rules",
+    "Decide and implement ONE policy: widen the parser to accept the mixed-case form, or normalise all call sites to SCREAMING_SNAKE and make a non-matching prefix fail loudly rather than silently degrade"
+  ],
+  "out_of_scope": [
+    "Changing any error code that the SPA or the .NET reference contract depends on - verify each against the reference before altering it",
+    "T-024's LEAD_* codes, which already use the SCREAMING_SNAKE form the module documents"
+  ],
+  "implementation_details": [
+    "Silent degradation is the real defect: the current parser has no failure mode, so a malformed prefix produces a plausible-looking wrong code AND a leaked message with no signal. Whichever policy is chosen, a non-conforming prefix must become LOUD (test failure or lint error), not silently derived.",
+    "Measure the reference for every code actually changed - this session has repeatedly found task-file and brief claims about codes and envelopes to be wrong where the .NET source was right.",
+    "Assert CODES AND MESSAGES, not just status: every affected case is a 422, so a status-only test cannot distinguish a correct code from a leaked-prefix one. That gap is precisely what let this defect survive."
+  ],
+  "files": [
+    "src/server/lib/validation/",
+    "src/server/domains/assignments/schemas.ts",
+    "src/server/domains/brokers/",
+    "src/server/domains/api-access/",
+    "src/server/domains/business-rules/",
+    "src/server/tests/"
+  ],
+  "test_plan": {
+    "unit": [
+      "Explicit-code parser: SCREAMING_SNAKE prefix honoured; mixed-case prefix handled per the chosen policy; a non-conforming prefix fails loudly rather than degrading silently; no prefix ever reaches the human-readable message"
+    ],
+    "integration": [
+      "For each affected domain, assert the emitted rule CODE and the message text on a 422 - proving the prefix is gone from the message and the intended code is returned, not the derived one"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": [
+    "AC-022"
+  ],
+  "verification_ids": [
+    "V-027"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-19T20:25:00-04:00",
+      "event": "task_created",
+      "message": "Created by the orchestrator on the evaluator's explicit ruling while evaluating T-024. The evaluator confirmed the defect first-hand (EXPLICIT_CODE = /^([A-Z][A-Z0-9_]*)\\|/ vs the mixed-case prefixes used in sibling domains) and ruled it needs its own small task rather than being absorbed into T-024, which correctly left it untouched as out of scope. Depends on T-024 only so the leads codes are settled first; no other task is blocked by it."
+    },
+    {
+      "timestamp": "2026-07-19T17:12:00-04:00",
+      "event": "implementation_written",
+      "message": "POLICY CHOSEN: WIDEN the parser, not normalise the call sites. Measured against the reference before touching anything. src/api contains NO WithErrorCode call anywhere, so FluentValidation emitted its DEFAULT ErrorCode - the validator type name - and IntakeLeadCommandHandler put that straight on the wire via `e.ErrorCode ?? \"INVALID\"`. The PascalCase spellings are therefore the .NET wire contract, not a style slip; lib/validation's own codeForIssue already derives the identical spellings ('NotNullValidator', 'EmailValidator', ...), and unit/problem.test.ts + unit/validation.test.ts already assert them. Normalising to SCREAMING_SNAKE would have BROKEN the preserved contract. Grammar widened to [A-Z][A-Za-z0-9_]*, which admits both the PascalCase and the SCREAMING_SNAKE (T-024 LEAD_*) forms. NET RESULT: an fs-based sweep of all 28 distinct prefixes in src/server found every one already conforming, so ZERO code strings changed and there is zero contract risk. LOUDNESS (the actual defect - silent degradation): a prefix-shaped candidate (leading run of non-whitespace before the first '|') that does not conform now throws a hard developer Error from toFieldErrors instead of silently falling back to the derived code; prose with spaced pipes ('Allowed: New | Assigned') is deliberately excluded, and every spaced-pipe literal in the tree was checked. A second at-rest gate, tests/integration/validation-rule-codes.test.ts, fails the build the moment a malformed prefix is WRITTEN, without needing the rule to trip. That sweep reads files through fs rather than grep on purpose: global-template.schemas.ts embeds a literal NUL as a composite-key delimiter, so grep -o classifies it binary and silently emits no codes for the six real prefixes it contains. TESTS FIRST, RED OBSERVED: 3 failures, one printing the leak verbatim ('NotNullValidator|A role id must be a number or null.' reaching the user). Tightened the existing business-assignments 422 case, whose toContain(detail) assertion passed just as happily on the leaked-prefix text - it now asserts errors[] exactly (field/code/message) plus not.toContain('PredicateValidator|'). MUTANTS 5/5 KILLED, each with an application proof matched to its shape: M1 regex narrowed back (sha f5da06->dd0d09 + semantic grep) killed 5 tests; M2 guard call deleted (180->178 lines, grep count 0) killed the loud-failure test; M3 non-conforming prefix planted in assignments/schemas.ts (sha 61c461->885851) killed the sweep, which named the exact file and code; M4 same planted in the NUL/binary file (sha 887570->766ec4) killed the sweep while a grep -o sweep returned only 'Binary file matches' - proving the fs approach is load-bearing, not decorative; M5 PREFIX_SHAPED widened to swallow prose (sha ->0d272e) killed the prose test. All three touched files restored byte-identical (verified by sha256) and re-verified green. GATES: npm test exit 0, 2511 passed / 75 files (floor 2504 + the 7 tests added, unedited); npm run typecheck 0, run after the suite; npm run lint 0. db:types:check not run - no schema change. db:validate and supabase:reset deliberately NOT run. RESIDUE: direct psql query shows business_assignments=0, lead_assignments=0, quote_assignments=0, tenants=0, audit_log=0 - zero rows; the 175 empty orphaned partitions are the pre-existing shells global-setup purges at run start (it dropped 1276 this run). FLAGGED, not filled: the literal NUL byte in global-template.schemas.ts is a genuine latent hazard beyond this task's scope - it makes that file invisible to every grep-based repo sweep in the suite, not just this one. Left in place rather than changed to a '\\0' escape, since altering it is out of scope and could affect the dedupe key; raising it for the orchestrator to triage."
+    },
+    {
+      "timestamp": "2026-07-19T21:58:00-04:00",
+      "event": "evaluator_pass",
+      "message": "PASS at iteration 0, zero findings. THE CENTRAL CLAIM VERIFIED FIRST-HAND, AND IT HOLDS: grep for WithErrorCode across src/api returns exactly 4 matches - all four are FluentValidation.dll binaries (the library's own method name), zero .cs source files; IntakeLeadCommandHandler.cs:89 confirmed putting `e.ErrorCode ?? \"INVALID\"` straight on the wire. PascalCase IS the preserved contract; the task file's normalise-to-SCREAMING_SNAKE premise would have broken it, and the implementor was right to overturn it. Corroboration also verified: codeForIssue derives the identical spellings and unit/problem.test.ts + unit/validation.test.ts assert them. SWEEP REPRODUCED INDEPENDENTLY with a python fs walk using the same grammar over src/server, api/, scripts/ AND src/ui: exactly 28 distinct prefixes in src/server (excluding tests), all conforming - matching the implementor's count; the only non-conforming prefix-shaped candidates anywhere are regex sources and deliberate fixtures inside tests plus a UI '?format=csv' query string, none of them emitting sites; api/ and scripts/ contain zero prefix-shaped literals. SPA claim verified: client.ts types `code` structurally and no UI file branches on a validation error code (the only .code branches are the duplicate-warning channel, a different field). SPACED-PIPE EXCLUSION AUDITED: enumerated every spaced-pipe quoted literal in src/server and api/ (~120) - all are prose, SQL || concatenation, type renderings, or ' | ' separators; none can smuggle a code, and tightening the heuristic would false-positive on legitimate prose ('New | Assigned') whose leading token conforms to the grammar. The exclusion is sound. ALL FIVE MUTANTS REPRODUCED FIRST-HAND with application proof matched to shape and byte-identical restoration (shas f5da06, 61c461, 887570 verified before and after): M1 regex narrowed (sha f5da06->ef18b5 + grep of line 38) killed the SAME 5 tests the implementor reported; M2 guard call deleted (180->178 lines, call-site grep count 0) killed exactly the loud-failure test; M3 lowercase prefix planted in assignments/schemas.ts (61c461->75ad35) killed the sweep, which named the exact file and code; M4 bad prefix planted in the NUL-byte file (887570->c1c635) killed the sweep while `grep -o` on the same file returned only 'Binary file matches' - the fs approach is load-bearing, exactly as claimed; M5 PREFIX_SHAPED widened (->5c67dc) killed 2 tests including the prose case. Post-restore: the 4 affected test files 110/110 green. NUL-BYTE RULING: confirmed exactly one raw 0x00 in global-template.schemas.ts inside a template-literal dedupe key. The fs workaround is SOUND and proven by M4. Blast radius measured, and it is narrower than feared: every in-suite sweep-style guard (process-env scanner via collectSourceFiles/readFileSync, the sensitive-data and layering checks) reads through fs, so NONE of the suite's guards is blind to the file; the blindness hits interactive grep/ripgrep (including agent tooling) and any FUTURE guard written with shell grep. RECOMMEND a separate micro-task: replace the raw byte with the escape sequence \\u0000 (runtime-identical string, zero behavior change, restores text-file status for all tooling); the implementor's caution about the dedupe key does not apply since the escape produces the same string. GATES RUN SERIALLY: first full run 2510/2511 - ONE failure, NOT a T-046 file: lead-workflow.test.ts 'appends exactly one history row per operation' (the afterSecond digest showed the start-information-gathering row sorted FIRST, implying the assign row moved or was rewritten between reads - mechanically impossible for a validation-layer change to cause, and that file is untouched by this task). Re-run of the file alone 37/37, full suite re-run 75 files / 2511 passed / exit 0 matching the baseline; typecheck 0 after the suite; lint 0. RULED A PRE-EXISTING FLAKE, not attributable to T-046, but the failure shape is disturbing for an append-only audit invariant (readHistory orders by acted_at, id; acted_at comes from a per-operation JS new Date().toISOString(), and the flaking digest showed an exact whole-second timestamp) - FLAGGED for orchestrator triage as its own investigation, and T-026 should know since quote_status_history uses the identical appendStatusHistory pattern. SECURITY: the new hard Error carries only schema-authored literals and toProblem sanitizes every 5xx unconditionally, so nothing new can leak to a client; no findings. AC-022/V-027 are the inherited endpoint-isolation criteria and are vacuous for this task (no endpoints added); non-regression covered by the green full suite. TAKEN ON TRUST: only the implementor's red-first observation (3 pre-fix failures), which the mutant reproductions independently confirm would have occurred."
+    }
+  ]
+}

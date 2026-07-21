@@ -1,0 +1,128 @@
+{
+  "id": "T-029",
+  "title": "Lead timeline endpoint: activity aggregation across history, notes, follow-ups, quotes, attachments",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-026"
+  ],
+  "objective": "Port the lead activity timeline: the aggregation endpoint composing status history (lead + quote), notes, follow-ups, pricing approvals, assignment changes, and attachment events into the chronological timeline DTO the lead detail page renders (P-08 detail).",
+  "scope": [
+    "GET /api/v1/leads/{id}/timeline (path per reference API) returning the merged, ordered activity DTO with entry types/fields matching the reference",
+    "Sources: lead_status_history, quote_status_history (per-quote context), lead_notes, follow_ups, pricing_approvals, assignment changes, attachment add/remove (audit-derived where the reference derives them)",
+    "Tenant isolation + breadth permission consistency with lead detail"
+  ],
+  "out_of_scope": [
+    "Writing any of the source records (owning tasks)",
+    "UI (exists; unchanged)"
+  ],
+  "implementation_details": [
+    "Mirror the .NET timeline aggregation query/DTO exactly (entry type discriminators, actor display fields, inputs summaries).",
+    "Efficient single/few-query aggregation (UNION ALL pattern) — no N+1 (N-04).",
+    "Ordering and paging semantics per reference (verify whether paged or full)."
+  ],
+  "files": [
+    "src/server/domains/leads/timeline.routes.ts",
+    "src/server/domains/leads/timeline.service.ts",
+    "src/server/domains/leads/timeline.repository.ts",
+    "src/server/domains/leads/routes.ts",
+    "src/server/domains/leads/index.ts",
+    "src/server/lib/router/app.ts",
+    "src/server/tests/integration/timeline.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "None (aggregation over real data — integration level)"
+    ],
+    "integration": [
+      "Fixture lead with operations, notes, follow-ups, quote events, attachment events produces the correctly ordered merged timeline with reference DTO shapes",
+      "Cross-tenant lead 404; breadth-restricted user parity with lead detail access"
+    ],
+    "e2e": [
+      "Lead detail timeline coverage in adapted suite (T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-060"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-076"
+  ],
+  "findings": [
+    {
+      "id": "F-029-1",
+      "severity": "major",
+      "summary": "Task scope, AC-060 and V-076 name sources the .NET reference never implemented; the reference (four sources) was ported.",
+      "detail": "The task scope lists pricing_approvals, assignment changes and attachment events; AC-060 and V-076 additionally name \"attachment events\" as a fifth source. GetLeadTimelineQueryHandler.cs aggregates EXACTLY four: lead_status_history, the quotes of the lead via quote_status_history, follow_ups and lead_notes (:55-65). TimelineEntryDto.cs declares exactly four type discriminators (status/quote_status/follow_up/note). The already-shipped SPA (TimelinePanel.tsx, leadsApi.ts:409) types the entry type as that closed union and maps it exhaustively, so a fifth type would break the UI. Per the reference-is-authoritative rule the four-source aggregation shipped. Flagged rather than filled: adding attachment/pricing/assignment sources is a product decision requiring a UI change and human sign-off. | RULED 2026-07-20 by the human: amend AC-060/V-076 to the four verified sources (the evaluator's recommendation). The three extra sources never existed in the system being migrated. NO CODE CHANGE - the implementation already matched both the reference and the shipped SPA - so T-029 moves BLOCKED -> PASS. V-076 was STRENGTHENED rather than merely narrowed: it now requires the exact event SET (so dropping a source fails), the same-instant and sub-second ordering cases, the constructed cross-tenant id collision, and parity with GET /leads/{id} on breadth.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T00:58:00-04:00"
+    },
+    {
+      "id": "F-029-2",
+      "severity": "minor",
+      "summary": "AC-060 \"intake notes appear as the first activity\" means chronologically first, hence LAST in the newest-first list.",
+      "detail": "The timeline is newest-first (FR-44, handler :150). The intake note is written at creation with the same timestamp as the lead, and creation writes no status-history row, so it is the earliest entry and therefore the final item. Interpreted chronologically and pinned by the test \"places the intake note last\". Recorded because a positional reading of the criterion would require reversing the sort.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T00:58:00-04:00"
+    },
+    {
+      "id": "F-029-3",
+      "severity": "minor",
+      "summary": "A non-integer ?page is treated as absent (page 1) rather than answering 400 as ASP.NET model binding would.",
+      "detail": "The reference binds int? page and defaults it to 1 (LeadEndpoints.cs:103); a non-integer value would fail model binding with a 400. Here it falls back to page 1. Deliberate divergence on a display-only pagination hint that cannot widen visibility and reaches the database only as a bounded offset. Every other paging semantic (1-based, floors at 1, fixed size 50, {items,totalCount,page,pageSize} envelope) is the reference behaviour and is tested.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T00:58:00-04:00"
+    },
+    {
+      "id": "F-029-4",
+      "severity": "minor",
+      "summary": "Aggregation is one UNION ALL query, not the in-memory merge plus per-status/per-actor/per-quote lookups the reference uses.",
+      "detail": "The reference reads four sources separately, loops quotes for their history, and resolves every status id and actor id with an individual FindAsync - tens of round trips per lead, the fan-out-per-event N+1 that CLAUDE.md forbids (N-04) and that the task file itself asks to avoid. The port is one query with a windowed count. Same four sources, same projection, same total order (at DESC, typeRank DESC, sourceId DESC); only the round-trip count differs, so nothing observable changed.",
+      "status": "resolved",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-20T00:58:00-04:00"
+    },
+    {
+      "id": "F-029-5",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "acceptance-criteria",
+      "summary": "F-029-1 confirmed by independent reproduction; ESCALATED to human/orchestrator for a ruling on AC-060 and V-076, not closed.",
+      "description": "Verified first-hand, not on trust: (1) GetLeadTimelineQueryHandler.cs:55-65 reads exactly four sources (lead_status_history, quote_status_history via ListForLeadAsync, follow_ups, lead_notes) and its own doc comment says 'its four tenant-scoped sources' - no pricing_approvals, assignment-change, or attachment branch exists anywhere in the handler. (2) TimelineEntryDto.cs:17-20 declares exactly four type discriminators (status/quote_status/follow_up/note). (3) The shipped SPA types TimelineEntryDto.type as the closed union 'status' | 'quote_status' | 'follow_up' | 'note' (leadsApi.ts:409) and TimelinePanel.tsx:4-7 maps exactly those four keys with no default/fallback case - a fifth wire value would either fail to compile (if the map is used as a Record over the union) or render with no label at runtime, and either way is a real UI break, not a hypothetical one. The port (timeline.repository.ts, timeline.routes.ts) matches the reference exactly: four UNION ALL branches, four discriminators, ordering/paging both verified against the reference and independently exercised (22/22 integration tests pass, isolated run, reproduced by the evaluator). AC-060 and V-076 nonetheless both name five sources including 'attachment events', and the task scope additionally names pricing approvals and assignment changes - none of which the .NET system being replaced ever implemented. This is a genuine acceptance-criteria/reference contradiction, not an implementation gap.",
+      "evidence": "src/api/QuoteIQ.Application/Features/Leads/GetTimeline/GetLeadTimelineQueryHandler.cs:9-21,55-65; TimelineEntryDto.cs:9-21; src/ui/src/features/leads/leadsApi.ts:409; src/ui/src/features/leads/detail/TimelinePanel.tsx:4-7; .claude/acceptance.json AC-060; .claude/verification.json V-076; src/server/domains/leads/timeline.repository.ts; npm test -- src/server/tests/integration/timeline.test.ts -> 22 passed (evaluator re-run).",
+      "recommendation": "Recommend amending AC-060 and V-076 to describe the four sources the reference and the already-shipped SPA actually support (status history, quote status history, follow-ups, notes), and striking 'attachment events' / retitling the criterion. If attachment/pricing-approval/assignment-change timeline entries are genuinely wanted, that is a new, explicitly-scoped follow-up task requiring: a fifth TimelineEntryDto discriminator, a non-breaking SPA union/label-map change (TimelinePanel.tsx, leadsApi.ts:409), and its own acceptance criteria - it is a product/UI change, not a T-029 completeness gap, and should not be used to fail T-029's otherwise-verified four-source port.",
+      "status": "resolved",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-20T08:00:00-04:00",
+      "detail": " | RULED 2026-07-20 by the human: amend AC-060/V-076 to the four verified sources (the evaluator's recommendation). The three extra sources never existed in the system being migrated. NO CODE CHANGE - the implementation already matched both the reference and the shipped SPA - so T-029 moves BLOCKED -> PASS. V-076 was STRENGTHENED rather than merely narrowed: it now requires the exact event SET (so dropping a source fails), the same-instant and sub-second ordering cases, the constructed cross-tenant id collision, and parity with GET /leads/{id} on breadth."
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-08 activity timeline, section 12 leads timeline."
+    },
+    {
+      "timestamp": "2026-07-20T00:58:00-04:00",
+      "event": "implemented",
+      "message": "Ported GET /api/v1/leads/{id}/timeline test-first (RED observed: 19 of 21 failing, every timeline call 404). Sources measured from GetLeadTimelineQueryHandler.cs: FOUR (lead_status_history, quote_status_history via the quotes of the lead, follow_ups, lead_notes) - not the five/seven the task scope and AC-060/V-076 describe (F-029-1). Guarded by leads.view and NOT breadth-filtered, matching lead detail (the handler uses the same plain FindAsync). Paged, fixed size 50, envelope {items,totalCount,page,pageSize} - verified against the reference DTO AND the already-shipped SPA. Aggregation is a single UNION ALL with count(*) over () (F-029-4), every alias tenant-predicated; ORDER BY fully qualified on the CTE alias per T-048. Total order reproduced exactly: at DESC, then fixed type rank DESC (status 3 > quote_status 2 > follow_up 1 > note 0), then the source row id DESC - never a second clock. Both tie-break levels pinned with CONSTRUCTED exact-timestamp collisions, plus a sub-second case that a timestamptz::text sort fails. Files: timeline.routes.ts, timeline.service.ts, timeline.repository.ts (new); routes.ts (exported leadIdOf and actorFrom so the security-critical actor resolution is not duplicated); index.ts, lib/router/app.ts (mounted on the existing leads deps slot - both composition roots already pass it, so neither needed editing and auth-wiring.test.ts needed no change). Tests: src/server/tests/integration/timeline.test.ts, 22 integration tests, isolated run exit 0. MUTATION TESTING: 25 mutants, all APPLIED with shape-matched proof (line-count delta for deletions, sha256 delta plus semantic grep for same-line edits) and all restores verified byte-identical by sha256. 25/25 KILLED. Two survived first and were investigated rather than waived: dropping the quotes-join tenant predicate and the reference_items name-join tenant predicate were unfalsifiable only because id collisions across tenants do not currently arise from the shared identity sequence - the PK is (tenant_id, id) and the schema permits them, so the discriminating state was CONSTRUCTED by direct SQL with overriding system value, and both then died. Dropping any one of the four union sources kills 3-9 tests. Gates: timeline suite exit 0; timeline+leads-core+leads-list+lead-workflow+auth-wiring+repo-layout 270 passed; npm run typecheck 0; npm run lint 0. No schema change, no migration added, db:validate/supabase:reset NOT run (shared DB, T-033 concurrent). Residue verified by direct query: zero t029 tenants and zero rows across all eight owned tables after a run."
+    },
+    {
+      "timestamp": "2026-07-20T08:15:00-04:00",
+      "event": "evaluated_blocked",
+      "message": "Evaluator ruling at iteration 0/10: BLOCKED (not PASS, not NEEDS_FIXES) pending human/orchestrator resolution of F-029-1/F-029-5 - all TECHNICAL claims independently verified and no code-level findings remain open. REPRODUCED FIRST-HAND: (a) reference source read directly - GetLeadTimelineQueryHandler.cs aggregates exactly four sources (:55-65), TimelineEntryDto.cs declares exactly four discriminators (:17-20), and the shipped SPA (leadsApi.ts:409 closed union, TimelinePanel.tsx:4-7 four-key exhaustive label map) would break on a fifth type - F-029-1's three claims all confirmed, not taken on trust. (b) timeline.repository.ts read directly: one UNION ALL over the same four sources, every branch and every join (quotes, both reference_items joins) carries its own tenant_id predicate, ORDER BY qualifies all three sort keys on the CTE alias 'e.' per T-048. (c) Ran src/server/tests/integration/timeline.test.ts in isolation: 22/22 passed, including the constructed exact-instant four-way tie (status>quote_status>follow_up>note), the same-type id-descending tie, the .000/.500 sub-second case, the fixed-50 paged envelope with Load-more parity, the floor-at-1 paging, and the cross-tenant id-collision test built with 'overriding system value' against quotes and reference_items (PK is (tenant_id,id), collisions are schema-legal even though the shared identity sequence does not currently produce them) - all reproduced, not assumed. (d) routes.ts/service.ts read directly: getLeadTimeline resolves the lead via the same plain tenant-scoped findLead used by GET /leads/{id} (repository.ts:175-187), confirming NOT breadth-filtered as claimed. (e) npm run typecheck: 0 errors. F-029-2 (intake-note chronological-vs-positional wording) and F-029-3 (non-integer page not 400) are correctly-reasoned, low-risk, non-blocking divergences and are left open as recorded, minor. F-029-1 is escalated rather than resolved by this evaluator per instruction: recommendation added as F-029-5 to amend AC-060/V-076 to the four verified sources, or split a follow-up task (new DTO discriminator + non-breaking SPA union/label-map change + its own acceptance criteria) if the fifth source is genuinely wanted. Status set to BLOCKED, not FAIL/NEEDS_FIXES, because the gap is an acceptance-criteria/reference contradiction requiring a human product decision, not a defect the Implementor can resolve by iterating."
+    },
+    {
+      "timestamp": "2026-07-20T06:00:00-04:00",
+      "event": "task_passed",
+      "message": "BLOCKED -> PASS on the human's AC-060/V-076 ruling. The evaluator had already verified every code-level claim first-hand and found no defect; the task was blocked solely on an acceptance-criteria contradiction it correctly declined to resolve unilaterally. Nothing in the implementation changed."
+    }
+  ]
+}

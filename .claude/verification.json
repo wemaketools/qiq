@@ -1,0 +1,2620 @@
+{
+  "generated_at": "2026-07-18T19:00:00-04:00",
+  "acceptance_path": ".claude/acceptance.json",
+  "verifications": [
+    {
+      "id": "V-001",
+      "acceptance_id": "AC-001",
+      "title": "Clean-checkout scaffold: install, SPA build, layout, stubbed scripts fail loudly",
+      "method": "integration",
+      "task_ids": [
+        "T-001"
+      ],
+      "expected_results": [
+        "From a clean checkout on Node 22 LTS, `npm install` at the workspaces root exits 0.",
+        "`npm run build -w src/ui` produces the SPA build unchanged (build exits 0; no src/ui source modifications required).",
+        "A scripted check (Vitest test or scripts/ check) asserts the spec section 8 layout exists: api/v1, api/cron, api/queue, src/server/lib/{config,db,auth,tenancy,validation,errors,logging,storage,supabase,router}, src/server/domains, src/server/jobs/{cron,queue}, src/server/tests, scripts/{jobs,db}, supabase/, docs/{local-development,deployment,background-jobs,environment-variables}.md.",
+        "For every M-19 root script name: `npm run <script>` on a not-yet-implemented script exits non-zero AND prints an explicit not-implemented message (assert both exit code and message text); no stub silently exits 0."
+      ]
+    },
+    {
+      "id": "V-002",
+      "acceptance_id": "AC-002",
+      "title": "Strict typecheck and zero-any lint gate on the backend tree",
+      "method": "integration",
+      "task_ids": [
+        "T-001"
+      ],
+      "expected_results": [
+        "`npm run typecheck` exits 0 with tsconfig for src/server having strict:true (assert the compiler options in the test, not just exit code).",
+        "`npm run lint` fails on any `any` usage in src/server (rule at error level); a temporary fixture file with `any` demonstrably fails lint during CI setup, then is removed.",
+        "Both commands run as CI gates (see V-018)."
+      ]
+    },
+    {
+      "id": "V-003",
+      "acceptance_id": "AC-002",
+      "title": "Client bundle scan: no server secrets or server modules in built SPA assets",
+      "method": "security",
+      "task_ids": [
+        "T-018",
+        "T-042"
+      ],
+      "expected_results": [
+        "A repeatable script (scripts/, runnable in CI after `npm run build -w src/ui`) scans every emitted asset in the SPA build output for the literals SUPABASE_SERVICE_ROLE_KEY, DATABASE_URL, DIRECT_DATABASE_URL, CRON_SECRET, INTERNAL_JOB_SECRET and for src/server module path fragments: zero occurrences.",
+        "The scan also asserts the only Supabase values present are VITE_SUPABASE_URL and the anon key (never the service-role key value from .env.local).",
+        "Scan failure fails CI; the scan is deterministic and requires no network."
+      ]
+    },
+    {
+      "id": "V-004",
+      "acceptance_id": "AC-003",
+      "title": "Local Supabase stack: services, required extensions, asymmetric JWT keys",
+      "method": "integration",
+      "task_ids": [
+        "T-002"
+      ],
+      "expected_results": [
+        "`npm run supabase:start` starts the stack; health of database, auth (GoTrue), and storage services is asserted (HTTP/DB probes).",
+        "After migrations, `SELECT extname FROM pg_extension` includes pg_cron, pgmq, pg_net.",
+        "Sign in a seeded test user against the local Auth service and decode the access token header: `alg` is an asymmetric algorithm (not HS256); `auth.getClaims()` verifies it offline against the local JWKS.",
+        "The anon and service-role keys printed by supabase start work when placed in .env.local (a smoke request using each succeeds where appropriate)."
+      ]
+    },
+    {
+      "id": "V-005",
+      "acceptance_id": "AC-004",
+      "title": "Migration-from-clean applies and converges; CI-gated",
+      "method": "integration",
+      "task_ids": [
+        "T-003",
+        "T-004",
+        "T-005",
+        "T-010"
+      ],
+      "expected_results": [
+        "`supabase db reset` on a fresh local database applies every file in supabase/migrations/ in order with zero errors.",
+        "Running reset twice from clean and diffing structure-only dumps (pg_dump --schema-only, normalized) yields an empty diff (identical schema).",
+        "The migration-from-clean validation runs as a CI job (scripts/db/validate-migrations or equivalent) and fails the pipeline on any migration error."
+      ]
+    },
+    {
+      "id": "V-006",
+      "acceptance_id": "AC-005",
+      "title": "Schema conventions: bigint PKs, LIST partitioning, money/timestamps/jsonb, partition function",
+      "method": "integration",
+      "task_ids": [
+        "T-003",
+        "T-005"
+      ],
+      "expected_results": [
+        "SQL assertions over catalogs: every tenant-scoped core table appears in pg_partitioned_table with LIST strategy on tenant_id; primary keys are composite (tenant_id, id); unique constraints on tenant-scoped tables include tenant_id.",
+        "information_schema checks: app-table PK id columns are bigint (sequence-backed); no uuid PK on app tables; users.auth_user_id is the only uuid identity link; money columns are numeric(18,2); timestamp columns are timestamptz; jsonb columns exist only on audit/history payload columns (explicit allow-list assertion).",
+        "Invoking the partition-creation SQL function with a brand-new tenant id creates that tenant's partitions for all partitioned tables and an immediate INSERT into each succeeds; the default partition exists as safety net."
+      ]
+    },
+    {
+      "id": "V-007",
+      "acceptance_id": "AC-006",
+      "title": "Identity/tenancy/RBAC/audit/sequence tables exist with enforced referential integrity",
+      "method": "integration",
+      "task_ids": [
+        "T-003"
+      ],
+      "expected_results": [
+        "After migrations, all of tenants, users, user_tenants, permissions, roles, role_permissions, user_roles, user_permissions, user_groups, group_members, group_roles, group_permissions, audit_log, reference_sequences exist with the ported columns (soft-remove status, auth_user_id uuid referencing auth.users(id), is_active, last_tenant_id, theme, jsonb before/after on audit_log, tenant context on user_roles).",
+        "For each FK and unique constraint carried from the Liquibase source, a violating INSERT raises the expected constraint error (parameterized negative-insert test per constraint)."
+      ]
+    },
+    {
+      "id": "V-008",
+      "acceptance_id": "AC-007",
+      "title": "Reference data, settings, assignment-slot, and api_credentials schema constraints",
+      "method": "integration",
+      "task_ids": [
+        "T-004"
+      ],
+      "expected_results": [
+        "reference_items (list_type discriminator + reporting_category, canonical_key, is_terminal), default_reference_items, tenant_settings (display currency, max attachment MB present), business_assignments, api_credentials (salted hash columns, tenant/broker scope, status, rotation metadata) all exist; no Keycloak client-reference columns exist anywhere (catalog scan).",
+        "business_assignments constraint tests: inserting a slot other than rm/underwriter fails; inserting a second role for the same (tenant, slot) fails.",
+        "api_credentials has no plaintext key column (column-name and content assertions)."
+      ]
+    },
+    {
+      "id": "V-009",
+      "acceptance_id": "AC-008",
+      "title": "Core business/alert/history/job tables plus dashboard indexes",
+      "method": "integration",
+      "task_ids": [
+        "T-005"
+      ],
+      "expected_results": [
+        "All listed tables exist after migrations: parties, brokers, broker_contacts, leads (pricing_approval_state, loss/withdrawal capture, follow-up tracking, source, intake_credential_id, last_activity_at), lead_assignments, quotes, quote_versions, quote_assignments, quote_attachments, follow_ups, pricing_approvals, lead_status_history, quote_status_history, lead_notes, alerts, user_alert_views, job_run.",
+        "Inserting a second open alert with the same (type, lead, quote) violates the uniqueness constraint (negative insert test).",
+        "pg_indexes contains the carried-over index set for tenant/date/status/broker/RM/region/aging/SLA/lost-reason access paths (assert against an explicit expected-index inventory derived from the Liquibase changelogs)."
+      ]
+    },
+    {
+      "id": "V-010",
+      "acceptance_id": "AC-009",
+      "title": "Baseline seed idempotency via reset and standalone script",
+      "method": "integration",
+      "task_ids": [
+        "T-006"
+      ],
+      "expected_results": [
+        "After `supabase db reset`, the full permission catalog and global default reference template rows exist (counts and key rows asserted).",
+        "Running the baseline seed a second time (standalone documented script, e.g. `npm run db:seed` baseline mode) changes nothing: row counts and content digests identical before/after, zero errors.",
+        "The standalone script targets an arbitrary DATABASE_URL so it is usable as a deploy step (verified locally against the running stack without a reset)."
+      ]
+    },
+    {
+      "id": "V-011",
+      "acceptance_id": "AC-010",
+      "title": "Typed config module fails fast on missing/malformed variables",
+      "method": "unit",
+      "task_ids": [
+        "T-007"
+      ],
+      "expected_results": [
+        "With a required variable absent, first access throws a descriptive error naming the variable (assert message content); no undefined value propagates.",
+        "Malformed values (e.g., non-URL DATABASE_URL, non-numeric numeric setting) throw with a descriptive parse error.",
+        "Happy path returns correctly typed values (pure test with injected env map; no live services needed)."
+      ]
+    },
+    {
+      "id": "V-012",
+      "acceptance_id": "AC-010",
+      "title": "process.env access confined to the config module",
+      "method": "integration",
+      "task_ids": [
+        "T-007"
+      ],
+      "expected_results": [
+        "A lint rule or grep-based repo test asserts zero occurrences of `process.env` in src/server, api/, and scripts/ outside src/server/lib/config; wired into the CI lint gate.",
+        "A temporary violation added during test authoring demonstrably fails the check, then is removed."
+      ]
+    },
+    {
+      "id": "V-013",
+      "acceptance_id": "AC-011",
+      "title": "Structured request and job logs carry required fields and correlation IDs",
+      "method": "integration",
+      "task_ids": [
+        "T-007",
+        "T-009"
+      ],
+      "expected_results": [
+        "Exercising an authenticated tenant-scoped request through the Hono app while capturing stdout yields one parseable JSON log line containing correlationId, userId, tenantId, route, status, durationMs.",
+        "Running a job handler (cron:run path) yields JSON log lines with correlationId, jobName, and per-tenant counts.",
+        "A correlation id supplied on the inbound request is propagated verbatim into the request log line (and later into enqueued messages, see V-080)."
+      ]
+    },
+    {
+      "id": "V-014",
+      "acceptance_id": "AC-011",
+      "title": "Log scrubbing: zero sensitive data in captured logs",
+      "method": "security",
+      "task_ids": [
+        "T-007",
+        "T-009"
+      ],
+      "expected_results": [
+        "Captured stdout from integration runs that include sign-in, bearer-authenticated requests, API-credential create/regenerate, and attachment flows is scanned for: JWT patterns (eyJ...), Authorization header values, seeded passwords, plaintext API keys, service-role key value — zero matches.",
+        "The pattern scan is a shared test helper reused by job-log tests so new log sites inherit the check."
+      ]
+    },
+    {
+      "id": "V-015",
+      "acceptance_id": "AC-012",
+      "title": "Pooler-safe Kysely layer: pool caps, no named prepared statements, transactional rollback, compile-time tenant parameter",
+      "method": "integration",
+      "task_ids": [
+        "T-008"
+      ],
+      "expected_results": [
+        "The constructed pg Pool has max <= 2 (asserted from the exported config); the Kysely pg dialect is configured without named prepared statements; runtime connections use DATABASE_URL (:6543 Supavisor) and migration/admin scripts use DIRECT_DATABASE_URL (asserted from config wiring).",
+        "An integration test through the pooler runs a multi-statement transaction, forces a failure mid-transaction, and asserts full rollback (no partial rows).",
+        "A type-level test using @ts-expect-error proves calling a tenant-scoped query helper without an explicit tenant parameter is a compile error (tsc failure asserted in typecheck)."
+      ]
+    },
+    {
+      "id": "V-016",
+      "acceptance_id": "AC-013",
+      "title": "Generated DB types drive Kysely; drift fails CI",
+      "method": "integration",
+      "task_ids": [
+        "T-008"
+      ],
+      "expected_results": [
+        "`npm run db:types` regenerates TypeScript DB types from the local schema with exit 0.",
+        "The Kysely schema type imports from the generated output (static assertion in a test or lint rule).",
+        "CI step regenerates and diffs against committed types; a deliberately introduced schema change without regenerated types fails the step (verified once during CI setup)."
+      ]
+    },
+    {
+      "id": "V-017",
+      "acceptance_id": "AC-014",
+      "title": "Hono catch-all: 404/422/500 problem+json shapes and unauthenticated health",
+      "method": "integration",
+      "task_ids": [
+        "T-009"
+      ],
+      "api": {
+        "approach": "Direct HTTP against the Hono app (local function runner or app.fetch) asserting exact response contracts.",
+        "endpoints": [
+          "GET /api/v1/definitely-not-a-route",
+          "POST /api/v1/<any zod-validated route>",
+          "GET /api/v1/health"
+        ],
+        "negative_tests": [
+          "Unknown path -> 404 application/problem+json",
+          "zod validation failure -> 422 problem+json with errors:[{field,code,message}]",
+          "Handler throwing an unexpected Error -> 500 problem+json containing correlationId and NO stack/internal detail in the body"
+        ],
+        "role_permission_setup": "None for health; any authenticated user for the validated route.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "404, 422, and 500 responses match the preserved RFC 7807 contract exactly (content-type, fields).",
+        "The sanitized 500 body carries the correlation id that also appears in the server log line for the same request; the stack trace appears only in server logs.",
+        "GET health returns 200 with no Authorization header."
+      ]
+    },
+    {
+      "id": "V-018",
+      "acceptance_id": "AC-015",
+      "title": "CI pipeline gates and deliberate-failure canaries",
+      "method": "integration",
+      "task_ids": [
+        "T-010"
+      ],
+      "expected_results": [
+        "The CI workflow runs and gates on: backend typecheck, frontend typecheck, lint, unit tests, integration tests against a Supabase stack started in CI, migration-from-clean validation, frontend production build; the pipeline is red if any gate fails.",
+        "During CI setup, one deliberate failure per gate (type error, lint violation, failing unit test, failing integration test, broken migration, broken frontend build) is pushed/verified to fail the pipeline, then reverted; evidence (run links or recorded output) captured in the task file."
+      ]
+    },
+    {
+      "id": "V-019",
+      "acceptance_id": "AC-016",
+      "title": "Bearer-token verification matrix on protected routes",
+      "method": "integration",
+      "task_ids": [
+        "T-011"
+      ],
+      "api": {
+        "approach": "Integration tests minting real tokens against the local Supabase Auth service (Q-21 strategy) and calling a protected route with each token variant.",
+        "endpoints": [
+          "GET /api/v1/me (representative protected route)"
+        ],
+        "negative_tests": [
+          "No Authorization header -> 401 problem+json",
+          "Malformed token -> 401",
+          "Expired token (short-lived token aged out or crafted exp) -> 401"
+        ],
+        "role_permission_setup": "One seeded local Supabase Auth user linked to an app user.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Valid Supabase-issued token authenticates (200 on GET /me).",
+        "All negative variants return 401 problem+json without leaking verification detail."
+      ]
+    },
+    {
+      "id": "V-020",
+      "acceptance_id": "AC-016",
+      "title": "Offline JWKS verification and wrong-key rejection",
+      "method": "security",
+      "task_ids": [
+        "T-011"
+      ],
+      "expected_results": [
+        "A token signed with a different (locally generated) key pair is rejected 401.",
+        "After one successful verification warms the JWKS cache, the local Auth service is stopped (container pause) and subsequent verifications of valid tokens still succeed — proving no per-request network call to the Auth server; the Auth service is restarted afterwards (teardown restores stack state)."
+      ]
+    },
+    {
+      "id": "V-021",
+      "acceptance_id": "AC-017",
+      "title": "Service-role key and Auth Admin API confined to server code",
+      "method": "security",
+      "task_ids": [
+        "T-011",
+        "T-017",
+        "T-018"
+      ],
+      "expected_results": [
+        "Static scan: SUPABASE_SERVICE_ROLE_KEY and Auth Admin client construction appear only under src/server (and scripts/), never in src/ui; the built SPA bundle scan (V-003) covers the emitted assets.",
+        "The browser Supabase client is constructed exclusively from VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY (source assertion on the single client module).",
+        "The server Admin client reads the service-role key only via the config module (grep: no direct env access, per V-012)."
+      ]
+    },
+    {
+      "id": "V-022",
+      "acceptance_id": "AC-018",
+      "title": "Effective-permission union: pure resolution module",
+      "method": "unit",
+      "task_ids": [
+        "T-012"
+      ],
+      "expected_results": [
+        "Given fixtures with (a) direct permission, (b) role permission, (c) group-assigned-role permission, (d) group-direct permission in tenant A, resolution for tenant A equals exactly union(a,b,c,d); resolution for tenant B is empty.",
+        "Removing each single grant path removes exactly its contribution (four removal cases asserted).",
+        "A global/Internal grant is effective cross-tenant only when flagged global; a non-global grant never crosses tenants."
+      ]
+    },
+    {
+      "id": "V-023",
+      "acceptance_id": "AC-018",
+      "title": "Effective permissions via GET /me and effective-access endpoint against seeded data",
+      "method": "integration",
+      "task_ids": [
+        "T-012"
+      ],
+      "api": {
+        "approach": "Seed the four grant paths in tenant A for one user via the admin endpoints (or direct SQL fixtures), then assert the API-computed sets.",
+        "endpoints": [
+          "GET /api/v1/me",
+          "GET /api/v1/users/{id}/effective-access"
+        ],
+        "negative_tests": [
+          "Same user with X-Tenant-Id of tenant B shows none of the tenant-A grants"
+        ],
+        "role_permission_setup": "User U: direct perm p1; role R(p2) assigned; group G with role R2(p3) and direct perm p4; U member of G — all in tenant A only.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "GET /me for tenant A returns exactly {p1,p2,p3,p4} (plus nothing else from these fixtures); tenant B returns none of them.",
+        "The effective-access endpoint agrees with the pure module output for the same fixtures."
+      ]
+    },
+    {
+      "id": "V-024",
+      "acceptance_id": "AC-019",
+      "title": "Exhaustive route-table-driven 401/403 sweep",
+      "method": "integration",
+      "task_ids": [
+        "T-012"
+      ],
+      "api": {
+        "approach": "Programmatically enumerate every route registered in the Hono app (route table export) and drive the sweep from that list — new routes are automatically swept; the exclusion list is limited to health, sign-in-adjacent public paths, /api/cron/*, /api/queue/*, and POST /intake/leads (separately verified).",
+        "endpoints": [
+          "Every registered /api/v1 route"
+        ],
+        "negative_tests": [
+          "Anonymous request -> 401 for every non-excluded route",
+          "Authenticated user with zero permissions -> 403 problem+json for every permission-guarded route, response body contains no resource data"
+        ],
+        "role_permission_setup": "One seeded user with tenant membership but an empty permission set; one anonymous client.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "The sweep fails if any registered route lacks a declared permission requirement and is not on the explicit exclusion list (mirrors the .NET role-403 parity).",
+        "All 401/403 bodies are problem+json with no data leakage."
+      ]
+    },
+    {
+      "id": "V-025",
+      "acceptance_id": "AC-020",
+      "title": "X-Tenant-Id membership verification and audited Internal cross-tenant access",
+      "method": "integration",
+      "task_ids": [
+        "T-013"
+      ],
+      "api": {
+        "approach": "Two-tenant seed; call a representative tenant-scoped route with each header scenario.",
+        "endpoints": [
+          "GET /api/v1/leads (representative tenant-scoped route)"
+        ],
+        "negative_tests": [
+          "Member of tenant A supplies X-Tenant-Id of tenant B (no Internal grant) -> 403",
+          "Missing or non-numeric X-Tenant-Id on a tenant-scoped route -> preserved-contract response (assert exact status/shape)"
+        ],
+        "role_permission_setup": "User A (tenant A only); Internal user I with the cross-tenant permission; user A2 with membership in A and B.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Internal user I with X-Tenant-Id of tenant B succeeds AND an audit_log entry recording the cross-tenant access (actor, target tenant) is written.",
+        "Authorization derives only from server-side membership rows — mutating the client-side selector value cannot broaden access (proved by the 403 case)."
+      ]
+    },
+    {
+      "id": "V-026",
+      "acceptance_id": "AC-021",
+      "title": "Cross-tenant IDs return 404 indistinguishable from nonexistent IDs",
+      "method": "security",
+      "task_ids": [
+        "T-013",
+        "T-024",
+        "T-025",
+        "T-026",
+        "T-027"
+      ],
+      "api": {
+        "approach": "Parameterized test over endpoint families: for each of lead, quote, party, broker, attachment, alert, follow-up, reference item — GET/PUT/operation call with (1) a real tenant-B id and (2) a random nonexistent id, as a tenant-A caller.",
+        "endpoints": [
+          "GET/PUT /api/v1/leads/{id}",
+          "GET /api/v1/quotes/{id}",
+          "GET /api/v1/parties/{id}",
+          "GET /api/v1/brokers/{id}",
+          "attachment/alert/follow-up/reference-item detail routes",
+          "POST /api/v1/leads/{id}/operations/{op}"
+        ],
+        "negative_tests": [
+          "Response for tenant-B id and nonexistent id are both 404 with byte-identical body shape (deep-equal after removing correlation id)"
+        ],
+        "role_permission_setup": "Tenant-A user with full tenant permissions; distinguishable seeded records in tenant B.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "No status-code, body, header, or timing-order difference reveals cross-tenant existence.",
+        "Mutation attempts against tenant-B ids leave tenant-B rows unchanged (post-assert row digests)."
+      ]
+    },
+    {
+      "id": "V-027",
+      "acceptance_id": "AC-022",
+      "title": "Per-endpoint two-tenant isolation harness (reads, writes, aggregates)",
+      "method": "integration",
+      "task_ids": [
+        "T-015",
+        "T-019",
+        "T-020",
+        "T-021",
+        "T-022",
+        "T-023",
+        "T-024",
+        "T-025",
+        "T-026",
+        "T-027",
+        "T-029",
+        "T-033",
+        "T-035",
+        "T-036",
+        "T-037",
+        "T-038",
+        "T-039",
+        "T-040"
+      ],
+      "api": {
+        "approach": "A shared isolation test helper seeds distinguishable data (marker strings/amounts) in tenants A and B; every tenant-scoped endpoint added by a task must register an isolation test using the helper — the owning task's suite fails review if the endpoint lacks one (evaluator checks the endpoint-to-test inventory).",
+        "endpoints": [
+          "Every tenant-scoped list, detail, mutation, workflow, timeline, search, dashboard, drill, alert, report, and export endpoint"
+        ],
+        "negative_tests": [
+          "Tenant-A list/search/dashboard/drill/export responses contain zero tenant-B marker rows",
+          "Tenant-A aggregates equal independently computed tenant-A-only values",
+          "Mutations addressed at tenant-B ids fail 404/403 with no side effects"
+        ],
+        "role_permission_setup": "Fully-permissioned user per tenant; markers unique per tenant.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "Every tenant-scoped endpoint has a registered isolation test; the inventory check fails when an endpoint ships without one.",
+        "All isolation assertions pass on the two-tenant seed."
+      ]
+    },
+    {
+      "id": "V-028",
+      "acceptance_id": "AC-022",
+      "title": "E2E tenant isolation through the UI",
+      "method": "e2e",
+      "task_ids": [
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/tenant-isolation.spec.ts",
+        "test_title": "tenant A user never sees tenant B data across lists, dashboards, search, and alerts",
+        "steps": [
+          "Sign in as a tenant-A-only user (admin-minted session per Q-21)",
+          "Visit leads list, parties list, brokers settings, dashboards, alerts center, and global search for a tenant-B marker string",
+          "Attempt deep-link navigation to a known tenant-B lead/quote detail URL",
+          "Assert the existing suite's isolation assertions unchanged"
+        ],
+        "expected_results": [
+          "No tenant-B marker appears in any list, dashboard figure, search result, or alert",
+          "Deep links to tenant-B records render the not-found state, identical to a bogus id"
+        ],
+        "selectors_or_locators": [
+          "Existing suite locators (leads table rows, search results list, dashboard KPI values)",
+          "page.getByText(tenantBMarker) — expect count 0",
+          "not-found page heading locator"
+        ],
+        "test_data": "Two-tenant demo seed with unique marker strings per tenant (seed hook).",
+        "setup": "supabase db reset + baseline + demo seed via suite globalSetup; admin-minted session for tenant-A user.",
+        "teardown": "None beyond suite-level DB reset; tests are read-only."
+      },
+      "expected_results": [
+        "Adapted tenant-isolation spec passes against the migrated stack with its behavioral assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-029",
+      "acceptance_id": "AC-023",
+      "title": "Grant lockdown pinned: anon/authenticated hold no DML on any public table",
+      "method": "integration",
+      "task_ids": [
+        "T-014"
+      ],
+      "expected_results": [
+        "RLS is NOT expected and must NOT be asserted: Q-10 was resolved NOT-ADOPTED by the human on 2026-07-20, superseding this entry's original RLS content. A test asserting relrowsecurity or pg_policies on application tables is now WRONG and would fail against the intended design.",
+        "A test enumerates, for both the anon and authenticated roles, every privilege they hold on every table in schema public (information_schema.role_table_grants) and asserts the set contains NO SELECT, INSERT, UPDATE or DELETE. Baseline observed 2026-07-20: both roles hold only REFERENCES, TRIGGER, TRUNCATE across all 37 non-partition tables in public (15 plain + 22 partitioned parents; the partitioned parents are the tenant-scoped tables, so an earlier 'all 37 non-partition tables in public (15 plain + 22 partitioned parents; the partitioned parents are the tenant-scoped tables, so an earlier 'all 15 public tables' figure recorded here was WRONG — it used relkind='r' only and silently excluded every partitioned tenant table, i.e. exactly the ones that matter most. The DML-absence property holds across all 37, verified; only the orchestrator's evidence was narrower than claimed)' figure recorded here was WRONG — it used relkind='r' only and silently excluded every partitioned tenant table, i.e. exactly the ones that matter most. The DML-absence property holds across all 37, verified; only the orchestrator's evidence was narrower than claimed).",
+        "The assertion must be inventory-driven (derived from the live catalog, not a hardcoded table list), so a table added by a later migration is covered automatically rather than silently escaping the check.",
+        "Mutation proof required: granting SELECT on one tenant-scoped table to anon makes the test fail and names that table; revoked afterwards."
+      ]
+    },
+    {
+      "id": "V-030",
+      "acceptance_id": "AC-023",
+      "title": "Data API lockdown: anon/authenticated PostgREST roles read zero tenant rows",
+      "method": "security",
+      "task_ids": [
+        "T-014"
+      ],
+      "expected_results": [
+        "A direct PostgREST/Data API request against tenant-scoped tables using the browser-exposed anon key returns no tenant rows and fails at the privilege level. Baseline observed 2026-07-20: HTTP 401, code 42501, 'permission denied for table leads' — denial occurs on grants, not policies, since RLS is not adopted (Q-10).",
+        "The same request with an authenticated end-user JWT (real local Auth token) also returns no tenant rows.",
+        "Test runs against the local stack with seeded data present, proving the rows exist but are unreachable through the Data API.",
+        "This is the ONLY database-level protection of tenant data now that RLS is not adopted; app-layer tenant predicates (N-01) carry isolation for the app's own path and are verified separately per endpoint."
+      ]
+    },
+    {
+      "id": "V-031",
+      "acceptance_id": "AC-024",
+      "title": "Audit coverage per privileged/business-critical operation via shared assertion helper",
+      "method": "integration",
+      "task_ids": [
+        "T-013",
+        "T-016",
+        "T-017",
+        "T-019",
+        "T-020",
+        "T-022",
+        "T-024",
+        "T-025",
+        "T-026",
+        "T-027",
+        "T-039"
+      ],
+      "expected_results": [
+        "A shared assertAudited(helper) verifies exactly one audit_log entry with actor, timestamp, tenant context (where tenant-scoped), and jsonb before/after payloads for each operation class: tenant create/edit/remove/restore; user create/edit/activate/deactivate; role/group/permission assignment changes; reference-data and settings changes; every lead and quote workflow operation; corrections and reopens; attachment add/remove; credential create/regenerate/disable; template edits; bulk reassign; cross-tenant access; exports where required.",
+        "Each owning domain's integration suite invokes the helper for its operations; the evaluator cross-checks the operation inventory against the helper call sites — any listed operation without an audit assertion is a finding.",
+        "before/after payloads reflect actual pre/post state (spot-checked on at least tenant edit, lead correction, role permission change)."
+      ]
+    },
+    {
+      "id": "V-032",
+      "acceptance_id": "AC-025",
+      "title": "GET /me and PUT /me/preferences contract",
+      "method": "integration",
+      "task_ids": [
+        "T-015"
+      ],
+      "api": {
+        "approach": "Authenticated calls asserting exact DTO field names against the preserved contract.",
+        "endpoints": [
+          "GET /api/v1/me",
+          "PUT /api/v1/me/preferences"
+        ],
+        "negative_tests": [
+          "Removed tenant excluded from memberships in GET /me",
+          "Invalid preference payload -> 422"
+        ],
+        "role_permission_setup": "User with two tenant memberships (one later removed), a theme, and a last active tenant.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "GET /me returns identity, tenant memberships excluding Removed tenants, effective permissions for the active tenant, last active tenant, theme — unchanged DTO field names (snapshot assertion against the preserved contract).",
+        "PUT /me/preferences persists last-tenant and theme; a subsequent GET /me and a fresh sign-in (new token) both reflect them."
+      ]
+    },
+    {
+      "id": "V-033",
+      "acceptance_id": "AC-025",
+      "title": "E2E: theme and last-tenant preferences persist across sign-ins",
+      "method": "e2e",
+      "task_ids": [
+        "T-015",
+        "T-018",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "theme toggle and last active tenant persist across sign-out/sign-in",
+        "steps": [
+          "Sign in via the real sign-in form as a multi-tenant user",
+          "Switch theme to dark; switch active tenant to tenant B",
+          "Sign out, sign back in",
+          "Assert dark theme applied and tenant B is the active tenant on landing"
+        ],
+        "expected_results": [
+          "Theme and last active tenant restored from server-side preferences on fresh sign-in"
+        ],
+        "selectors_or_locators": [
+          "theme toggle control (existing suite locator)",
+          "tenant switcher current-tenant label",
+          "html/body theme attribute or token class"
+        ],
+        "test_data": "Seeded multi-tenant user with known password.",
+        "setup": "DB reset + demo seed; no pre-injected storage state (real login).",
+        "teardown": "Reset the user's preferences via API or rely on next suite-level DB reset."
+      },
+      "expected_results": [
+        "Adapted shell spec passes with preference-persistence assertions intact."
+      ]
+    },
+    {
+      "id": "V-034",
+      "acceptance_id": "AC-026",
+      "title": "Transactional tenant creation: template seeding + partitions, all-or-nothing",
+      "method": "integration",
+      "task_ids": [
+        "T-016"
+      ],
+      "expected_results": [
+        "POST /tenants creates, in one transaction: tenant row, every reference list type populated from the global default template (per-list-type count assertions), and partitions for all partitioned tables (immediate INSERT into each new partition succeeds).",
+        "Fault injection (e.g., temporarily corrupting the template data or stubbing the partition function to raise) causes the entire creation to roll back: no tenant row, no reference rows, no partitions remain.",
+        "Runs through the Supavisor pooler connection (same path as production)."
+      ]
+    },
+    {
+      "id": "V-035",
+      "acceptance_id": "AC-027",
+      "title": "Tenant soft remove/restore semantics and data retention",
+      "method": "integration",
+      "task_ids": [
+        "T-015",
+        "T-016"
+      ],
+      "api": {
+        "approach": "Lifecycle test on a seeded tenant with data in its partitions.",
+        "endpoints": [
+          "POST /api/v1/tenants/{id}/remove",
+          "POST /api/v1/tenants/{id}/restore",
+          "GET /api/v1/me",
+          "GET /api/v1/tenants"
+        ],
+        "negative_tests": [
+          "No DELETE /tenants/{id} route exists (route-table assertion)",
+          "Normal user cannot switch into a Removed tenant (403 on X-Tenant-Id)"
+        ],
+        "role_permission_setup": "Global tenant-management Internal user; normal member of the target tenant.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Remove sets status Removed; row counts in the tenant's partitions are unchanged (before/after digests).",
+        "Removed tenant disappears from GET /me memberships for normal users but remains visible to the authorized Internal tenant list.",
+        "Restore returns status Active and the tenant reappears as a switch target."
+      ]
+    },
+    {
+      "id": "V-036",
+      "acceptance_id": "AC-027",
+      "title": "E2E Tenant Manager remove/restore",
+      "method": "e2e",
+      "task_ids": [
+        "T-016",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/tenant-manager.spec.ts",
+        "test_title": "tenant soft remove hides it from switching and restore brings it back",
+        "steps": [
+          "Sign in as Internal admin; open Tenant Manager",
+          "Create a tenant; remove it; assert it shows as Removed in the admin list",
+          "As a normal multi-tenant user, open the tenant switcher and assert the removed tenant is absent",
+          "As Internal admin, restore the tenant; assert the normal user's switcher shows it again"
+        ],
+        "expected_results": [
+          "Removed tenants never appear as active switch choices for normal users; restore reinstates them; admin list retains historical visibility"
+        ],
+        "selectors_or_locators": [
+          "Tenant Manager table rows and status badges (existing suite locators)",
+          "tenant switcher menu items",
+          "remove/restore action buttons + confirm dialog"
+        ],
+        "test_data": "Fresh tenant created in-test with a unique name; existing seeded multi-tenant user.",
+        "setup": "DB reset + demo seed; admin-minted sessions for both users.",
+        "teardown": "Created tenant left Removed=false; next suite reset cleans up."
+      },
+      "expected_results": [
+        "Adapted tenant-manager spec passes with remove/restore assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-037",
+      "acceptance_id": "AC-028",
+      "title": "Tenant Manager: global permission bound, no X-Tenant-Id, audited, name required",
+      "method": "integration",
+      "task_ids": [
+        "T-016"
+      ],
+      "api": {
+        "approach": "Permission and validation matrix over all Tenant Manager routes.",
+        "endpoints": [
+          "GET/POST /api/v1/tenants",
+          "GET/PUT /api/v1/tenants/{id}",
+          "POST /api/v1/tenants/{id}/remove",
+          "POST /api/v1/tenants/{id}/restore"
+        ],
+        "negative_tests": [
+          "User without the global tenant-management permission -> 403 on every Tenant Manager route",
+          "Create/update without name -> 422 with structured errors[]"
+        ],
+        "role_permission_setup": "Internal user with global tenant-management permission; tenant-admin user without it.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "All routes work without X-Tenant-Id (cross-tenant surface).",
+        "Each create/update/remove/restore writes its audit entry (via V-031 helper)."
+      ]
+    },
+    {
+      "id": "V-038",
+      "acceptance_id": "AC-029",
+      "title": "User lifecycle: required fields, deactivate-not-delete, access revocation",
+      "method": "integration",
+      "task_ids": [
+        "T-017"
+      ],
+      "api": {
+        "approach": "Full lifecycle against local Supabase Auth Admin API.",
+        "endpoints": [
+          "POST /api/v1/users",
+          "PUT /api/v1/users/{id}",
+          "POST /api/v1/users/{id}/deactivate",
+          "POST /api/v1/users/{id}/activate"
+        ],
+        "negative_tests": [
+          "Create missing first/last/email -> 422 each",
+          "No DELETE /users/{id} route exists (route-table assertion)",
+          "Deactivated user's bearer call -> 401/403 per preserved contract; their sign-in attempt against local Auth fails"
+        ],
+        "role_permission_setup": "User-management-permissioned admin; target user provisioned through the API.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Deactivation sets is_active=false, preserves all history rows, and disables the Supabase Auth identity via the Admin API (sign-in fails).",
+        "Reactivation restores sign-in and API access.",
+        "Every activation/deactivation/access change writes an audit entry."
+      ]
+    },
+    {
+      "id": "V-039",
+      "acceptance_id": "AC-029",
+      "title": "E2E User Manager deactivate/reactivate flow",
+      "method": "e2e",
+      "task_ids": [
+        "T-017",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/user-manager.spec.ts",
+        "test_title": "deactivated user cannot sign in; reactivation restores access",
+        "steps": [
+          "Sign in as admin; create user (first/last/email) with a known password path per suite hooks",
+          "Deactivate the user; attempt sign-in as that user via the real sign-in form; assert generic failure",
+          "Reactivate; sign in again; assert landing at the SPA root '/'"
+        ],
+        "expected_results": [
+          "Deactivated user blocked at sign-in with the generic failure message; reactivated user signs in successfully"
+        ],
+        "selectors_or_locators": [
+          "User Manager table + activate/deactivate action (existing suite locators)",
+          "sign-in form email/password inputs + submit",
+          "generic error message locator"
+        ],
+        "test_data": "In-test user with unique email.",
+        "setup": "DB reset + demo seed; admin session admin-minted; target user signs in via real form.",
+        "teardown": "Suite-level DB reset."
+      },
+      "expected_results": [
+        "Adapted user-manager spec passes with lifecycle assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-040",
+      "acceptance_id": "AC-030",
+      "title": "Roles, groups, and per-tenant assignment administration parity",
+      "method": "integration",
+      "task_ids": [
+        "T-017"
+      ],
+      "api": {
+        "approach": "CRUD + assignment matrix with effective-access verification per tenant.",
+        "endpoints": [
+          "roles CRUD + GET /api/v1/roles/{id}/usage",
+          "groups CRUD + members/roles/permissions subresources",
+          "user role/permission/tenant assignment endpoints",
+          "GET /api/v1/permissions",
+          "GET /api/v1/users/{id}/effective-access"
+        ],
+        "negative_tests": [
+          "Assignment created in tenant A produces no effective permission in tenant B (effective-access assertion)",
+          "Creating a non-Internal user with zero tenants fails per preserved contract"
+        ],
+        "role_permission_setup": "User-management-permissioned admin in both tenants.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Role usage endpoint lists assigned users/groups before disable.",
+        "GET /permissions returns the seeded catalog exactly (count + key names).",
+        "All role/group/membership/permission changes write audit entries (V-031 helper)."
+      ]
+    },
+    {
+      "id": "V-041",
+      "acceptance_id": "AC-031",
+      "title": "Auth identity provisioning links auth_user_id and is atomic",
+      "method": "integration",
+      "task_ids": [
+        "T-017"
+      ],
+      "expected_results": [
+        "Creating a user via User Manager provisions a local Supabase Auth identity; users.auth_user_id stores its uuid and references auth.users(id).",
+        "The created identity signs in against the local Auth service and its token calls the API as that app user (GET /me returns the new user).",
+        "Disabling the user prevents sign-in (Admin API ban/disable verified).",
+        "Forced provisioning failure (e.g., duplicate email in Auth) surfaces a typed error and leaves no half-created app user row (count assertion)."
+      ]
+    },
+    {
+      "id": "V-042",
+      "acceptance_id": "AC-032",
+      "title": "E2E sign-in, generic failures, password reset",
+      "method": "e2e",
+      "task_ids": [
+        "T-018",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/login.spec.ts",
+        "test_title": "sign-in works, failures are generic, reset confirmation is uniform",
+        "steps": [
+          "Visit /sign-in; submit seeded user email + correct password; assert landing at the SPA root '/' in the user's last active tenant",
+          "Sign out; submit same email + wrong password; capture the failure message",
+          "Submit a nonexistent email + any password; capture the failure message; assert both messages are identical (no enumeration)",
+          "Open password-reset; submit a seeded email, then a nonexistent email; assert the identical confirmation message for both"
+        ],
+        "expected_results": [
+          "Successful sign-in lands at the SPA root '/' with the last active tenant context loaded",
+          "Wrong-password and unknown-account failures render the same generic message",
+          "Reset confirmation is uniform regardless of account existence"
+        ],
+        "selectors_or_locators": [
+          "email/password inputs and submit on /sign-in",
+          "error message container",
+          "reset link + reset confirmation message",
+          "tenant switcher current-tenant label"
+        ],
+        "test_data": "Seeded local Supabase Auth users with known passwords (Q-21).",
+        "setup": "DB reset + demo seed; no pre-injected session (real login surface).",
+        "teardown": "None; read-only against auth state."
+      },
+      "expected_results": [
+        "Adapted login spec passes; enumeration-prevention assertions verified against Supabase Auth (GoTrue) semantics as the spec requires."
+      ]
+    },
+    {
+      "id": "V-043",
+      "acceptance_id": "AC-033",
+      "title": "E2E bearer wiring, session persistence, refresh, sign-out",
+      "method": "e2e",
+      "task_ids": [
+        "T-018",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/logout.spec.ts",
+        "test_title": "session persists across reload, API calls carry the bearer token, sign-out revokes access",
+        "steps": [
+          "Sign in; intercept network requests and assert every /api/v1 request carries Authorization: Bearer <supabase access token>",
+          "Reload the page; assert still signed in without re-login (session restored)",
+          "Sign out; assert redirect to /sign-in and that a subsequent scripted /api/v1 request using the page context returns 401"
+        ],
+        "expected_results": [
+          "All /api/v1 traffic bearer-authenticated; reload preserves session; sign-out clears it (subsequent API calls 401)"
+        ],
+        "selectors_or_locators": [
+          "page.route/waitForRequest on **/api/v1/**",
+          "sign-out menu action",
+          "sign-in page heading"
+        ],
+        "test_data": "Seeded user with known password.",
+        "setup": "DB reset + demo seed.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Token refresh is client-managed: a spec (or the suite's long-session smoke) asserts no user-visible interruption when the access token rotates (where suite runtime allows; otherwise verified by the supabase-js autoRefresh configuration assertion in the SPA auth module)."
+      ]
+    },
+    {
+      "id": "V-044",
+      "acceptance_id": "AC-034",
+      "title": "E2E tenant switching refreshes all tenant-scoped state",
+      "method": "e2e",
+      "task_ids": [
+        "T-015",
+        "T-018",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "switching active tenant reloads lists, dashboards, alerts badge, and reference data with zero stale data",
+        "steps": [
+          "Sign in as a two-tenant user; note tenant-A markers on leads list, dashboard KPIs, alerts badge count",
+          "Switch to tenant B via the tenant switcher",
+          "Assert leads list, dashboard, alerts badge, and a reference-data-driven dropdown now show only tenant-B values; assert no tenant-A marker remains anywhere",
+          "Sign in as a single-tenant user and assert the switcher is not rendered",
+          "Reload; assert tenant B persisted as the active tenant"
+        ],
+        "expected_results": [
+          "All tenant-scoped UI data reloads on switch; no previous tenant's data remains visible",
+          "Switcher shown only to multi-tenant/Internal users; switch persists as last active tenant"
+        ],
+        "selectors_or_locators": [
+          "tenant switcher trigger + menu items",
+          "leads table rows",
+          "alerts badge counter",
+          "dashboard KPI value locators",
+          "reference dropdown options"
+        ],
+        "test_data": "Two-tenant demo seed with distinguishable markers; one single-tenant user.",
+        "setup": "DB reset + demo seed; admin-minted sessions.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Adapted spec passes; the switch also persists server-side (verified via V-032)."
+      ]
+    },
+    {
+      "id": "V-045",
+      "acceptance_id": "AC-035",
+      "title": "Reference data CRUD/reorder/guarded statuses per list type",
+      "method": "integration",
+      "task_ids": [
+        "T-019"
+      ],
+      "api": {
+        "approach": "Parameterized suite iterating every tenant-configurable list type.",
+        "endpoints": [
+          "GET/POST/PUT reference-data routes per list type",
+          "reorder endpoint",
+          "disable endpoint"
+        ],
+        "negative_tests": [
+          "Guarded status with reporting category outside Open/Quoted/Won/Lost/Expired/Withdrawn -> 422",
+          "Attempt to change a canonical key -> rejected per preserved contract",
+          "Attempt to disable a terminal status -> fails per preserved contract",
+          "Cover type created under the wrong product line rejected"
+        ],
+        "role_permission_setup": "Settings-permissioned tenant admin; second tenant to prove scoping.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Create/edit/disable/reorder work for request channels (broker flag), product lines, cover types (per product line), segments, industries, regions, party types, lead statuses, quote statuses, lost reasons, broker types — scoped to the active tenant only.",
+        "Reorder persists and is returned in order; changes audited (V-031)."
+      ]
+    },
+    {
+      "id": "V-046",
+      "acceptance_id": "AC-035",
+      "title": "E2E settings reference-data management",
+      "method": "e2e",
+      "task_ids": [
+        "T-019",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "reference lists support add/edit/disable/reorder and guarded statuses resist illegal edits",
+        "steps": [
+          "Sign in as tenant admin; open Settings reference data",
+          "Add a new lost reason; edit it; reorder it; disable it; assert list state after each step",
+          "Open lead statuses; assert terminal status disable control is blocked/disabled and canonical key is not editable"
+        ],
+        "expected_results": [
+          "List CRUD/reorder reflected in UI; guarded-status protections visible and enforced"
+        ],
+        "selectors_or_locators": [
+          "settings nav items",
+          "reference list rows + drag/reorder controls",
+          "disable toggles",
+          "status editor fields (existing suite locators)"
+        ],
+        "test_data": "Unique in-test reference item names.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "Suite-level reset."
+      },
+      "expected_results": [
+        "Adapted settings spec passes with reference-data assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-047",
+      "acceptance_id": "AC-036",
+      "title": "Disabled reference values: historical display, blocked for new records",
+      "method": "integration",
+      "task_ids": [
+        "T-019"
+      ],
+      "expected_results": [
+        "A lead referencing a reference value that is subsequently disabled still resolves/displays the value on lead fetch and in dashboard/report responses.",
+        "The disabled value is absent from options endpoints for new/edit forms.",
+        "Submitting a create/edit payload with the disabled value id returns the preserved validation error (422)."
+      ]
+    },
+    {
+      "id": "V-048",
+      "acceptance_id": "AC-037",
+      "title": "Business rules persist per tenant and observably drive behavior",
+      "method": "integration",
+      "task_ids": [
+        "T-020"
+      ],
+      "api": {
+        "approach": "For each listed rule: set the tenant value via the business-rules endpoint, then exercise the governed feature and assert the behavioral change.",
+        "endpoints": [
+          "GET/PUT business-rules routes",
+          "governed feature endpoints (leads, attachments upload envelope, workflow ops)"
+        ],
+        "negative_tests": [
+          "Settings routes permission-bound (403 without settings permission)",
+          "Tenant-B values unaffected by tenant-A changes"
+        ],
+        "role_permission_setup": "Settings-permissioned admin in tenant A; control tenant B.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "Lowering the high-value threshold flags a seeded lead as High (derived priority changes).",
+        "Changing max attachment MB changes the upload-envelope rejection boundary (a size legal before is rejected after).",
+        "Toggling the pricing-approval gate changes send-path legality for a high-value lead (409 appears/disappears).",
+        "SLA target and expiry/stall/aging/duplicate-check threshold changes alter SLA status/alert/duplicate-warning outcomes respectively (at least one behavioral assertion each).",
+        "Reference format template and display currency changes are reflected in new lead refs and dashboard currency data; all changes audited."
+      ]
+    },
+    {
+      "id": "V-049",
+      "acceptance_id": "AC-038",
+      "title": "Business assignment slots: exactly rm and underwriter, one role each",
+      "method": "integration",
+      "task_ids": [
+        "T-020"
+      ],
+      "api": {
+        "approach": "Slot API matrix plus workflow-dialog consumption check.",
+        "endpoints": [
+          "GET/PUT business-assignments routes",
+          "POST /api/v1/leads/{id}/operations/assign"
+        ],
+        "negative_tests": [
+          "Adding a third slot -> 422",
+          "Assigning two roles to one slot -> 422"
+        ],
+        "role_permission_setup": "Settings-permissioned admin.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "GET returns exactly two fixed slots (rm, underwriter) per tenant, each holding exactly one role.",
+        "The assign/reassign operation resolves eligible users from these slots (assign with a user outside the slot's role fails per contract).",
+        "Slot changes write audit entries."
+      ]
+    },
+    {
+      "id": "V-050",
+      "acceptance_id": "AC-039",
+      "title": "Brokers and broker contacts with single-primary enforcement",
+      "method": "integration",
+      "task_ids": [
+        "T-021"
+      ],
+      "api": {
+        "approach": "CRUD + primary-contact invariants on a two-tenant seed.",
+        "endpoints": [
+          "brokers CRUD routes",
+          "broker contacts CRUD routes"
+        ],
+        "negative_tests": [
+          "Tenant-A broker list contains zero tenant-B brokers; cross-tenant broker id -> 404"
+        ],
+        "role_permission_setup": "Broker-admin-permissioned user per tenant.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Broker CRUD with broker type/tier persists per contract.",
+        "Promoting a new primary contact demotes the previous one server-side; at all times exactly one primary per broker (DB assertion after each mutation)."
+      ]
+    },
+    {
+      "id": "V-051",
+      "acceptance_id": "AC-040",
+      "title": "API credential lifecycle: reveal-once, regenerate, disable, audit",
+      "method": "integration",
+      "task_ids": [
+        "T-022"
+      ],
+      "api": {
+        "approach": "Full lifecycle through the admin endpoints with DB row inspection.",
+        "endpoints": [
+          "POST /api/v1/settings/api-credentials",
+          "POST /api/v1/settings/api-credentials/broker/{brokerId}",
+          "POST /api/v1/settings/api-credentials/{id}/regenerate",
+          "POST /api/v1/settings/api-credentials/{id}/disable",
+          "GET /api/v1/settings/api-credentials"
+        ],
+        "negative_tests": [
+          "No endpoint returns the plaintext key after the creating/regenerating response (list/detail responses asserted to exclude it)"
+        ],
+        "role_permission_setup": "API-access-permissioned tenant admin.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Create and regenerate return the plaintext key exactly once, in that response only.",
+        "Create/regenerate/disable each write an audit entry (V-031).",
+        "NOTE (verification metadata, not an assertion): 2026-07-19 evaluator correction: the original plan named /api/v1/api-credentials; the measured reference contract (ApiAccessEndpoints.cs:33) and the SPA (settingsApi.ts:301-322) use /api/v1/settings/api-credentials. Paths corrected so T-043's e2e plan targets the real routes. The retired POST /{id}/reveal route answers 410 API_CREDENTIAL_NOT_REVEALABLE (Q-19: reveal has no successor)."
+      ]
+    },
+    {
+      "id": "V-052",
+      "acceptance_id": "AC-040",
+      "title": "Credential storage security: salted hash only, invalidation on regenerate/disable",
+      "method": "security",
+      "task_ids": [
+        "T-022"
+      ],
+      "expected_results": [
+        "Direct row inspection of api_credentials shows only a salted hash (and salt/metadata) — the plaintext key value and any reversible encoding of it appear nowhere in the database (search across columns), logs (V-014 scan), or non-create API responses.",
+        "After regenerate, the prior key immediately fails intake authentication (401) while the new key succeeds.",
+        "After disable, intake authentication with that key fails 401."
+      ]
+    },
+    {
+      "id": "V-053",
+      "acceptance_id": "AC-041",
+      "title": "Parties: list/detail/create/update contract with duplicate warning and validation",
+      "method": "integration",
+      "task_ids": [
+        "T-023"
+      ],
+      "api": {
+        "approach": "Contract tests over party endpoints with seeded near-duplicates.",
+        "endpoints": [
+          "GET /api/v1/parties (filters/search/sort/paging/export)",
+          "GET /api/v1/parties/{id} (+ leads card)",
+          "POST/PUT party routes"
+        ],
+        "negative_tests": [
+          "Create without name -> 422",
+          "Invalid email/phone format -> 422 with field-level errors",
+          "No DELETE /parties/{id} route exists (route-table assertion)"
+        ],
+        "role_permission_setup": "Party-permissioned user; seeded party 'Acme Insurance Ltd' to trigger duplicate warning for 'Acme Insurance Limited'.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "List supports the implemented filters, search, sort, and server-side paging ({items,page,pageSize,total}); export honors filters.",
+        "Detail includes the leads card composition.",
+        "Near-duplicate name create returns the non-blocking duplicate warning payload AND the create still succeeds on proceed."
+      ]
+    },
+    {
+      "id": "V-054",
+      "acceptance_id": "AC-041",
+      "title": "E2E parties list/detail/create with duplicate warning",
+      "method": "e2e",
+      "task_ids": [
+        "T-023",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/parties.spec.ts",
+        "test_title": "party create shows a non-blocking duplicate warning and detail shows the leads card",
+        "steps": [
+          "Sign in; open Parties; search/sort/page the list",
+          "Create a party whose name near-matches a seeded party; assert the duplicate warning renders and submission can proceed",
+          "Open the created party's detail; assert the leads card renders"
+        ],
+        "expected_results": [
+          "Duplicate warning is informational (proceed allowed); list interactions and detail composition match the preserved UX"
+        ],
+        "selectors_or_locators": [
+          "parties table + search input + column sort headers",
+          "duplicate warning banner",
+          "leads card section on party detail (existing suite locators)"
+        ],
+        "test_data": "In-test party with near-duplicate name of a seeded party.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "Suite-level reset."
+      },
+      "expected_results": [
+        "Adapted parties spec passes with assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-055",
+      "acceptance_id": "AC-042",
+      "title": "Lead validation catalog enforced at the boundary",
+      "method": "integration",
+      "task_ids": [
+        "T-024"
+      ],
+      "api": {
+        "approach": "Parameterized 422 matrix over POST /leads and PUT /leads/{id} — one case per ported rule, asserting field names and error codes against the preserved contract.",
+        "endpoints": [
+          "POST /api/v1/leads",
+          "PUT /api/v1/leads/{id}"
+        ],
+        "negative_tests": [
+          "Missing required fields; future date received; broker absent on broker-flagged channel; cover type not in selected product line; premium <= 0; policy term Other without free text; inactive or cross-tenant reference value ids"
+        ],
+        "role_permission_setup": "Lead-create-permissioned user; tenant reference data seeded with one disabled value and one other-tenant value.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Each violation returns 422 with structured errors:[{field,code,message}] matching preserved field names/codes (snapshot per case).",
+        "Valid create stores owner and region exactly as supplied; assert NO server-side defaulting occurs, and that omitting either is a 422 rather than a silent default. [AMENDED 2026-07-19 on explicit human decision, finding T-024-F4: the original wording rested on a false premise about the preserved contract. Both the implementor and the evaluator independently read the .NET reference and confirmed the actual behaviour recorded here.]"
+      ]
+    },
+    {
+      "id": "V-056",
+      "acceptance_id": "AC-043",
+      "title": "Tenant-formatted lead references: concurrency-safe transactional sequences",
+      "method": "integration",
+      "task_ids": [
+        "T-024"
+      ],
+      "expected_results": [
+        "Created leads carry references matching the tenant's format template (regex assertion incl. year segment).",
+        "20 concurrent POST /leads in one tenant (Promise.all through the pooler) yield 20 unique, gap-consistent sequential refs — no duplicates, no errors (SELECT ... FOR UPDATE inside the creation transaction is pooler-safe).",
+        "Sequences are independent across tenants (parallel creations in tenant B do not perturb tenant A numbering) and roll per year per the implemented behavior (fixture with adjusted year)."
+      ]
+    },
+    {
+      "id": "V-057",
+      "acceptance_id": "AC-044",
+      "title": "Non-blocking duplicate-lead and external-ref warnings with proceed semantics",
+      "method": "integration",
+      "task_ids": [
+        "T-024"
+      ],
+      "expected_results": [
+        "Creating a lead matching the tenant's duplicate-check rule returns the warnings array in the preserved shape while creation succeeds.",
+        "An external reference colliding with an existing lead returns the uniqueness warning without blocking.",
+        "Both behaviors verified on create AND edit paths."
+      ]
+    },
+    {
+      "id": "V-058",
+      "acceptance_id": "AC-045",
+      "title": "Visibility-breadth permissions in lead query predicates",
+      "method": "integration",
+      "task_ids": [
+        "T-024"
+      ],
+      "api": {
+        "approach": "Two users in one tenant: one with leads.view_all, one without; seeded leads owned/assigned across both.",
+        "endpoints": [
+          "GET /api/v1/leads",
+          "GET /api/v1/search",
+          "dashboard drill endpoint",
+          "lead export endpoint",
+          "GET /api/v1/leads/{id}"
+        ],
+        "negative_tests": [
+          "Direct GET of a lead outside the restricted caller's breadth -> 200 (breadth is a LIST filter only; pin this from both directions so a future refactor cannot silently tighten OR loosen it)",
+          "Direct GET of a lead in ANOTHER tenant -> 404 (tenant isolation, which IS a confidentiality boundary)"
+        ],
+        "role_permission_setup": "restricted user (no view_all, owns/assigned 3 of 10 leads); broad user (view_all).",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Restricted user sees exactly their owned/assigned leads in list, search, drill, and export results (id-set equality).",
+        "Broad user sees all tenant leads; the My-leads toggle further restricts but never expands either user's set.",
+        "Restricted user's direct GET of an out-of-breadth lead in their OWN tenant returns 200 per the preserved contract; the same id in another tenant returns 404. [AMENDED 2026-07-19 on explicit human decision, finding T-024-F4: the original wording rested on a false premise about the preserved contract. Both the implementor and the evaluator independently read the .NET reference and confirmed the actual behaviour recorded here.]"
+      ]
+    },
+    {
+      "id": "V-059",
+      "acceptance_id": "AC-046",
+      "title": "Bulk reassign: permission-bound with mandatory audited note",
+      "method": "integration",
+      "task_ids": [
+        "T-024"
+      ],
+      "api": {
+        "approach": "Bulk reassign matrix.",
+        "endpoints": [
+          "POST /api/v1/leads/bulk-reassign"
+        ],
+        "negative_tests": [
+          "Caller without the bulk-reassign permission -> 403",
+          "Request without a note -> 422"
+        ],
+        "role_permission_setup": "One user with the dedicated permission, one without.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "On success every affected lead's assignment changes (per-lead assertion).",
+        "One audit entry contains the note and the affected lead ids."
+      ]
+    },
+    {
+      "id": "V-060",
+      "acceptance_id": "AC-047",
+      "title": "Workflow legality matrix: exhaustive pure-module table",
+      "method": "unit",
+      "task_ids": [
+        "T-025"
+      ],
+      "expected_results": [
+        "A table-driven test enumerates every lead and quote operation against every reporting category + canonical key combination and asserts legal/illegal outcomes exactly matching the implemented .NET matrix (ported expectations recorded as the table).",
+        "The test fails if an operation or status is added to the module without a corresponding table row (exhaustiveness check over the enum domains)."
+      ]
+    },
+    {
+      "id": "V-061",
+      "acceptance_id": "AC-047",
+      "title": "Illegal operations return 409 with legal-operation hint; no direct status-set endpoint",
+      "method": "integration",
+      "task_ids": [
+        "T-025"
+      ],
+      "api": {
+        "approach": "Drive representative illegal transitions through the API.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/{op}",
+          "POST /api/v1/quotes/{id}/operations/{op}"
+        ],
+        "negative_tests": [
+          "Illegal operation for the current status -> 409 problem+json including the legal-operations hint (shape snapshot)"
+        ],
+        "role_permission_setup": "Fully-permissioned workflow user; leads/quotes seeded in specific statuses.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "409 bodies carry the preserved legal-operation hint.",
+        "Route-table assertion: no endpoint exists that sets lead/quote status directly outside named operations."
+      ]
+    },
+    {
+      "id": "V-062",
+      "acceptance_id": "AC-048",
+      "title": "Lead operations append-only status history with actor and inputs",
+      "method": "integration",
+      "task_ids": [
+        "T-025"
+      ],
+      "expected_results": [
+        "Each lead operation (assign, start-information-gathering, send-to-underwriting, start-pricing, request-pricing-approval, approve-pricing, reject-pricing, log-follow-up, start-negotiation, mark-lost, withdraw, reopen) succeeds from its legal states and appends exactly one lead_status_history row with actor and jsonb inputs.",
+        "Prior history rows are never updated or deleted (row digests before/after each operation).",
+        "Each operation writes its audit entry (V-031); reopen returns the lead to its last open status (asserted from history)."
+      ]
+    },
+    {
+      "id": "V-063",
+      "acceptance_id": "AC-049",
+      "title": "Pricing approval sub-state and high-value send gate",
+      "method": "integration",
+      "task_ids": [
+        "T-025",
+        "T-026"
+      ],
+      "expected_results": [
+        "request/approve/reject pricing transition pricing_approval_state per the ported sub-state machine (state assertions per transition).",
+        "QUOTE-SIDE GATE (T-026): with the tenant pricing gate enabled and the current quote version's quoted premium above the tenant high-value threshold, quote Send without an approved pricing state returns 422 PRICING_APPROVAL_REQUIRED and nothing persists (assert no state change and no audit row); after approval the same Send succeeds; with the gate disabled it succeeds without approval. [AMENDED 2026-07-19 on explicit human decision, finding T-025-N1: the gate clause originally described a LEAD-side gate returning 409. The implementor and the evaluator independently verified in the .NET reference that no lead operation consults the gate at all - the sole implementation is SendQuoteCommandHandler.cs:85-91, which is QUOTE-side, reads the CURRENT QUOTE VERSION's premium, and returns 422 PRICING_APPROVAL_REQUIRED (QuoteWorkflowErrors.cs:26: '422, nothing persists'). Wrong entity, wrong status and wrong premium field. The gate clause is re-scoped to T-026 and restated as the measured behaviour; the sub-state-machine clauses remain with T-025, where they are implemented and verified. Same false-premise class as the AC-045/AC-042 amendment ruled earlier the same day.]",
+        "Approvals/rejections record approver and reason and are audited."
+      ]
+    },
+    {
+      "id": "V-064",
+      "acceptance_id": "AC-050",
+      "title": "availableOperations computed server-side from matrix, status, and caller permissions",
+      "method": "integration",
+      "task_ids": [
+        "T-025",
+        "T-026"
+      ],
+      "expected_results": [
+        "Every lead/quote detail response includes availableOperations equal to the legality-matrix output filtered by the caller's effective permissions (asserted for at least three statuses and two permission profiles).",
+        "Calling an operation absent from the caller's availableOperations fails server-side 409 (illegal state) or 403 (missing permission) — never succeeds."
+      ]
+    },
+    {
+      "id": "V-065",
+      "acceptance_id": "AC-050",
+      "title": "E2E: UI renders only legal actions across statuses",
+      "method": "e2e",
+      "task_ids": [
+        "T-025",
+        "T-026",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "lead detail shows exactly the server-computed legal actions in three distinct statuses",
+        "steps": [
+          "Sign in; open a seeded New lead; record rendered action buttons",
+          "Open a lead in Pricing and one in Closed Lost; record rendered actions for each",
+          "For each, compare the rendered action set to the availableOperations of the corresponding GET response (network intercept)",
+          "Assert no action outside availableOperations is rendered anywhere"
+        ],
+        "expected_results": [
+          "Rendered actions exactly equal availableOperations for all three statuses; illegal actions absent"
+        ],
+        "selectors_or_locators": [
+          "lead detail action bar buttons (existing suite locators)",
+          "page.waitForResponse on lead detail GET"
+        ],
+        "test_data": "Demo seed leads in New, Pricing, Closed Lost.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "None (read-only)."
+      },
+      "expected_results": [
+        "Adapted lead-workflow spec passes; UI gating verified as non-load-bearing (server enforcement covered by V-064)."
+      ]
+    },
+    {
+      "id": "V-066",
+      "acceptance_id": "AC-051",
+      "title": "Mark lost cascade, withdraw, and follow-up requirements",
+      "method": "integration",
+      "task_ids": [
+        "T-025"
+      ],
+      "api": {
+        "approach": "Operation flows on seeded leads with open quotes and follow-up state.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/mark-lost",
+          "POST /api/v1/leads/{id}/operations/withdraw",
+          "POST /api/v1/leads/{id}/operations/log-follow-up"
+        ],
+        "negative_tests": [
+          "mark-lost without an active lost reason -> 422; reason Other without comment -> 422",
+          "Open lead past Quote Sent without a future next-follow-up -> 422 per preserved contract"
+        ],
+        "role_permission_setup": "Workflow-permissioned user; lead with two open quotes.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "mark-lost cascades open quotes to Lost per the implemented rule (both quotes transitioned, history rows appended).",
+        "withdraw closes the lead as Withdrawn; log-follow-up records follow_ups rows and updates follow-up tracking fields.",
+        "All transitions append history and audit entries."
+      ]
+    },
+    {
+      "id": "V-067",
+      "acceptance_id": "AC-052",
+      "title": "Quotes are lead-subordinate with same-tenant FK",
+      "method": "integration",
+      "task_ids": [
+        "T-026"
+      ],
+      "api": {
+        "approach": "Creation-path and FK assertions.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/quotes"
+        ],
+        "negative_tests": [
+          "No standalone POST /quotes create route exists (route-table assertion)",
+          "Create against a cross-tenant lead id -> 404; nonexistent lead id -> 404"
+        ],
+        "role_permission_setup": "Quote-permissioned user in tenant A; lead seeded in tenant B.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Every quote row references exactly one lead in the same tenant (FK + insert-violation test).",
+        "A lead accepts multiple quotes when tenant policy allows (create two, both listed under the lead)."
+      ]
+    },
+    {
+      "id": "V-068",
+      "acceptance_id": "AC-053",
+      "title": "Quote versioning: single current version invariant",
+      "method": "integration",
+      "task_ids": [
+        "T-026"
+      ],
+      "expected_results": [
+        "Draft quotes are editable in place (PUT succeeds pre-send).",
+        "After send, direct edit fails per contract; revise creates a new version marked current; the prior version is preserved byte-identical (digest) and no longer current.",
+        "After every mutation, a DB assertion proves exactly one current version per quote; version history endpoint returns all versions per contract."
+      ]
+    },
+    {
+      "id": "V-069",
+      "acceptance_id": "AC-054",
+      "title": "Quote send/mark-won requirements, sibling withdrawal, lead close, date-order rules",
+      "method": "integration",
+      "task_ids": [
+        "T-026"
+      ],
+      "api": {
+        "approach": "Operation matrix on a lead with multiple open quotes.",
+        "endpoints": [
+          "POST /api/v1/quotes/{id}/operations/send",
+          "POST /api/v1/quotes/{id}/operations/mark-won",
+          "POST /api/v1/quotes/{id}/operations/mark-lost"
+        ],
+        "negative_tests": [
+          "send without valid-until or with valid-until <= sent date -> 422; send without next follow-up -> 422",
+          "prepared < received -> 422 (the ONLY date-order negative that exists; 'sent < received' and 'decision < sent' were removed as they are not implemented in the reference)",
+          "mark-won with bound premium <= 0 WHEN SUPPLIED -> 422; omitting bound premium or decision date is VALID and defaults to the current version's premium and today (assert the stored defaults, and assert that omission is NOT a 422)"
+        ],
+        "role_permission_setup": "Workflow-permissioned user; lead with three quotes (two open siblings).",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "mark-won transitions the quote to Won, withdraws sibling open quotes, and moves the lead to Closed Won.",
+        "Route/operation assertions prove Closed Won is reachable only via quote-level mark-won (no lead operation produces it).",
+        "mark-lost supports the optional lead-close flag per contract.",
+        "Omitted mark-won inputs default rather than reject: assert the stored bound premium equals the current version's quoted premium and the decision date is today. [AMENDED 2026-07-20 on explicit human decision, finding T-026-N2/N3/N4. The implementor and the evaluator independently swept every date comparison in Features/Quotes (and the wider Application/Domain tree) and found exactly two rules - preparedDate >= lead.dateReceived and validUntil > sentDate - with NO 'sent >= received', NO 'decision >= sent', and no exception-recording mechanism anywhere in the codebase. Mark-won's inputs are optional and defaulted at MarkQuoteWonCommandHandler.cs:66-71. Closed-record edits are 403 at UpdateDraftQuoteCommandHandler.cs:73-85, not 409, and the PUT route IS the audited corrections path. Restated to the measured contract; third amendment of this false-premise class, after AC-045/AC-042 and AC-049.]"
+      ]
+    },
+    {
+      "id": "V-070",
+      "acceptance_id": "AC-055",
+      "title": "Closed records read-only except audited, permission-bound corrections and reopen",
+      "method": "integration",
+      "task_ids": [
+        "T-026"
+      ],
+      "api": {
+        "approach": "Post-closure mutation matrix.",
+        "endpoints": [
+          "PUT /api/v1/leads/{id}",
+          "PUT quote draft route",
+          "corrections route",
+          "reopen operation"
+        ],
+        "negative_tests": [
+          "Editing a CLOSED quote without quotes.correct_closed -> 403 QUOTE_CLOSED_REQUIRES_CORRECTION_PERMISSION",
+          "Editing a SENT or REVISED quote -> 409 QUOTE_DRAFT_EDIT_ONLY (distinct from the closed-record verdict; assert the CODE, not only the status, since both are rejections)",
+          "reopen without its permission -> 403"
+        ],
+        "role_permission_setup": "One user with corrections+reopen permissions, one without; closed lead + won quote seeded.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Authorized correction through the SAME PUT route applies the change and writes an audit entry with before/after values (payload asserted). There is no separate corrections endpoint, and a test should pin that no such route exists. [AMENDED 2026-07-20 on explicit human decision, finding T-026-N2/N3/N4. The implementor and the evaluator independently swept every date comparison in Features/Quotes (and the wider Application/Domain tree) and found exactly two rules - preparedDate >= lead.dateReceived and validUntil > sentDate - with NO 'sent >= received', NO 'decision >= sent', and no exception-recording mechanism anywhere in the codebase. Mark-won's inputs are optional and defaulted at MarkQuoteWonCommandHandler.cs:66-71. Closed-record edits are 403 at UpdateDraftQuoteCommandHandler.cs:73-85, not 409, and the PUT route IS the audited corrections path. Restated to the measured contract; third amendment of this false-premise class, after AC-045/AC-042 and AC-049.]",
+        "Reopen is audited and restores the last open status (V-062 overlap intentional)."
+      ]
+    },
+    {
+      "id": "V-071",
+      "acceptance_id": "AC-056",
+      "title": "Signed-URL envelope: authorize/validate before issuance; 10 MB end-to-end",
+      "method": "integration",
+      "task_ids": [
+        "T-027"
+      ],
+      "api": {
+        "approach": "Envelope flow against local Supabase Storage through the StorageAdapter.",
+        "endpoints": [
+          "attachment upload-envelope route",
+          "attachment confirm route",
+          "attachment download route"
+        ],
+        "negative_tests": [
+          "Disallowed content type (e.g., .exe/svg) -> 422, no URL issued",
+          "Declared size above the per-tenant cap -> 422, no URL issued"
+        ],
+        "role_permission_setup": "Quote-permissioned tenant user; tenant cap at default 10 MB.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Allowed request returns a short-lived signed upload URL targeting the private bucket with a tenant-prefixed key; a real 10 MB PDF uploads via the signed URL and confirms successfully — bytes never pass through the API function (no /api/v1 request carries the body).",
+        "Download returns a short-lived signed URL with attachment disposition; fetching it returns the exact bytes."
+      ]
+    },
+    {
+      "id": "V-072",
+      "acceptance_id": "AC-056",
+      "title": "Attachment authorization negatives and private-bucket lockdown",
+      "method": "security",
+      "task_ids": [
+        "T-027"
+      ],
+      "expected_results": [
+        "Envelope requests by a tenant-B caller against a tenant-A quote -> 404; caller without the attachment permission -> 403; both without any URL issuance.",
+        "Direct unauthenticated bucket access (no signed URL / anon key) fails; an expired signed URL fails.",
+        "Signed download URLs for tenant-A keys are never issued to tenant-B callers (attempt fails before signing)."
+      ]
+    },
+    {
+      "id": "V-073",
+      "acceptance_id": "AC-057",
+      "title": "Attachment metadata, audit, soft remove, and magic-number posture",
+      "method": "integration",
+      "task_ids": [
+        "T-027"
+      ],
+      "expected_results": [
+        "Confirmed uploads create quote_attachments rows (name, type, size, storage_key) and an audit entry; remove is soft (row retained + flagged) with its own audit entry.",
+        "Removed attachments disappear from the quote's attachment list while history remains queryable.",
+        "The post-upload magic-number/content verification step is implemented and tested (mismatched content vs declared type rejected at confirm), OR its omission is recorded as an explicit accepted-risk finding in the task file — the evaluator fails this verification if neither is true."
+      ]
+    },
+    {
+      "id": "V-074",
+      "acceptance_id": "AC-058",
+      "title": "StorageAdapter port: config-selected, no direct storage calls from domain code",
+      "method": "integration",
+      "task_ids": [
+        "T-027"
+      ],
+      "expected_results": [
+        "Grep/lint check: no @supabase/supabase-js storage calls outside src/server/lib/storage — domain code imports only the StorageAdapter interface.",
+        "The adapter binding is selected by configuration; integration tests run against SupabaseStorageAdapter on the local stack; a fake adapter implements the same interface for unit seams.",
+        "Switching the configured adapter (fake vs Supabase) requires zero domain-code changes (compile + test run with each binding)."
+      ]
+    },
+    {
+      "id": "V-075",
+      "acceptance_id": "AC-059",
+      "title": "E2E browser attachment flow via signed URLs incl. >4.5 MB upload",
+      "method": "e2e",
+      "task_ids": [
+        "T-028",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "attachment uploads directly to storage with progress, errors, and download; 5 MB file succeeds",
+        "steps": [
+          "Sign in; open a quote detail; upload a generated 5 MB PDF via the file input",
+          "Assert progress UI then the attachment appears in the list; assert via network capture that the bytes went to the storage host, not /api/v1",
+          "Force a storage failure (abort/route-block the storage request); assert the error state renders and no phantom attachment row appears in the list after reload",
+          "Attempt an oversize/disallowed-type file; assert the unchanged validation messages",
+          "Download the attachment; assert it opens via a signed URL"
+        ],
+        "expected_results": [
+          "5 MB (>4.5 MB Vercel cap) file uploads successfully through the browser",
+          "Failure path shows error state with no phantom record; validation UX messages unchanged; download uses a signed URL"
+        ],
+        "selectors_or_locators": [
+          "attachment dropzone/file input",
+          "attachment list rows + progress indicator + error state",
+          "page.route on the storage host URL",
+          "download link"
+        ],
+        "test_data": "Programmatically generated 5 MB PDF and a disallowed .txt/.exe fixture.",
+        "setup": "DB reset + demo seed; quote in editable state; admin-minted session.",
+        "teardown": "Suite-level reset (uploaded objects cleaned by bucket reset or unique-prefix isolation)."
+      },
+      "expected_results": [
+        "Adapted attachment coverage passes against local Supabase Storage."
+      ]
+    },
+    {
+      "id": "V-076",
+      "acceptance_id": "AC-060",
+      "title": "Lead timeline aggregates all sources chronologically",
+      "method": "integration",
+      "task_ids": [
+        "T-029"
+      ],
+      "expected_results": [
+        "All FOUR sources (lead_status_history, the lead's quotes' quote_status_history, follow_ups, and lead_notes) appear in one feed: seed at least one event per source and assert the exact expected sequence. Dropping any single source from the union must FAIL this - assert the exact set, not a count.",
+        "Ordering is total and deterministic: assert same-instant events across different sources resolve by the fixed type rank, and same-instant same-type events resolve by source row id DESC. Include a sub-second .000/.500 pair in one second, which a timestamptz::text sort gets wrong.",
+        "Paging: fixed size 50 with {items,totalCount,page,pageSize} - NOT a bare array.",
+        "Tenant isolation holds on every branch and join, including a constructed cross-tenant id collision (the PK is (tenant_id, id) and the schema permits collisions even though the shared identity sequence does not normally produce them).",
+        "The endpoint is NOT breadth-filtered: assert parity with GET /leads/{id}. [AMENDED 2026-07-20 on explicit human decision, findings F-029-1/F-029-5. The original wording required a fifth source (attachment events), and the task scope additionally named pricing approvals and assignment changes. The implementor and the evaluator independently verified that GetLeadTimelineQueryHandler.cs:55-65 aggregates exactly FOUR sources, that TimelineEntryDto.cs:17-20 declares exactly four discriminators, and - decisively - that the ALREADY-SHIPPED SPA types them as a CLOSED union (leadsApi.ts:409) with an exhaustive four-key label map (TimelinePanel.tsx:4-7), so a fifth source would break the UI at COMPILE TIME. The three extra sources are not dropped requirements; they never existed in the system being migrated. Fifth amendment of this false-premise class, after AC-045/AC-042, AC-049, AC-054/AC-055 and AC-075.]"
+      ]
+    },
+    {
+      "id": "V-077",
+      "acceptance_id": "AC-061",
+      "title": "Intake endpoint: credential-resolved scoping and structured validation",
+      "method": "integration",
+      "task_ids": [
+        "T-030"
+      ],
+      "api": {
+        "approach": "POST /intake/leads with a freshly created credential's key.",
+        "endpoints": [
+          "POST /api/v1/intake/leads"
+        ],
+        "negative_tests": [
+          "Payload validation failures -> 422 with structured errors[]"
+        ],
+        "role_permission_setup": "Tenant+broker-scoped api_credential created via T-022 endpoints; no Supabase Auth session used.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "Valid key -> 201; the lead is created in the tenant resolved from the credential record with the credential's broker; created lead records source and intake_credential_id.",
+        "The endpoint authenticates with the API key alone — no Supabase Auth session required (request carries only the documented key header)."
+      ]
+    },
+    {
+      "id": "V-078",
+      "acceptance_id": "AC-061",
+      "title": "Intake security: key matrix and unspoofable tenant/broker",
+      "method": "security",
+      "task_ids": [
+        "T-030"
+      ],
+      "expected_results": [
+        "Missing, unknown, disabled, and regenerated-away keys each return 401 with no detail distinguishing the cases.",
+        "A payload supplying different tenant/broker ids than the credential's scope is ignored or rejected per contract — the stored lead always carries the credential's tenant and broker (assert stored row).",
+        "Brute-force surface: 401 bodies leak no credential metadata; key comparison uses the salted-hash verify path (no plaintext lookup)."
+      ]
+    },
+    {
+      "id": "V-079",
+      "acceptance_id": "AC-062",
+      "title": "Cron and queue-drain endpoints secret-protected with no side effects on rejection",
+      "method": "security",
+      "task_ids": [
+        "T-031"
+      ],
+      "expected_results": [
+        "Every /api/cron/{job} endpoint rejects requests with a missing or wrong CRON_SECRET (401/403) and /api/queue/drain rejects without INTERNAL_JOB_SECRET — asserting zero side effects: no job_run row, no business mutations (row digests unchanged).",
+        "With the correct secret each handler executes (job_run row appears).",
+        "Grep: the SPA source contains no reference to /api/cron or /api/queue; both secrets are read only via the config module (V-012)."
+      ]
+    },
+    {
+      "id": "V-080",
+      "acceptance_id": "AC-063",
+      "title": "Durable job_run row per execution with correlation propagation",
+      "method": "integration",
+      "task_ids": [
+        "T-031"
+      ],
+      "expected_results": [
+        "Each cron sweep and each drained queue message writes a job_run row with job_name, trigger (cron|queue|manual), environment, correlation_id, started_at/finished_at/duration_ms, status transitions running -> succeeded|failed, and per-tenant counts jsonb.",
+        "A forced handler failure yields status=failed with error class/message recorded.",
+        "A correlation id present on the enqueuing API request appears in the pgmq message and the resulting job_run row (end-to-end propagation assertion)."
+      ]
+    },
+    {
+      "id": "V-081",
+      "acceptance_id": "AC-064",
+      "title": "pgmq semantics: visibility timeout, ack, retry, dead-letter archive",
+      "method": "integration",
+      "task_ids": [
+        "T-031"
+      ],
+      "expected_results": [
+        "Through QueuePublisher/QueueConsumer against local pgmq: a read message is invisible to a second reader during its visibility timeout; ack deletes it permanently.",
+        "A handler failure leaves the message unacked; it is redelivered after the timeout with the attempt count incremented.",
+        "After max_attempts (default 5) the message lands in the pgmq archive (dead-letter) and is never delivered again.",
+        "Messages carry type, tenant context, correlation ID, idempotency key, and minimal payload (schema assertion on the enqueued body)."
+      ]
+    },
+    {
+      "id": "V-082",
+      "acceptance_id": "AC-065",
+      "title": "Local job scripts run the same handlers and state",
+      "method": "integration",
+      "task_ids": [
+        "T-031"
+      ],
+      "expected_results": [
+        "`npm run cron:list` lists all jobs; `cron:run <job>` and `cron:run:all` execute the same handler modules as the deployed endpoints (module-identity assertion or shared-import check) against local Supabase and write job_run rows identical in shape to endpoint-triggered runs (trigger=manual/cron distinction only).",
+        "`queue:enqueue:test` injects a test message; `queue:worker` drains it through the same handlers (job_run row + handler side effect asserted).",
+        "`jobs:status` prints job_run history and pgmq backlog/archive counts (output parsed and asserted non-empty after the above)."
+      ]
+    },
+    {
+      "id": "V-083",
+      "acceptance_id": "AC-066",
+      "title": "Quote-expiry sweep: state-guarded transitions, idempotent re-run",
+      "method": "integration",
+      "task_ids": [
+        "T-032"
+      ],
+      "expected_results": [
+        "Seed Sent quotes with valid_until in the past plus guard-violating controls (Draft, future valid_until, already Expired): running the handler transitions exactly the matching quotes to Expired with history + audit rows; controls untouched.",
+        "The lead is expired only when the tenant rule allows and no other open quote exists (both branches asserted); alerts refreshed.",
+        "Immediate second run produces zero additional transitions, history rows, or audit rows (full-table diff empty)."
+      ]
+    },
+    {
+      "id": "V-084",
+      "acceptance_id": "AC-067",
+      "title": "Lead-inactivity-expiry sweep honors tenant thresholds and quote activity",
+      "method": "integration",
+      "task_ids": [
+        "T-032"
+      ],
+      "expected_results": [
+        "Open leads with last_activity_at beyond the tenant's lead_inactivity_expiry_days transition to Expired with history + audit; a lead with recent quote activity is NOT expired (quote activity counts as lead activity).",
+        "Two tenants with different thresholds are evaluated independently (fixtures straddling both thresholds).",
+        "Immediate re-run is a no-op (diff empty)."
+      ]
+    },
+    {
+      "id": "V-085",
+      "acceptance_id": "AC-068",
+      "title": "pg_cron schedules registered by migrations; no vercel.json crons",
+      "method": "integration",
+      "task_ids": [
+        "T-032",
+        "T-034"
+      ],
+      "expected_results": [
+        "After migrations, cron.job contains pg_net-invoking entries for /api/cron/quote-expiry at '0 * * * *', /api/cron/lead-inactivity-expiry at '10 * * * *', /api/cron/alert-evaluation at '*/15 * * * *', and /api/queue/drain every minute — all UTC and matching docs/background-jobs.md (SQL assertions on cron.job rows).",
+        "vercel.json parsed: no 'crons' key.",
+        "PARTIAL PRE-CUTOVER: only registration is verifiable locally; actual pg_cron -> pg_net firing against deployed Vercel endpoints is post-cutover manual QA (see V-112/V-122). Local behavioral equivalence is covered by cron:run scripts (V-082)."
+      ]
+    },
+    {
+      "id": "V-086",
+      "acceptance_id": "AC-069",
+      "title": "Alert evaluation reconciles all alert types idempotently per tenant",
+      "method": "integration",
+      "task_ids": [
+        "T-033"
+      ],
+      "expected_results": [
+        "For each alert type (unassigned lead, overdue follow-up, stalled lead, stalled quote, expiring quote, expired quote, SLA breach, high-value stalled, pending pricing approval, awaiting underwriting, executive escalation): seeded matching records produce exactly one open alert row after the sweep (parameterized per type).",
+        "Records that stop matching get their alerts resolved on the next run; the DB uniqueness constraint blocks duplicate open alerts (V-009).",
+        "Running the sweep twice back-to-back yields zero net changes; two-tenant seed proves no alert references another tenant's records."
+      ]
+    },
+    {
+      "id": "V-087",
+      "acceptance_id": "AC-070",
+      "title": "Alerts center endpoints and per-user badge semantics",
+      "method": "integration",
+      "task_ids": [
+        "T-033"
+      ],
+      "api": {
+        "approach": "Contract tests over the alerts surface with seeded alerts of every category.",
+        "endpoints": [
+          "alerts summary/cards route",
+          "escalation queue route",
+          "alerts list with tabs/filters/drill params",
+          "badge route",
+          "badge reset route"
+        ],
+        "negative_tests": [
+          "Tenant isolation on all alert routes (V-027 helper)"
+        ],
+        "role_permission_setup": "Two users in the same tenant to prove per-user badge independence.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Category cards with counts, escalation queue with premium-at-risk rollup, and tab/filter/drill data match the preserved contract on seeded fixtures.",
+        "Completing a contextual workflow action then re-evaluating clears/downgrades the corresponding alert.",
+        "Badge counts alerts created since the user's last visit; reset updates user_alert_views (per user, per tenant) — the second user's badge is unaffected."
+      ]
+    },
+    {
+      "id": "V-088",
+      "acceptance_id": "AC-070",
+      "title": "E2E alerts center actions and badge",
+      "method": "e2e",
+      "task_ids": [
+        "T-033",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/alerts-center.spec.ts",
+        "test_title": "alert cards, escalation queue, contextual action clears alert, badge resets on visit",
+        "steps": [
+          "Sign in; assert the sidebar alert badge count > 0 from seeded alerts",
+          "Open Alerts center; assert category cards and escalation queue render with premium-at-risk",
+          "Run a contextual action on an overdue-follow-up alert (log follow-up); trigger re-evaluation via the suite's job hook (cron:run alert-evaluation)",
+          "Reload alerts; assert that alert cleared/downgraded",
+          "Assert the badge resets after the visit per preserved semantics"
+        ],
+        "expected_results": [
+          "Cards/queue render seeded data; contextual action + re-evaluation clears the alert; badge semantics preserved"
+        ],
+        "selectors_or_locators": [
+          "sidebar alert badge",
+          "alert category cards",
+          "escalation queue table",
+          "contextual action buttons (existing suite locators)"
+        ],
+        "test_data": "Demo seed with alert-triggering records for every type.",
+        "setup": "DB reset + demo seed; run alert-evaluation once via job hook so alerts are materialized.",
+        "teardown": "Suite-level reset."
+      },
+      "expected_results": [
+        "Adapted alerts-center spec passes with job-trigger hooks calling cron:run/queue:worker instead of Hangfire hooks."
+      ]
+    },
+    {
+      "id": "V-089",
+      "acceptance_id": "AC-071",
+      "title": "Targeted alert re-evaluation via pgmq: duplicate-safe, convergent, swept as safety net",
+      "method": "integration",
+      "task_ids": [
+        "T-034"
+      ],
+      "expected_results": [
+        "Completing a lead/quote workflow operation enqueues an alert.reevaluate-lead pgmq message carrying tenantId, leadId, correlationId, and idempotency key {leadId}:{statusHistoryId} (message body asserted).",
+        "Draining it re-evaluates only that lead (other leads' alerts untouched) and clears/downgrades satisfied alerts.",
+        "Delivering the same message twice, and replaying after a simulated consumer crash before ack, both converge to the same final alert state with no duplicate alerts.",
+        "With targeted messages dropped (purged before drain), the 15-minute sweep handler still converges the alert set (safety-net assertion)."
+      ]
+    },
+    {
+      "id": "V-090",
+      "acceptance_id": "AC-072",
+      "title": "Sweeps batch tenants and isolate per-tenant failures",
+      "method": "integration",
+      "task_ids": [
+        "T-032",
+        "T-033"
+      ],
+      "expected_results": [
+        "Sweep handlers iterate active tenants explicitly in batches outside any user tenant context; no unit of work mixes tenants (assertion on transaction/tenant pairing in the handler run).",
+        "Fault injection making tenant B's processing throw: tenants A and C still complete in the same run; the job_run row records partial failure identifying the failing tenant; overall status reflects the partial failure per design."
+      ]
+    },
+    {
+      "id": "V-091",
+      "acceptance_id": "AC-073",
+      "title": "Metric-definitions module: per-formula unit tests on shared fixtures",
+      "method": "unit",
+      "task_ids": [
+        "T-035"
+      ],
+      "expected_results": [
+        "Each formula — Lead-to-Quote rate, Quote-to-Win rate (won / decided quotes), quote-based Quote-to-Proposal denominator, quoted vs bound premium totals, aging buckets, SLA status, executive escalation rule — has its own test asserting hand-computed expected values from the shared fixture dataset.",
+        "Label metadata distinguishes Leads, Quotes, Quoted Premium, Bound Premium (assertion on the definitions' label output).",
+        "Edge cases: zero denominators, undecided quotes excluded from the win-rate denominator, boundary aging-bucket values."
+      ]
+    },
+    {
+      "id": "V-092",
+      "acceptance_id": "AC-074",
+      "title": "SQL aggregations equal pure-function results on shared fixtures",
+      "method": "integration",
+      "task_ids": [
+        "T-035",
+        "T-036",
+        "T-037"
+      ],
+      "expected_results": [
+        "For every dashboard metric, the SQL aggregation over the fixture dataset loaded into local Postgres exactly equals (no tolerance) the pure-function result over the same in-memory fixtures.",
+        "A deliberate fixture mutation (e.g., flipping one quote to Won) changes both results identically — proving the fixtures are genuinely shared, not coincidentally aligned."
+      ]
+    },
+    {
+      "id": "V-093",
+      "acceptance_id": "AC-075",
+      "title": "Dashboard filter correctness across every dimension",
+      "method": "integration",
+      "task_ids": [
+        "T-035",
+        "T-036",
+        "T-037"
+      ],
+      "expected_results": [
+        "For each dimension on each dashboard that APPLIES it: the filter measurably changes the result set, asserted by exact metric value or id-set, never by shape. A dimension that is accepted and then silently ignored on a dashboard that should apply it must FAIL.",
+        "For each dimension a dashboard deliberately DOES NOT apply (measured: brokerTypeId on Broker Performance and Loss Analysis; rmUserId and teamOrRmId on Broker Performance): assert the endpoint still ACCEPTS the parameter (a stale shared-filter-bar selection must not 400) and that the result is UNCHANGED by it. The erasure must be explicit and asserted, so it reads as deliberate rather than forgotten.",
+        "Combined filters intersect (at least three combination cases) on dashboards that apply them.",
+        "Unfiltered totals equal the sum over filter partitions where the dimension partitions the data.",
+        "Tenant safety: a filter id belonging to another tenant returns the caller's own unchanged/empty result, never the other tenant's rows.",
+        "A pin asserts the bound filter contract is exactly these eight, so a future task cannot silently widen or narrow it without a deliberate criteria change. [CORRECTED 2026-07-20 by the orchestrator. The previous revision - written by the orchestrator while applying the human's AC-075 ruling - required EVERY one of the eight dimensions to measurably change EVERY dashboard's results. T-037 then measured that the reference deliberately does NOT apply some dimensions on some dashboards: Broker Performance and Loss Analysis ignore brokerTypeId, and Broker Performance also ignores rmUserId and teamOrRmId; all five endpoints still BIND all eight because the filter bar is shared and a stale selection must not 400. The orchestrator's own strengthening was therefore itself a false-premise criterion - the exact defect class being catalogued in these amendments - and would have failed a correct implementation. Restated to be true AND strict: each dimension must discriminate on the dashboards that DO apply it, and each deliberate erasure must be asserted explicitly rather than left looking forgotten.]"
+      ]
+    },
+    {
+      "id": "V-094",
+      "acceptance_id": "AC-075",
+      "title": "E2E dashboard filter bar drives correct data",
+      "method": "e2e",
+      "task_ids": [
+        "T-036",
+        "T-037",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-framework.spec.ts",
+        "test_title": "shared filter bar filters KPIs and charts and persists client-side",
+        "steps": [
+          "Sign in; open Executive Overview; record unfiltered KPI values",
+          "Apply a product-line filter; assert KPI values change to the seeded expected filtered values",
+          "Add a date-range filter; assert intersection values",
+          "Navigate to another dashboard and back; assert the filter selection persisted client-side"
+        ],
+        "expected_results": [
+          "Filtered KPI/chart values match seed-derived expectations; filters persist across dashboard navigation"
+        ],
+        "selectors_or_locators": [
+          "filter bar controls (product line select, date range picker)",
+          "KPI value locators",
+          "chart aria/table fallbacks (existing suite locators)"
+        ],
+        "test_data": "Demo seed with known per-product-line distributions.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "None (read-only)."
+      },
+      "expected_results": [
+        "Adapted dashboard-framework spec passes unweakened."
+      ]
+    },
+    {
+      "id": "V-095",
+      "acceptance_id": "AC-076",
+      "title": "Drill-through reconciles exactly with aggregates",
+      "method": "integration",
+      "task_ids": [
+        "T-035",
+        "T-036",
+        "T-037"
+      ],
+      "expected_results": [
+        "REGISTRY COMPLETENESS: a test enumerates every widget key emitted by all five dashboards and asserts each resolves to a registered drill query. The existing 'unregistered key 404s' test is KEPT but is not sufficient - it passed trivially while all 31 real keys were unregistered, documenting the defect as correct behaviour.",
+        "NON-EMPTY SUPERSET, per widget: seed a corpus where the widget reports a non-zero number, then page its drill and assert (i) at least one row comes back and (ii) every lead the aggregate counted appears in the drill. A drill narrower than its aggregate must FAIL. This is the assertion that catches the date defect.",
+        "BREADTH: run each widget as a caller WITH leads.view_all and one WITHOUT. Both must satisfy the superset invariant, AND the restricted caller's aggregate must be strictly smaller on a corpus where another user owns leads - that difference proves breadth reached the AGGREGATE, not only the drill. Identical numbers for both callers prove nothing.",
+        "EXACT EQUALITY for the enumerable subset: for each lead-count widget with an unshared key, drill totalCount EQUALS the aggregate.",
+        "DOCUMENTED POPULATION for every other widget: the documented drill population is asserted by test (e.g. the drill returns exactly the leads matching the documented scope predicate). A widget whose drill silently changes population must FAIL.",
+        "Tenant isolation independently on the drill path. [RE-AMENDED 2026-07-20 on explicit human decision, after T-050 proved the previous wording unachievable. The previous revision demanded exact aggregate-to-drill equality for every widget. That was the ORCHESTRATOR'S OWN over-formalisation of the human's ruling - the human asked that a user never see a headline they cannot reconcile by drilling in - and it is structurally impossible: drills return LEAD rows (DrillResultDto.items is LeadListItemDto) while many aggregates count quotes, premium, days or alerts; 74 widget-key emission sites share 31 keys over ~25 scope predicates, so co-keyed aggregates cannot all equal one drill population; and the wire carries no row context, so clicking one bar is indistinguishable from clicking another on the same widget. Second time this session the orchestrator wrote an unachievable criterion while tightening one (V-093 was the first). Restated to the ACHIEVABLE bar that still prevents the failure the human described.]"
+      ]
+    },
+    {
+      "id": "V-096",
+      "acceptance_id": "AC-077",
+      "title": "Executive Overview and Pipeline & Conversion payload parity",
+      "method": "integration",
+      "task_ids": [
+        "T-036"
+      ],
+      "expected_results": [
+        "Both endpoints return the implemented KPI/chart/table/panel composition with unchanged DTO shapes (snapshot against the preserved contract).",
+        "Direction-aware deltas orient correctly per metric type (an improvement fixture and a decline fixture each assert the sign/orientation).",
+        "Tenant display-currency formatting data present; funnel stage counts match fixtures; generatedAt timestamp present and current."
+      ]
+    },
+    {
+      "id": "V-097",
+      "acceptance_id": "AC-077",
+      "title": "E2E Executive Overview and Pipeline dashboards render parity data",
+      "method": "e2e",
+      "task_ids": [
+        "T-036",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-overview.spec.ts (plus dashboard-pipeline.spec.ts)",
+        "test_title": "overview KPIs, deltas, funnel, and footer data-currency render from seeded data",
+        "steps": [
+          "Sign in; open Executive Overview; assert KPI cards show seed-expected values with correct delta direction indicators",
+          "Assert the footer data-currency indicator renders the generatedAt timestamp",
+          "Open Pipeline & Conversion; assert funnel stage counts and conversion KPIs match seed expectations",
+          "Drill through a funnel stage; assert the records list matches the stage count"
+        ],
+        "expected_results": [
+          "Both dashboards render the preserved compositions with values matching the demo seed; drill navigation works"
+        ],
+        "selectors_or_locators": [
+          "KPI card value/delta locators",
+          "funnel stage elements",
+          "footer generatedAt indicator",
+          "drill-through links (existing suite locators)"
+        ],
+        "test_data": "Demo seed.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Both adapted dashboard specs pass with assertions unweakened."
+      ]
+    },
+    {
+      "id": "V-098",
+      "acceptance_id": "AC-078",
+      "title": "Broker/RM/Loss dashboard payload parity",
+      "method": "integration",
+      "task_ids": [
+        "T-037"
+      ],
+      "expected_results": [
+        "Broker Performance (rankings/tiers), RM Performance (RM/team), and Loss Analysis (loss reasons/segments) endpoints return their implemented compositions with unchanged DTO shapes (snapshots).",
+        "Values match shared-fixture expectations (V-092 fixtures); drill-through links present and resolvable."
+      ]
+    },
+    {
+      "id": "V-099",
+      "acceptance_id": "AC-078",
+      "title": "E2E Broker, RM, and Loss dashboards",
+      "method": "e2e",
+      "task_ids": [
+        "T-037",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-brokers.spec.ts (plus dashboard-rm.spec.ts, dashboard-loss.spec.ts)",
+        "test_title": "broker rankings, RM performance, and loss analysis render seeded values with working drills",
+        "steps": [
+          "Sign in; open each of the three dashboards in turn",
+          "Assert ranking tables/charts render seed-expected top entries and totals",
+          "Follow one drill-through per dashboard; assert the underlying records list corresponds"
+        ],
+        "expected_results": [
+          "All three adapted dashboard specs pass with values from the demo seed"
+        ],
+        "selectors_or_locators": [
+          "ranking table rows",
+          "chart/table toggle locators",
+          "drill links (existing suite locators)"
+        ],
+        "test_data": "Demo seed.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Adapted specs pass unweakened."
+      ]
+    },
+    {
+      "id": "V-100",
+      "acceptance_id": "AC-079",
+      "title": "Dashboard performance <= 2 s at seed volume with bounded query counts",
+      "method": "integration",
+      "task_ids": [
+        "T-036",
+        "T-037",
+        "T-041"
+      ],
+      "expected_results": [
+        "With the full demo seed (300 leads / 500 quotes scale), every dashboard endpoint responds in <= 2 s through the transaction pooler, measured over repeated runs (median and max reported; flaky-tolerant via warm-up run excluded).",
+        "Query logging (Kysely log hook) during each dashboard request shows a bounded query count that does not grow with row count (compare seed-scale vs a doubled subset) — no per-row N+1 pattern.",
+        "Results recorded in the task evidence; regressions fail the test threshold."
+      ]
+    },
+    {
+      "id": "V-101",
+      "acceptance_id": "AC-080",
+      "title": "Global search: grouped, tenant-scoped, breadth-aware",
+      "method": "integration",
+      "task_ids": [
+        "T-038"
+      ],
+      "api": {
+        "approach": "Type-ahead queries on a two-tenant seed with marker names.",
+        "endpoints": [
+          "GET /api/v1/search"
+        ],
+        "negative_tests": [
+          "Tenant-B marker query as tenant-A user returns zero hits",
+          "Restricted (no view_all) user's lead hits limited to their breadth"
+        ],
+        "role_permission_setup": "Tenant-A user with view_all; tenant-A restricted user; markers seeded in both tenants.",
+        "playwright_triggerable": true
+      },
+      "expected_results": [
+        "Results grouped into leads, quotes, parties, brokers with the preserved response shape and per-group result limits.",
+        "All hits belong to the active tenant only."
+      ]
+    },
+    {
+      "id": "V-102",
+      "acceptance_id": "AC-081",
+      "title": "CSV formula-injection guard unit coverage",
+      "method": "unit",
+      "task_ids": [
+        "T-039"
+      ],
+      "expected_results": [
+        "Cells beginning with =, +, -, or @ are prefixed with a single quote (one test per dangerous prefix).",
+        "Safe values (plain text, numbers, negative numbers formatted per contract, empty) pass through unmodified.",
+        "Quoting/escaping interaction covered (dangerous value containing commas/quotes remains valid CSV)."
+      ]
+    },
+    {
+      "id": "V-103",
+      "acceptance_id": "AC-081",
+      "title": "Integration: exported CSV guards a hostile seeded record",
+      "method": "integration",
+      "task_ids": [
+        "T-039"
+      ],
+      "expected_results": [
+        "A seeded record named '=HYPERLINK(\"http://evil\",\"x\")' exported via a list CSV endpoint yields the guarded cell ('=HYPERLINK...) in the downloaded file (byte-level assertion).",
+        "The guard applies to every CSV writer path (report CSVs asserted too)."
+      ]
+    },
+    {
+      "id": "V-104",
+      "acceptance_id": "AC-082",
+      "title": "List and dashboard exports: filters, headers, valid XLSX, size limit",
+      "method": "integration",
+      "task_ids": [
+        "T-039"
+      ],
+      "expected_results": [
+        "CSV and Excel exports of lists and dashboards contain exactly the rows matching the caller's active filters and visibility permissions (id-set equality against the filtered list endpoint).",
+        "Files include tenant, report name, period, and currency header metadata; the Excel file parses as valid XLSX (opened with exceljs and structure asserted).",
+        "The synchronous export size limit is documented; an over-limit request returns the documented error response — never a truncated file (response asserted)."
+      ]
+    },
+    {
+      "id": "V-105",
+      "acceptance_id": "AC-082",
+      "title": "E2E export download honors on-screen filters",
+      "method": "e2e",
+      "task_ids": [
+        "T-039",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/exports.spec.ts",
+        "test_title": "filtered leads list exports CSV/Excel matching the visible rows with header metadata",
+        "steps": [
+          "Sign in; open leads list; apply a status + product-line filter; note visible row count",
+          "Trigger CSV export; capture the download; parse and assert row set equals the visible filtered set and headers include tenant/report/period/currency",
+          "Trigger Excel export; assert a valid .xlsx downloads"
+        ],
+        "expected_results": [
+          "Downloaded files match on-screen filters exactly; metadata headers present; XLSX opens"
+        ],
+        "selectors_or_locators": [
+          "filter controls",
+          "export menu/buttons",
+          "page.waitForEvent('download')"
+        ],
+        "test_data": "Demo seed.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "Delete downloaded temp files."
+      },
+      "expected_results": [
+        "Adapted exports spec passes unweakened."
+      ]
+    },
+    {
+      "id": "V-106",
+      "acceptance_id": "AC-083",
+      "title": "Report catalog, print-data, and report CSV consistency",
+      "method": "integration",
+      "task_ids": [
+        "T-040"
+      ],
+      "expected_results": [
+        "The report catalog endpoint lists the implemented reports (snapshot).",
+        "Each report's print-data endpoint returns the composition its print view renders (contract snapshot per report).",
+        "Each report CSV under the same filters contains data consistent with the print-data payload (row/total reconciliation).",
+        "All report queries are tenant-scoped (V-027) and permission-bound (403 without the report permission)."
+      ]
+    },
+    {
+      "id": "V-107",
+      "acceptance_id": "AC-083",
+      "title": "E2E reports print views and CSV",
+      "method": "e2e",
+      "task_ids": [
+        "T-040",
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/reports.spec.ts",
+        "test_title": "report catalog navigates to print-ready views whose CSV matches",
+        "steps": [
+          "Sign in; open Reports; assert the catalog lists the implemented reports",
+          "Open one report; assert the print-ready view renders its composition from seeded data",
+          "Download its CSV; assert the totals match the on-screen values"
+        ],
+        "expected_results": [
+          "Catalog, print view, and CSV agree on seeded data"
+        ],
+        "selectors_or_locators": [
+          "report catalog cards/links",
+          "print view sections",
+          "CSV download control"
+        ],
+        "test_data": "Demo seed.",
+        "setup": "DB reset + demo seed; admin-minted session.",
+        "teardown": "Delete downloaded temp files."
+      },
+      "expected_results": [
+        "Adapted reports spec passes unweakened."
+      ]
+    },
+    {
+      "id": "V-108",
+      "acceptance_id": "AC-084",
+      "title": "Cross-tenant exports Internal-only and audited",
+      "method": "security",
+      "task_ids": [
+        "T-039"
+      ],
+      "expected_results": [
+        "An export request spanning more than the caller's active tenant without the explicit Internal/global permission returns 403 (no file).",
+        "With the permission, the export succeeds and writes an audit entry identifying scope and actor.",
+        "Normal tenant exports never include another tenant's rows (marker scan of exported bytes on the two-tenant seed)."
+      ]
+    },
+    {
+      "id": "V-109",
+      "acceptance_id": "AC-085",
+      "title": "Demo seed: volumes, alert coverage, idempotency, portability",
+      "method": "integration",
+      "task_ids": [
+        "T-041"
+      ],
+      "expected_results": [
+        "After demo seed on a baseline-seeded database, count assertions verify at least: 2 tenants, 15 users across roles, 18 brokers, 200 parties, 300 leads, 500 quotes, 400 follow-ups, 40 pricing approvals, alert-triggering records for every alert type (per-type predicate check), plausible history rows, sample job runs.",
+        "Re-running the demo seed converges: table row counts and content digests unchanged.",
+        "The seed runs via documented npm scripts/SQL against an arbitrary DATABASE_URL (local verified; deployed-target invocation path exercised against the local stack with an explicit URL) and no code path triggers it automatically in production (grep/config assertion)."
+      ]
+    },
+    {
+      "id": "V-110",
+      "acceptance_id": "AC-086",
+      "title": "Full reset reproducibility from clean state",
+      "method": "integration",
+      "task_ids": [
+        "T-005",
+        "T-006",
+        "T-010",
+        "T-041"
+      ],
+      "expected_results": [
+        "Executing reset (migrations + baseline seed) followed by demo seed twice from clean produces identical logical state: per-table row counts and normalized content digests match between the two runs (volatile columns like timestamps/serials normalized or seeded deterministically).",
+        "All integration suites pass immediately after a fresh reset with zero manual steps (CI proves this ordering)."
+      ]
+    },
+    {
+      "id": "V-111",
+      "acceptance_id": "AC-087",
+      "title": "Vercel build output: SPA + functions, no crons key",
+      "method": "integration",
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "`vercel build` (or the documented equivalent using the Vite framework preset + api/ directory) succeeds locally, producing the SPA assets and the catch-all /api/v1 function plus cron and queue functions in one project output (output inventory asserted).",
+        "vercel.json parses; contains function runtime/maxDuration config as needed and no 'crons' key; documented env placeholders exist for all required variables.",
+        "The build runs with placeholder env values only (no real secrets required)."
+      ]
+    },
+    {
+      "id": "V-112",
+      "acceptance_id": "AC-087",
+      "title": "Manual: vercel dev serves SPA + API locally; deployed provisioning deferred",
+      "method": "manual",
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "STEPS: (1) From the repo root with .env.local populated from `supabase start` output, run the documented `npm run dev:vercel` (or `vercel dev` equivalent). (2) Open the printed local URL; sign in with a seeded user. (3) Navigate to the leads list and one dashboard. (4) Confirm the browser network tab shows /api/v1 requests answered by the local function runner (not the Vite proxy fallback), and the dev proxy for /api/v1 works from `npm run dev` as well.",
+        "PASS CONDITION: sign-in, leads list, and dashboard all load with data through the locally-served functions with zero errors in the function runner console.",
+        "SCOPE LIMIT (do not overstate): actual deployment to hosted Vercel/Supabase environments is NOT verifiable pre-cutover (human provisions projects per Q-11/A-18); deployed smoke tests, pg_cron -> pg_net firing against deployed endpoints, and Sensitive-env-var configuration are post-cutover manual QA items recorded in docs/deployment.md."
+      ]
+    },
+    {
+      "id": "V-113",
+      "acceptance_id": "AC-088",
+      "title": "Manual: documentation completeness review",
+      "method": "manual",
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "STEPS: (1) Open docs/local-development.md, docs/deployment.md, docs/background-jobs.md, docs/environment-variables.md. (2) For background-jobs.md, tick off: every cron name/path/schedule matching the cron.job rows from V-085, queue names and message types, BOTH consumption paths (deployed pg_cron->pg_net; local cron:run*/queue:worker), idempotency/retry/failure behavior, inspection (jobs:status) and manual-run procedures. (3) For environment-variables.md, tick off every variable used by the config module (cross-check against src/server/lib/config) with scope, sensitivity, Vercel-Sensitive classification, and the Q-23 note that tenant-scoped Supabase Vault secrets are database-resident and deferred. (4) Confirm SUPABASE_JWT_SECRET is absent from the catalog.",
+        "PASS CONDITION: every checklist item present and consistent with the implementation (no variable or job undocumented, none documented that does not exist)."
+      ]
+    },
+    {
+      "id": "V-114",
+      "acceptance_id": "AC-088",
+      "title": "Secret hygiene scan: no committed secrets, ignore coverage, placeholder-only examples",
+      "method": "security",
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "A scripted repo scan (CI-safe) over tracked files finds no committed secrets: no JWT-like strings, no service-role keys, no database passwords, no production URLs with credentials (pattern list documented in the script).",
+        ".env.example and .env.local.example contain placeholders only (no value matching a real key format).",
+        ".gitignore covers .env*, .vercel, and log/transient artifacts (assert patterns present and that git check-ignore confirms them)."
+      ]
+    },
+    {
+      "id": "V-115",
+      "acceptance_id": "AC-089",
+      "title": "Manual: clean-checkout local workflow exactly as documented",
+      "method": "manual",
+      "task_ids": [
+        "T-001",
+        "T-002",
+        "T-042"
+      ],
+      "expected_results": [
+        "STEPS: On a machine (or pristine clone directory) with only Node 22, Docker, and the Supabase CLI installed, follow docs/local-development.md literally top to bottom: install -> supabase start -> reset/migrate/seed -> start backend + SPA -> sign in with the documented seeded user -> run unit, integration, and e2e suites — copying commands verbatim from the doc only.",
+        "PASS CONDITION: every step succeeds using only documented commands, with no undocumented action, no hosted-service access (network to supabase.com/vercel.com not required), and the final e2e run green. Any deviation needed is recorded as a findings-worthy doc gap.",
+        "Record the executed command transcript as evidence in the task file."
+      ]
+    },
+    {
+      "id": "V-116",
+      "acceptance_id": "AC-090",
+      "title": "Adapted Playwright suite fully green with unweakened assertions",
+      "method": "e2e",
+      "task_ids": [
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/ (all ~29 spec files)",
+        "test_title": "full adapted suite passes 100% against the migrated stack",
+        "steps": [
+          "Run the whole suite against the local migrated stack: npx playwright test (documented suite command) after DB reset + demo seed",
+          "Diff each adapted spec against its pre-migration version: only test-infrastructure changes permitted (base URLs, seed hooks, job-trigger hooks calling cron:run/queue:worker, Supabase Auth login/session setup)",
+          "Assert zero skipped/deleted behavioral assertions (diff review recorded as evidence)"
+        ],
+        "expected_results": [
+          "100% pass across login, tenant-manager, user-manager, lead-intake, leads-list, lead-workflow, quote-workflow, parties, dashboards x5 + framework, alerts-center, global-search, reports, exports, settings, api-access, tenant-isolation, rbac-visibility, role-403-sweep, internal-cross-tenant, shell, smoke, logout, demo-journey",
+          "No behavioral assertion weakened or removed (any necessary change beyond infra is flagged as a finding, not absorbed)"
+        ],
+        "selectors_or_locators": [
+          "Existing suite locators preserved as-is"
+        ],
+        "test_data": "Demo seed via suite globalSetup seed hook.",
+        "setup": "supabase db reset + baseline + demo seed; local app running (dev:vercel or documented runner); job hooks wired to cron:run/queue:worker.",
+        "teardown": "Suite-level DB reset; storage bucket cleaned."
+      },
+      "expected_results": [
+        "Suite report (passed/total) and the assertion-diff review are recorded as evaluator evidence."
+      ]
+    },
+    {
+      "id": "V-117",
+      "acceptance_id": "AC-091",
+      "title": "A11y and visual-shell specs pass with unmodified assertions",
+      "method": "e2e",
+      "task_ids": [
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/a11y.spec.ts (plus visual-shell.spec.ts, shell.spec.ts)",
+        "test_title": "WCAG 2.1 AA checks and visual shell parity pass unmodified",
+        "steps": [
+          "Run a11y.spec.ts and visual-shell.spec.ts against the migrated stack",
+          "Diff both spec files against pre-migration versions: assertions unchanged (only login/base-URL infra changes)"
+        ],
+        "expected_results": [
+          "WCAG 2.1 AA checks pass on the covered pages",
+          "Design tokens, light/dark theming, sidebar with permission-gated items and alert badge, tenant switcher, and footer assertions all pass"
+        ],
+        "selectors_or_locators": [
+          "Existing a11y scan integration and visual-shell locators unchanged"
+        ],
+        "test_data": "Demo seed.",
+        "setup": "Suite globalSetup as V-116.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Both specs green with assertion bodies unmodified (diff evidence)."
+      ]
+    },
+    {
+      "id": "V-118",
+      "acceptance_id": "AC-092",
+      "title": "E2E auth strategy per Q-21: real-login spec plus admin-minted sessions, fully local",
+      "method": "e2e",
+      "task_ids": [
+        "T-043"
+      ],
+      "playwright": {
+        "test_file": "e2e_tests/tests/login.spec.ts (plus suite auth fixtures/globalSetup)",
+        "test_title": "one spec exercises the real sign-in form; bulk setup uses admin-minted local sessions",
+        "steps": [
+          "Assert the seed creates local Supabase Auth test users with known passwords (Auth Admin API during seed)",
+          "Run login.spec.ts which signs in through the real SPA form (no injected state)",
+          "Inspect the suite's auth fixture: bulk sessions are minted via the local service-role key and injected into browser storage",
+          "Run the suite with all external network access blocked except the local Docker stack; assert green"
+        ],
+        "expected_results": [
+          "Real-login spec passes through the actual sign-in surface",
+          "Admin-minted session fixture works for all other specs",
+          "Entire suite has zero external identity dependency (offline run succeeds)"
+        ],
+        "selectors_or_locators": [
+          "sign-in form inputs",
+          "storageState/localStorage session injection in the auth fixture"
+        ],
+        "test_data": "Seeded Auth users with known passwords.",
+        "setup": "supabase start + reset + seed; no hosted services.",
+        "teardown": "None."
+      },
+      "expected_results": [
+        "Auth strategy implementation matches Q-21 exactly; deviation is a finding."
+      ]
+    },
+    {
+      "id": "V-119",
+      "acceptance_id": "AC-093",
+      "title": "Automated metric parity: old vs new stack on identical seed",
+      "method": "integration",
+      "task_ids": [
+        "T-044"
+      ],
+      "expected_results": [
+        "PRE-REMOVAL (legacy stack still on the branch): load the identical demo dataset into the legacy .NET stack and the migrated stack; a comparison script captures every dashboard KPI and total from all five dashboards on both stacks (same filters, same tenant) and diffs them.",
+        "The diff is empty — exact match, no tolerance; any discrepancy is recorded as a blocking finding on T-044, never absorbed.",
+        "The captured payload pairs are stored as cutover evidence before the legacy stack is deleted."
+      ]
+    },
+    {
+      "id": "V-120",
+      "acceptance_id": "AC-093",
+      "title": "Manual: side-by-side dashboard KPI verification",
+      "method": "manual",
+      "task_ids": [
+        "T-044"
+      ],
+      "expected_results": [
+        "STEPS: (1) With both stacks running on the identical demo seed (before legacy removal), open each of the five dashboards side by side in two browser windows. (2) For each dashboard, compare every KPI card, chart total, and table total visually and record the values in a checklist. (3) Spot-check two drill-throughs per dashboard for matching record counts.",
+        "PASS CONDITION: every compared value matches exactly across all five dashboards; a single mismatch fails the check and blocks cutover until root-caused.",
+        "TIMING: must run before T-044 deletes the legacy stack; afterwards this verification is impossible — the recorded checklist is the permanent evidence."
+      ]
+    },
+    {
+      "id": "V-121",
+      "acceptance_id": "AC-094",
+      "title": "Legacy removal scan and approved dependency set",
+      "method": "integration",
+      "task_ids": [
+        "T-044"
+      ],
+      "expected_results": [
+        "After cutover: src/api .NET tree, docker-compose services (Postgres, Keycloak, Vault, MinIO, Liquibase), Hangfire artifacts, and oidc-client-ts usage are deleted (path-existence assertions).",
+        "A scripted repo-wide scan finds no runtime reference to Hangfire, EF Core, Liquibase, Keycloak, HashiCorp Vault, or MinIO in the target codebase (allow-list only for historical docs/spec mentions).",
+        "package.json runtime dependencies for the backend are limited to zod, kysely, pg, hono, @supabase/supabase-js, tsx, exceljs (assertion over the dependency lists; devDependencies per approved tooling)."
+      ]
+    },
+    {
+      "id": "V-122",
+      "acceptance_id": "AC-094",
+      "title": "Manual: Definition of Done checklist verification",
+      "method": "manual",
+      "task_ids": [
+        "T-044"
+      ],
+      "expected_results": [
+        "STEPS: walk the spec section 18 Definition of Done item by item: no .NET/Hangfire runtime required; TypeScript backend deployable to Vercel (build succeeds with documented placeholders — V-111); Supabase Postgres as source of truth; clean-checkout local dev works from docs (V-115); all product capabilities pass the adapted e2e suite (V-116); all jobs have working Supabase Cron/Queues implementations with both deployed and local execution paths (V-082/V-085 — deployed firing deferred to post-cutover QA and explicitly recorded as such); tenant isolation and RBAC validated by tests (V-024/V-027); all four docs complete (V-113). Record each item's evidence link in the task file.",
+        "PASS CONDITION: every DoD item is checked with concrete evidence, and every deferred post-cutover item (deployed pg_cron firing, hosted env provisioning, deployed smoke tests) is explicitly listed as deferred rather than claimed done."
+      ]
+    },
+    {
+      "id": "V-123",
+      "acceptance_id": "AC-095",
+      "title": "API contract preserved 1:1 with exactly two documented deviations",
+      "method": "integration",
+      "task_ids": [
+        "T-009",
+        "T-043",
+        "T-044"
+      ],
+      "expected_results": [
+        "Per-endpoint integration contract assertions verify paths, methods, DTO field names, pagination shape ({items,page,pageSize,total}, default 25), sort/filter params, status codes, problem+json shapes, warning payloads, and availableOperations against the preserved contract (snapshot fixtures sourced from the .NET behavioral reference).",
+        "The deviation registry (docs) lists exactly two deviations — attachment signed-URL envelope (A-7) and intake API-key auth (Q-19) — each with its paired frontend/consumer update; the adapted e2e suite (V-116) passing is corroborating evidence.",
+        "Any additional deviation surfaced by the contract tests is raised as a finding, never silently absorbed."
+      ]
+    },
+    {
+      "id": "V-124",
+      "acceptance_id": "AC-096",
+      "title": "Preserved error semantics across the surface",
+      "method": "integration",
+      "task_ids": [
+        "T-009",
+        "T-025",
+        "T-026"
+      ],
+      "api": {
+        "approach": "Cross-cutting error-shape matrix reusing cases from V-017/V-019/V-024/V-026/V-061.",
+        "endpoints": [
+          "Representative routes for each error class"
+        ],
+        "negative_tests": [
+          "400/422 validation -> errors:[{field,code,message}]",
+          "401 unauthenticated; 403 permission/tenant violation with no data leakage",
+          "404 for cross-tenant/nonexistent ids; 409 illegal workflow transition with legal-operation hint",
+          "Unexpected error -> sanitized 500 with correlation id; full detail only in structured server logs"
+        ],
+        "role_permission_setup": "Reuses fixtures from the referenced verifications.",
+        "playwright_triggerable": false
+      },
+      "expected_results": [
+        "One consolidated matrix test asserts every error class's shape once per representative route, guarding against per-domain drift in error mapping.",
+        "500 bodies never contain stack traces or internal identifiers (pattern scan on captured error responses)."
+      ]
+    }
+  ]
+}

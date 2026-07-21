@@ -1,0 +1,204 @@
+name: CI
+
+# Every gate a task must pass before it can be called done (T-010, M-24, G-7, N-06).
+#
+# ORDERING: cheap-and-fast first, so a typo fails in ~2 minutes rather than after the Supabase
+# stack has booted. Everything runs in ONE job on ONE runner because the backend integration
+# suite needs the Supabase stack that an earlier step starts, and because the vitest suites are
+# not safe to run concurrently with each other against a single database.
+#
+# NODE VERSION: pinned to 22 to match `engines` in package.json and `nodejs22.x` in vercel.json.
+# Do not float this to `lts/*` — the point is to test the version Vercel actually runs.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # One CI run per ref. A second push cancels the first; the Supabase stack and the destructive
+  # migration validation must not have two runs racing on the same runner class.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck, lint, tests, migrations, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Report toolchain versions
+        run: |
+          node --version
+          npm --version
+          npx supabase --version
+
+      # ---------------------------------------------------------------------------------
+      # Static gates (no Docker required)
+      # ---------------------------------------------------------------------------------
+
+      - name: Typecheck (backend)
+        run: npm run typecheck
+
+      - name: Typecheck (SPA)
+        run: npm run typecheck:ui
+
+      - name: Lint (backend)
+        run: npm run lint
+
+      - name: Lint (SPA)
+        run: npm run lint:ui
+
+      # ---------------------------------------------------------------------------------
+      # SPA suite and production build (no Docker required, so they run before the slow part)
+      # ---------------------------------------------------------------------------------
+
+      - name: SPA tests (fails on any skipped test; enforces a test-count floor)
+        run: npm run ci:test:ui
+
+      - name: SPA production build
+        run: npm run build:ui
+
+      # Security scans (no Docker). Fail fast on a committed secret or a server secret/module that
+      # leaked into the built SPA bundle, before the slow Supabase stage. scan-bundle rebuilds the
+      # SPA itself so it is self-contained; ci:test also composes ci:security as the hard guarantee.
+      - name: Security scans (repo secrets + built-bundle leak scan)
+        run: npm run ci:security
+
+      # ---------------------------------------------------------------------------------
+      # Supabase stack + backend suite
+      #
+      # The CLI comes from the version pinned in devDependencies (node_modules/.bin is on PATH
+      # inside npm scripts), NOT from supabase/setup-cli, so CI and laptops run the same CLI.
+      # The stack starts from a clean state every run; the Docker volume is deliberately not
+      # cached, because migration-from-clean is precisely what is under test.
+      # ---------------------------------------------------------------------------------
+
+      - name: Start local Supabase stack
+        run: npm run supabase:start
+
+      - name: Reset database (migrations + baseline seed)
+        run: npm run supabase:reset
+
+      - name: Backend tests — unit + integration (fails on any skipped test)
+        # The integration suites skip themselves when the stack is unreachable and STILL EXIT 0
+        # (deliberate, so a laptop without Docker is not blocked). In CI the stack is always
+        # provisioned, so ci:test fails the build on a single skipped test. Without this wrapper
+        # a stack that failed to boot would report a green build on tests that never ran.
+        run: npm run ci:test
+
+      # ---------------------------------------------------------------------------------
+      # Migration-from-clean validation (AC-004 / AC-086, V-005 / V-110)
+      #
+      # Destructive: resets the database from empty TWICE, dumps the schema and diffs it against
+      # the committed supabase/schema.expected.sql snapshot. Runs last because it wipes the data
+      # the integration suites rely on.
+      # ---------------------------------------------------------------------------------
+
+      - name: Validate migrations from a clean database
+        run: npm run db:validate
+
+      # Generated-type drift is already asserted by
+      # src/server/tests/integration/db-types-drift.test.ts, so there is no separate step here.
+
+      - name: Stop local Supabase stack
+        if: always()
+        run: npm run supabase:stop
+
+  # -------------------------------------------------------------------------------------
+  # END-TO-END SMOKE (T-043) — ready-to-enable, not active by default.
+  #
+  # DECISION (T-043): the CI e2e gate is a SMOKE SUBSET, not the full Playwright suite. The full
+  # suite needs the running app (API runner + SPA), the demo seed, and a real browser driving long
+  # journeys; running all ~30 specs on every push is slow and, at cutover, still carries data
+  # reconciliation debt (see the T-043 findings). The per-PR gate therefore runs only the auth
+  # surface (`--project=smoke`: smoke/login/logout) — enough to catch a broken login, proxy, or
+  # boot — while the full suite is run locally / on demand via `npm run test:e2e`.
+  #
+  # It is kept as a separate job (its own Supabase reset + demo seed + browser) so it never slows or
+  # destabilises the `verify` gate. Enable by uncommenting; Playwright's webServer starts the app.
+  #
+  # e2e_smoke:
+  #   name: e2e smoke (auth surface + shell)
+  #   needs: verify
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 30
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: '22', cache: npm }
+  #     - run: npm ci
+  #     - run: npx --prefix e2e_tests playwright install --with-deps chromium
+  #     - run: npm run supabase:start
+  #     - run: npm run supabase:reset
+  #     # Export the local Supabase keys the API runner and the SPA need, then seed + run smoke.
+  #     - run: |
+  #         eval "$(npx supabase status -o env | sed 's/^/export /')"
+  #         {
+  #           echo "SUPABASE_URL=$API_URL"
+  #           echo "SUPABASE_ANON_KEY=$ANON_KEY"
+  #           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+  #           echo "VITE_SUPABASE_URL=$API_URL"
+  #           echo "VITE_SUPABASE_ANON_KEY=$ANON_KEY"
+  #           echo "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+  #           echo "DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+  #           echo "API_KEY_PEPPER=ci-only-pepper"
+  #         } > .env.local
+  #     - run: CI=1 npm run test:e2e:smoke
+  #     - run: npm run supabase:stop
+  #       if: always()
+  # -------------------------------------------------------------------------------------
+
+  # -------------------------------------------------------------------------------------
+  # DEPLOYMENT (placeholder — intentionally not enabled; M-24 documents it, does not require it)
+  #
+  # Deployment stays human-driven for now. To enable later, add these repository secrets:
+  #
+  #   VERCEL_TOKEN        Vercel account/team token used by `vercel deploy`
+  #   VERCEL_ORG_ID       from `.vercel/project.json` after `vercel link`
+  #   VERCEL_PROJECT_ID   from `.vercel/project.json` after `vercel link`
+  #
+  # and for pushing migrations to a hosted Supabase project:
+  #
+  #   SUPABASE_ACCESS_TOKEN   personal access token for the Supabase CLI
+  #   SUPABASE_PROJECT_REF    target project ref
+  #   SUPABASE_DB_PASSWORD    database password for `supabase db push`
+  #
+  # then uncomment a job along these lines:
+  #
+  # deploy:
+  #   name: Deploy (preview/production)
+  #   needs: verify
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: '22', cache: npm }
+  #     - run: npm ci
+  #     - run: npx supabase db push --linked
+  #       env:
+  #         SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+  #         SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+  #     - run: npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+  #       env:
+  #         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  #         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # -------------------------------------------------------------------------------------

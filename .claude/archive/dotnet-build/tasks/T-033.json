@@ -1,0 +1,201 @@
+{
+  "id": "T-033",
+  "title": "Pipeline & Conversion dashboard (API + UI)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-031",
+    "T-024"
+  ],
+  "objective": "Pipeline dashboard per spec FR-56 / PRD 14: nine KPIs, conversion funnel, product-line stacked columns, source/channel donuts, open-stage aging heatmap, At-Risk table, Immediate Actions panel.",
+  "scope": [
+    "GET /api/v1/dashboards/pipeline",
+    "Route /pipeline page",
+    "Aging heatmap restricted to OPEN stages (prototype deviation honored)",
+    "Lead Volume by Channel product addition"
+  ],
+  "out_of_scope": [
+    "Alerts queue (T-037)",
+    "SLA report views (T-040)"
+  ],
+  "implementation_details": [
+    "Features/Dashboards/Pipeline/GetPipelineDashboardQuery: KPIs — NewLeadsThisMonth, OpenPipelineValue, QuoteToProposalRate (Q-5 quote denominator), ProposalToWinRate, AverageQuoteAge, SlaBreaches (amber), QuotesIssuedThisMonth, LeadToQuoteRate, AverageLeadAge; StageConversionFunnel: cumulative reached-stage counts with conversion-from-top %, Lost last in red; PipelineByProductLine: stacked monthly columns of open pipeline value per product line with monthly totals; QuoteVolumeBySource: donut by broker/source with counts and shares; LeadVolumeByChannel: donut by request channel; AgingByStage heatmap: open stages × buckets 0-3/4-7/8-14/15-30/31-60/60+ + Total, counts of open items, cell grade green->amber->red by concentration; AtRiskPipeline: rows {client, broker, premium, stage, age, owner, riskReason (from alert types/risk rules), leadRef link, suggestedAction, tenant column only in internal cross-tenant mode}; ImmediateActions: categories overdue quotes (pre-sent past prepared-to-sent target per Q-8), pending pricing approvals, exec escalations, SLA breaches, unassigned leads, overdue follow-ups, expiring quotes, follow-ups due today — counts drill to pre-filtered Alerts center",
+    "features/dashboards/PipelinePage.tsx composing FunnelChart, StackedColumnsChart (fixed product-line palette), two DonutCharts, HeatmapTable, AtRiskTable, ImmediateActionsPanel",
+    "T-043 amendment (docs/ui-remediation/plan.md, AC-082): build every screen part of this task on the shared design-system layer from T-043 — src/ui/src/theme/components.css classes (.qiq-card, .qiq-btn, .qiq-chip, .qiq-table-wrap, .qiq-kpi-*, .qiq-menu) and components/common/Icon.tsx — never ad-hoc inline styling or new CSS files. Before marking IMPLEMENTED, do a side-by-side check against docs/prototype/screenshots/QuoteIQ - Pipeline.png at ~1670px: layout regions, card composition, chart types, chip/color semantics must match the prototype (subject to the PRD's documented deviations for this screen, e.g. lead-vs-quote labeling, excluded prototype-only widgets). Record the comparison result in this task's history."
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Dashboards/Pipeline/*.cs",
+    "src/ui/src/features/dashboards/PipelinePage.tsx",
+    "src/ui/src/features/dashboards/pipeline/*.tsx",
+    "src/api/tests/QuoteIQ.Api.Tests/Dashboards/PipelineDashboardTests.cs",
+    "e2e_tests/tests/dashboard-pipeline.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "Funnel_ShouldComputeCumulativeReachedStageCountsWithLostLast",
+      "AgingHeatmap_ShouldIncludeOnlyOpenStages",
+      "ImmediateActions_OverdueQuotes_ShouldUsePreSentPastTargetPerQ8",
+      "ProductLineStacks_ShouldSumToMonthlyTotals",
+      "AtRisk_ShouldCarryRiskReasonAndSuggestedAction"
+    ],
+    "e2e": [
+      "dashboard-pipeline.spec.ts: all widgets render with seeded data; heatmap cell drill opens the matching aged lead list; Immediate Actions category lands on pre-filtered Alerts center; funnel stage drill works"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-055",
+    "AC-059"
+  ],
+  "verification_ids": [
+    "V-055",
+    "V-059"
+  ],
+  "findings": [
+    {
+      "id": "FLAG-033-1",
+      "severity": "info",
+      "type": "spec_ambiguity",
+      "status": "flagged",
+      "title": "Q-8 overdue-quote target source has no dedicated tenant_settings field",
+      "detail": "Q-8 (spec.md line 87) defines an overdue quote as a pre-sent (Draft) quote past the tenant 'prepared-to-sent target'. tenant_settings has no prepared_to_sent field; the closest turnaround SLA is sla_received_to_sent_days (default 5). Concrete rendering: overdue quote = quote with SentDate null AND reporting category open AND (today - PreparedDate) > SlaReceivedToSentDays. Measured from PreparedDate (not received) per Q-8's 'prepared-to-sent' wording. Flagged for review; a dedicated prepared_to_sent_days setting could be added later without changing the rule shape."
+    },
+    {
+      "id": "FLAG-033-2",
+      "severity": "info",
+      "type": "design_decision",
+      "status": "flagged",
+      "title": "Aging heatmap cell grade rendered as age-tier concentration, not raw count concentration",
+      "detail": "implementation_details says 'cell grade green->amber->red by concentration'. Rendered as age-bucket-tier grading (0-3/4-7 = normal/green, 8-14/15-30 = amber, 31-60/60+ = red; empty cells normal), which matches the prototype's left-green-to-right-red age gradient and is deterministic/testable, rather than a count-relative concentration that would have no stable baseline. Total column always normal."
+    },
+    {
+      "id": "FLAG-033-3",
+      "severity": "info",
+      "type": "design_decision",
+      "status": "flagged",
+      "title": "ImmediateActions/SLA-breach counts consume the T-024 alert store's per-type open counts (IAlertStore.GetCategoryCountsAsync), not GetAlertSummaryQuery",
+      "detail": "The brief said 'consume the T-024 alert summary (GetAlertSummaryQuery), not a re-computation'. GetAlertSummaryQuery returns only 5 aggregated category cards, which cannot supply the distinct per-type counts ImmediateActions needs (pending pricing vs SLA breach vs exec escalation vs unassigned vs overdue follow-up vs expiring). Used IAlertStore.GetCategoryCountsAsync — the exact open-alert-per-type primitive GetAlertSummaryQuery is itself built on — so counts consume T-024's materialized alert data with no alert-rule re-evaluation. Only the two genuinely non-alert categories (overdue quotes per Q-8, follow-ups due today) are computed from the pipeline snapshot."
+    },
+    {
+      "id": "FLAG-033-4",
+      "severity": "info",
+      "type": "scope_note",
+      "status": "flagged",
+      "title": "At-Risk tenant column and pipeline.overdue_quotes drill are coarse renderings",
+      "detail": "AtRisk row exposes a nullable TenantName (null in single-tenant mode); the Internal cross-tenant population is out of this task's single-tenant scope. The pipeline.overdue_quotes Immediate-Action drill widget resolves to the OpenPipeline lead-list scope (the pre-sent-draft subset Q-8 defines is not a distinct lead-list scope) rather than inventing a new drill scope."
+    },
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "spec_ambiguity",
+      "status": "resolved",
+      "summary": "Ruling on FLAG-033-1 (Q-8 overdue-quote target has no dedicated tenant_settings field): ACCEPT, non-blocking; keep flagged for product owner.",
+      "detail": "Spec Q-8 (spec.md line 87): an overdue quote is a quote in any pre-sent status past the tenant prepared-to-sent target (Draft is the only pre-sent status in the default lifecycle). GetPipelineDashboardQueryHandler.BuildImmediateActions renders this as: SentDate is null AND ReportingCategory == Open AND (today - PreparedDate) > settings.SlaReceivedToSentDays. This is a faithful interpretation: (1) it correctly isolates pre-sent quotes (unsent, Open category = Draft in the default lifecycle), (2) it measures age from PreparedDate, matching Q-8's 'prepared-to-sent' anchor exactly, and (3) the only imperfection is borrowing the threshold value from sla_received_to_sent_days because tenant_settings has no dedicated prepared_to_sent_days field. Adding that field later would not change the rule shape. Flagging the missing field rather than silently inventing one is correct per CLAUDE.md. Proven by ImmediateActions_OverdueQuotes_ShouldUsePreSentPastTargetPerQ8 (only L3's 10-day draft qualifies against a 5-day target; L7's 2-day draft and L4's already-sent quote excluded). Non-blocking; recommend a dedicated prepared_to_sent_days setting be added in a future settings task and this flag surfaced to the product owner.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "design_decision",
+      "status": "resolved",
+      "summary": "Ruling on FLAG-033-2 (aging heatmap grade by age-tier, not count-concentration): ACCEPT, non-blocking.",
+      "detail": "GradeFor renders empty cells normal, 0-3/4-7 normal(green), 8-14/15-30 amber, 31-60/60+ red, Total always normal. AC-055 requires an open-stage-only aging heatmap with graded cells and pre-filtered drill-through; it does not prescribe a specific grading algorithm. Age-tier grading matches the prototype's left-green-to-right-red gradient and is deterministic and testable (a count-relative concentration would have no stable baseline). Verified by AgingHeatmap_ShouldIncludeOnlyOpenStages (Pricing::8-14 graded amber). Defensible.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-003",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "design_decision",
+      "status": "resolved",
+      "summary": "Ruling on FLAG-033-3 (ImmediateActions consume IAlertStore.GetCategoryCountsAsync, not GetAlertSummaryQuery): ACCEPT, non-blocking; requirement (consume T-024 materialized alert data, no rule re-computation) is met.",
+      "detail": "The real requirement is that alert-backed counts consume T-024's materialized alert data with NO alert-rule re-evaluation. Confirmed: GetAlertSummaryQueryHandler ITSELF is built on IAlertStore.GetCategoryCountsAsync (GetAlertSummaryQueryHandler.cs line 19), so the pipeline handler consuming the same GetCategoryCountsAsync primitive (a tenant-scoped GROUP BY over unresolved alerts, AlertStore.cs line 135-145) reads the exact same materialized source, not a re-computation. GetAlertSummaryQuery's 5 aggregated category cards genuinely cannot supply the distinct per-type counts ImmediateActions needs, so using the shared per-type primitive is the correct choice. The only two non-alert categories (overdue quotes per Q-8, follow-ups due today) are correctly computed from the pipeline snapshot, not from alerts. No alert rules are re-evaluated anywhere in the handler. Defensible.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-004",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "scope_note",
+      "status": "resolved",
+      "summary": "Ruling on FLAG-033-4 (nullable At-Risk TenantName + overdue_quotes drill resolves to OpenPipeline): ACCEPT, non-blocking.",
+      "detail": "AtRiskRowDto.TenantName is null in single-tenant scope (Internal cross-tenant population is out of this task's scope) and pipeline.overdue_quotes maps to PipelineDrillScope.OpenPipeline (PipelineWidgetKeys.cs), since the pre-sent-draft subset is not a distinct lead-list drill scope. AC-055 requires the At-Risk table with risk reasons and pre-filtered drill-through, both satisfied; neither AC-055 nor FR-56 mandates a distinct overdue-draft drill scope or a populated tenant column in single-tenant mode. Same reporting-category-grained drill precedent accepted for T-032 (F-004). Non-blocking; consistent with the shared T-031 drill contract.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-005",
+      "source": "security",
+      "severity": "info",
+      "category": "security",
+      "status": "resolved",
+      "summary": "Permission gate verified: GET /dashboards/pipeline gated by dashboards.view_pipeline and does NOT require dashboards.view_executive (no T-044 RM regression). Tenant isolation + drill breadth confirmed. No high/critical/major findings.",
+      "detail": "CRITICAL check passed. DashboardEndpoints.cs line 32 gates the pipeline route with PermissionCatalog.Dashboards.ViewPipeline ('dashboards.view_pipeline'), a distinct permission from ViewExecutive ('dashboards.view_executive'; PermissionCatalog.cs lines 182-183). Two tests prove RM pipeline-only access is retained per PRD 20.5: Pipeline_WhenCallerLacksViewPipelinePermission_ShouldReturn403 (no dashboard permission -> 403) and Pipeline_WhenCallerHasOnlyPipelinePermission_ShouldSucceedWithoutExecutivePermission (seeds ONLY ViewPipeline -> 200), so pipeline access does not depend on view_executive. Tenant isolation: PipelineDashboardStore.BuildSnapshotAsync and ListDrillRowsAsync apply an explicit TenantId == _tenantContext.TenantId predicate to every read (leads, quotes, quote_versions, reference items, alerts, owners); IAlertStore.GetCategoryCountsAsync is tenant-scoped. Drill breadth: ListDrillRowsAsync enforces the Q-6/A-17 leads.view_all rule (narrows to caller's lead_assignments when callerHasViewAll is false), same as LeadStore. No cross-tenant read or write path. No stray secret/log exposure. No high/critical/major security findings.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-006",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "verification",
+      "status": "open",
+      "summary": "V-055/V-059 Playwright spec (dashboard-pipeline.spec.ts) is describe.fixme pending T-041 seed + live stack: ACCEPT deferral, non-blocking. Must be un-fixme'd once T-041 lands.",
+      "detail": "e2e_tests/tests/dashboard-pipeline.spec.ts holds five real, ready-to-run bodies guarded as test.describe.fixme because the only existing e2e seed provisions personas but no leads/quotes/alerts (T-041 scope, FR-67), so every widget would render its empty state. This matches the established harness convention accepted for T-032 (dashboard-overview.spec.ts, F-005). Every V-055 behavior is meanwhile proven by PipelineDashboardTests (real Postgres/Keycloak, 8/8) and PipelinePage.test.tsx (9/9). V-059's Pipeline placements (SLA Breaches KPI + aging heatmap) are covered here; the RM turnaround bars (T-035), Alerts SLA tab (T-037), and SLA/Turnaround report + underwriting delay queue (T-040) remain owned by their own tasks. Deferral acceptable; recorded so the e2e coverage is not lost.",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    },
+    {
+      "id": "F-007",
+      "source": "tests-code-review",
+      "severity": "info",
+      "category": "completeness",
+      "status": "resolved",
+      "summary": "Evaluator independent verification: implementation complete vs AC-055/AC-059, MetricDefinitions fidelity holds, tests re-run green, no stray-line remnants.",
+      "detail": "Independently re-ran the full suites. Backend dotnet test QuoteIQ.slnx (real Testcontainers): Domain 347, Application 32, Api 292 (incl. 8 new PipelineDashboardTests + T-032 ExecutiveOverviewTests + T-031 DrillEndpointTests, no regressions), Infrastructure 91 = 762 passed, 0 failed, 0 skipped. Frontend: typecheck clean, vitest 365/365 (incl. PipelinePage 9/9, non-tautological), build clean, eslint only the documented pre-existing baseline (TenantFormPage _removed error + 3 warnings, none in T-033 files). Completeness: 9 KPIs present; StageConversionFunnel computes cumulative reached-stage counts with conversion-from-top and the Lost bar last/red; PipelineByProductLine stacked monthly columns with segments summing exactly to MonthlyTotal (verified 720k grand total); QuoteVolumeBySource + LeadVolumeByChannel donuts; AgingByStage heatmap restricted to OPEN stages (Won/Lost rows omitted); AtRiskPipeline rows carry riskReason + suggestedAction; ImmediateActions eight categories. MetricDefinitions fidelity: QuoteToProposalRate (Q-5 quotes denominator), ProposalToWinRate, LeadToQuoteRate, AverageQuoteAgeDays, AverageLeadAgeDays, OpenPipelinePremium all delegate to the shared Domain.Metrics.MetricDefinitions class; no divergent inline formulas. Every widget/KPI carries a DrillWidgetKey and all pipeline.* keys are registered in DrillWidgetRegistry (ScopesByKey loop). Hygiene: grep of the created backend/frontend/e2e files found zero residual '</content>' or similar stray markers. All Implementor flags ruled non-blocking (F-001..F-004); permission gate verified (F-005); e2e deferral accepted (F-006).",
+      "created_at": "2026-07-14T01:15:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-11T10:59:32-04:00",
+      "event": "created",
+      "message": "Task generated from approved spec.md (FR-56, PRD 14, Q-8)"
+    },
+    {
+      "timestamp": "2026-07-13T21:45:00-04:00",
+      "event": "amended",
+      "message": "Amended by T-043 (approved plan docs/ui-remediation/plan.md): must use the shared design-system layer and pass a per-screen prototype side-by-side fidelity check before IMPLEMENTED."
+    },
+    {
+      "timestamp": "2026-07-14T05:40:00-04:00",
+      "event": "started",
+      "message": "Implementor started (iteration 1/10). Test-first full-stack build on the T-031 dashboard framework + T-024 alert summary + T-043 design-system layer. Second critical-path dashboard (with T-032) unblocking T-040. Reuses the exec.* drill-registry and MetricDefinitions patterns proven in T-032."
+    },
+    {
+      "timestamp": "2026-07-14T06:20:00-04:00",
+      "event": "tests_written",
+      "message": "Backend integration tests written FIRST: src/api/tests/QuoteIQ.Api.Tests/Dashboards/PipelineDashboardTests.cs — 8 tests against a hand-computed real-Postgres/Keycloak fixture covering the five required test_plan.integration cases (Funnel_ShouldComputeCumulativeReachedStageCountsWithLostLast, AgingHeatmap_ShouldIncludeOnlyOpenStages, ImmediateActions_OverdueQuotes_ShouldUsePreSentPastTargetPerQ8, ProductLineStacks_ShouldSumToMonthlyTotals, AtRisk_ShouldCarryRiskReasonAndSuggestedAction) plus a 9-KPI point-in-time value test and both permission-gate tests (403 without dashboards.view_pipeline; 200 with pipeline-only, no dashboards.view_executive). Frontend component tests: src/ui/src/features/dashboards/__tests__/PipelinePage.test.tsx — 9 tests (mocked API) covering all widgets, Lost-bar-last/red, open-stages-only heatmap, fixed product-line stack segments, KPI/funnel drills, At-Risk row drill + risk-reason/suggested-action chips, Immediate-Action navigation to pre-filtered Alerts, and the error state. Playwright: e2e_tests/tests/dashboard-pipeline.spec.ts (5 real-body tests, describe.fixme per the dashboard-overview.spec.ts precedent — blocked on T-041 seed + live stack)."
+    },
+    {
+      "timestamp": "2026-07-14T06:25:00-04:00",
+      "event": "implementation_written",
+      "message": "Backend: Features/Dashboards/Pipeline/{GetPipelineDashboardQuery,GetPipelineDashboardQueryHandler,PipelineDashboardDto,PipelineWidgetKeys,PipelineDrillRowQuery}.cs + Abstractions/IPipelineDashboardStore.cs (snapshot records + PipelineDrillScope) + Infrastructure/Dashboards/PipelineDashboardStore.cs (SAFE prefetch-then-merge shape, no correlated-subquery projections, same as ExecutiveDashboardStore) + GET /api/v1/dashboards/pipeline gated by dashboards.view_pipeline (NOT view_executive) + pipeline.* keys registered in DrillWidgetRegistry + PipelineDashboardStore registered in DI. Every KPI/aggregation delegates its formula to MetricDefinitions (QuoteToProposalRate Q-5 quote denominator, ProposalToWinRate, LeadToQuoteRate, AverageQuoteAgeDays, AverageLeadAgeDays, OpenPipelinePremium) per AC-080. Alert-backed counts consume IAlertStore per-type open counts (FLAG-033-3). Frontend: PipelinePage.tsx + pipeline/{PipelineKpiRow,ConversionFunnel,ProductLineStacks,PipelineDonut,AgingHeatmap,AtRiskTable,ImmediateActionsPanel}.tsx + pipelineApi.ts, routed at /pipeline (replaced the stub). Built entirely on the T-031 framework chart/KPI components (KpiCard, ChartCard, DonutChartWidget, HeatmapChartWidget, resolveSeriesColor fixed palette) + the T-043 design-system .qiq-* layer + Icon.tsx — no ad-hoc CSS, no new CSS files."
+    },
+    {
+      "timestamp": "2026-07-14T06:40:00-04:00",
+      "event": "gates_run",
+      "message": "Backend dotnet test QuoteIQ.slnx ALL GREEN, no regressions: QuoteIQ.Domain.Tests 347 passed, QuoteIQ.Application.Tests 32 passed, QuoteIQ.Api.Tests 292 passed (incl. the 8 new PipelineDashboardTests + the T-032 ExecutiveOverviewTests + the T-031 DrillEndpointTests, all still passing), QuoteIQ.Infrastructure.Tests 91 passed (762 total, 0 failed, 0 skipped). Frontend: typecheck clean; eslint shows ONLY the documented pre-existing baseline (TenantFormPage.tsx _removed error + 3 warnings), zero new issues from T-033 files; vite build succeeds; vitest full suite 75 files / 365 tests passed (incl. the 9 new PipelinePage tests). Playwright --list discovers all 5 dashboard-pipeline.spec.ts tests. Live e2e run not executed (describe.fixme, blocked on T-041 seed data + compose stack, per the dashboard-overview.spec.ts convention)."
+    },
+    {
+      "timestamp": "2026-07-14T06:45:00-04:00",
+      "event": "prototype_fidelity_check",
+      "message": "Side-by-side vs docs/prototype/screenshots/QuoteIQ - Pipeline.png (~1670px): PASS with documented deviations. Layout regions match — filter bar, KPI row, then Pipeline Stage Conversion funnel + Pipeline by Product Line stacked columns (fixed Motor/Property/... series palette, monthly totals above columns, legend) + Quote Volume by Source donut (center total + count/share legend), then Aging by Stage heatmap (0-3/4-7/8-14/15-30/31-60/60+ + Total, green->amber->red grading) + At-Risk Pipeline table (client/broker/premium/stage-chip/age/owner/risk-reason) + Immediate Actions panel (Overdue Quotes, Pending Pricing Approvals, Exec Escalations, SLA Breaches, ...). Chip/color semantics match: funnel Lost bar last in red, At-Risk stage uses the reporting-category StatusChip palette, immediate-action counts colored by severity with text labels (no color-only signal). Honored documented PRD deviations: (1) aging heatmap = OPEN stages only — prototype's Won/Lost heatmap rows omitted; (2) added Lead Volume by Channel donut (FR-56 product addition, not in prototype); (3) lead-vs-quote labeling — 'New Leads This Month' (vs prototype 'New Quotes This Month') and 9 KPIs (vs prototype's 6, the 3 extra being Quotes Issued This Month / Lead-to-Quote Rate / Average Lead Age per FR-56); (4) At-Risk adds a suggested-action chip per FR-56. Cosmetic-only differences (not deviations): funnel rendered as left-anchored tapering bars with conversion% + count + drill (consistent with T-032 PipelineByStage) rather than the prototype's centered trapezoid; funnel card titled 'Pipeline Stage Conversion' to match the prototype header."
+    },
+    {
+      "timestamp": "2026-07-14T06:40:00-04:00",
+      "event": "task_passed",
+      "message": "T-033 PASS (iteration 1/10). Evaluator independently re-ran dotnet test QuoteIQ.slnx (762 passed/0 failed: Domain 347, Application 32, Api 292 incl. 8 new Pipeline tests + T-032/T-031 no regression, Infrastructure 91, real Testcontainers) + frontend (typecheck clean, vitest 365/365 incl. PipelinePage 9/9 non-tautological, build clean, lint pre-existing baseline only). CRITICAL permission gate confirmed (F-005): GET /dashboards/pipeline gated by dashboards.view_pipeline (distinct from view_executive); RM-200/no-perm-403 tests prove RM pipeline-only access retained - no T-044 regression. MetricDefinitions fidelity + tenant isolation + leads.view_all drill breadth verified, no high/critical security findings. All 4 Implementor flags ruled non-blocking (F-001 Q-8 faithful to prepared-to-sent, threshold borrowed from sla_received_to_sent_days - surfaced to product owner; F-003 ImmediateActions consume T-024's IAlertStore per-type primitive with no rule re-computation). Stray-line hygiene: zero residual '</content>' markers. e2e describe.fixme deferral accepted (F-006, un-fixme when T-041 lands). 36 PASS, 0 FAIL; both of T-040's dashboard dependencies (T-032+T-033) now satisfied."
+    }
+  ]
+}

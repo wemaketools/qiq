@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task_list.schema.json",
+  "title": "QuoteIQ Harness Task List",
+  "type": "object",
+  "required": ["generated_at", "spec_path", "tasks"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string" },
+    "spec_path": { "type": "string" },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status", "depends_on", "iteration_count", "max_iterations", "task_file"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^T-\\d{3}$" },
+          "title": { "type": "string" },
+          "status": { "enum": ["PENDING", "READY", "IN_PROGRESS", "IMPLEMENTED", "EVALUATING", "NEEDS_FIXES", "PASS", "FAIL", "BLOCKED"] },
+          "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^T-\\d{3}$" } },
+          "iteration_count": { "type": "integer", "minimum": 0 },
+          "max_iterations": { "type": "integer", "minimum": 1 },
+          "task_file": { "type": "string" }
+        }
+      }
+    }
+  }
+}

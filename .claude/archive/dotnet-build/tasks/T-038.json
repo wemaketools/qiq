@@ -1,0 +1,133 @@
+{
+  "id": "T-038",
+  "title": "Global search (backend + topbar UI)",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-013", "T-020", "T-017", "T-012"],
+  "objective": "Type-ahead global search across tenant leads, quotes, parties, and brokers with grouped results; quote results open their lead, party results open party detail (spec FR-53, A-14).",
+  "scope": [
+    "GET /api/v1/search?q=",
+    "TopBar search box with grouped dropdown and keyboard navigation"
+  ],
+  "out_of_scope": ["List-level filter-as-you-type (already per-list)"],
+  "implementation_details": [
+    "Features/Search/GlobalSearchQuery{q, limitPerType=5}: matches lead_ref/external_ref (prefix) + party name via lead join (trigram), quote_ref (prefix), party name (trigram), broker name (trigram); returns {leads:[{id,ref,partyName,status}], quotes:[{id,ref,leadId,leadRef,partyName,status}], parties:[{id,name,type}], brokers:[{id,name,tier}]}; tenant-scoped; breadth permission applied to leads/quotes (assigned-only users search their visible set)",
+    "Endpoint GET /api/v1/search with min q length 2, debounce client-side 250ms",
+    "components/shell/GlobalSearch.tsx replacing the T-013 placeholder: input 'Search leads, quotes, clients, brokers…', dropdown grouped by entity type with headers, arrow-key navigation + Enter, Esc closes; selection routes: lead -> /leads/{id}, quote -> /leads/{leadId}?highlightQuote={id}, party -> /parties/{id}, broker -> /settings/brokers?focus={id} (or broker performance row when only view permission)"
+  ],
+  "files": [
+    "src/api/QuoteIQ.Application/Features/Search/GlobalSearchQuery.cs",
+    "src/api/QuoteIQ.Api/Endpoints/SearchEndpoints.cs",
+    "src/ui/src/components/shell/GlobalSearch.tsx",
+    "src/api/tests/QuoteIQ.Api.Tests/Search/GlobalSearchTests.cs",
+    "e2e_tests/tests/global-search.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "Search_ShouldGroupResultsByEntityTypeWithLimit",
+      "Search_QuoteResult_ShouldCarryLeadIdForNavigation",
+      "Search_ShouldBeTenantIsolated",
+      "Search_WithoutViewAll_ShouldReturnOnlyVisibleLeads"
+    ],
+    "e2e": [
+      "global-search.spec.ts: typing a party name shows grouped results; selecting a quote opens its lead with the quote highlighted; selecting a party opens party detail; keyboard navigation works"
+    ]
+  },
+  "acceptance_ids": ["AC-052"],
+  "verification_ids": ["V-052"],
+  "findings": [
+    {
+      "id": "F-T038-01",
+      "severity": "minor",
+      "summary": "Flag: broker search hits route to /settings/brokers?focus={id} regardless of the caller's broker permissions",
+      "detail": "spec FR-53 lists brokers as a searchable entity but does not specify the landing screen for a broker hit. Per T-038 implementation_details the primary route chosen is /settings/brokers?focus={id} (the broker admin subsection). A view-only caller without brokers.view/brokers.manage would hit the settings RouteGuard's Forbidden page. The alternative (routing to the /brokers Broker-Performance dashboard row for view-only callers) was not implemented because it would require the client to know the caller's broker permission set at search-render time and pick a route per hit. Decision: single deterministic route (/settings/brokers?focus={id}); flagged for product confirmation. Parties/leads/quotes routes are unambiguous.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T18:40:00-04:00"
+    },
+    {
+      "id": "F-T038-02",
+      "severity": "minor",
+      "summary": "Flag: min-q-length (<2 chars) returns 200 with empty groups, not 400",
+      "detail": "verification V-052 negative test says 'q < 2 chars -> empty'. Implemented as: GlobalSearchQueryHandler returns GlobalSearchDto.Empty (HTTP 200, empty arrays) when the trimmed query is shorter than 2 chars, rather than a 400. Covered by GlobalSearchTests.Search_WithShortQuery_ShouldReturnEmptyGroups. Flagged since AC-052/FR-53 do not explicitly state empty-vs-400; empty was chosen to match V-052 and give the top-bar dropdown a benign no-op below the threshold.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T18:40:00-04:00"
+    },
+    {
+      "id": "F-T038-03",
+      "severity": "minor",
+      "summary": "Flag: quote search matches quote_ref prefix only (not party-name-via-quote); quotes breadth follows leads.view_all",
+      "detail": "Per T-038 implementation_details ('quote_ref (prefix)'), a quote hit is produced only by a quote_ref prefix match. Typing a party name surfaces that party's LEADS (via the lead->party trigram join), not its quotes directly (the quotes are reachable by opening the lead). Also: the leads/quotes breadth rule is gated on leads.view_all (not a separate quotes.view_all): a quote is visible iff its lead is visible under the leads breadth rule, which is the consistent choice since quotes are lead-subordinate and a quote hit opens its lead. Endpoint is gated by leads.view (top-bar search is part of the lead-first working shell; parties/brokers returned tenant-wide per A-14). Flagged for confirmation.",
+      "status": "open",
+      "raised_by": "implementor",
+      "raised_at": "2026-07-14T18:40:00-04:00"
+    },
+    {
+      "id": "F-T038-04",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "completeness",
+      "description": "RULING on F-T038-01 (MUST-FIX, blocking): broker search hits dead-end on the Forbidden page for the majority of seeded working roles. The /api/v1/search endpoint is gated only by leads.view and SearchStore returns ALL tenant brokers to any such caller (brokers are tenant-wide per A-14, no broker-permission filter). But GlobalSearch.tsx routes every broker hit unconditionally to /settings/brokers?focus={id}, whose RouteGuard (src/ui/src/app/router.tsx:210) requires brokers.view OR brokers.manage, under a parent /settings guard requiring a settings permission. Seeded roles Relationship Manager, Underwriter, Sales Operations, and Executive Viewer hold leads.view but not brokers.view/manage, so they are shown broker results (default experience for any 2-char broker-name query) and reliably hit Forbidden on click. This contradicts AC-052 ('grouped results cover ... brokers' -> the broker group is functionally unusable for them) and the product principle codified in AC-083/T-044 (legitimate roles must never be funneled into Forbidden via normal navigation). Not a security issue (guard denies correctly, no data leak) but a real, high-frequency UX dead-end, not a rare corner.",
+      "evidence": "router.tsx:208-213 gates /settings/brokers on [BrokersView, BrokersManage]; SearchEndpoints.cs:25 gates search on Leads.View only; SearchStore.cs:102-112 applies no broker-permission predicate; GlobalSearch.tsx:71 hardcodes to `/settings/brokers?focus=${b.id}`. Implementor flag F-T038-01 itself admits the Forbidden dead-end.",
+      "suggested_fix": "Make the broker route permission-aware entirely client-side (the effective permission set is already in Redux, as RouteGuard consumes it): route to /settings/brokers?focus={id} only when the caller holds brokers.view/brokers.manage; else route to the Broker Performance dashboard /brokers?focus={id} when they hold brokers.view_performance; else omit the broker group (mirroring AC-052's 'breadth permissions constrain visible items'). Simplest acceptable variant: suppress broker results the caller cannot open. Add/adjust a GlobalSearch component test asserting a caller without broker permissions either does not see the broker group or is routed to a permitted destination.",
+      "status": "resolved",
+      "resolution": "Fixed client-side only (no backend/query/store change). GlobalSearch.tsx now reads the same effective permission set RouteGuard consumes (selectHasAnyPermission from sessionSlice, via useAppSelector) and resolves each broker hit's destination with a permission-aware resolveBrokerRoute using the actual PermissionCodes constants: (1) caller holds brokers.view OR brokers.manage (PermissionCodes.BrokersView/BrokersManage) -> `/settings/brokers?focus={id}` (unchanged admin subsection); (2) else caller holds dashboards.view_broker_performance (PermissionCodes.DashboardsViewBrokerPerformance — the actual permission gating the /brokers Broker Performance route in router.tsx:152-158; note there is NO brokers.view_performance code in permissions.ts/PermissionCatalog, so the view_performance tier maps to dashboards.view_broker_performance) -> `/brokers`. FLAG: BrokerPerformancePage does NOT consume a ?focus query param (verified — it reads dashboardFiltersSlice, not searchParams), so per the fix directive no fabricated focus param is appended; the caller lands on the dashboard without deep-linking to the specific broker. (3) else the caller can open no broker destination, so resolveBrokerRoute returns null, the broker item is dropped, and the existing group.items.length>0 filter omits the Brokers group entirely — so leads.view-only roles (Relationship Manager, Underwriter, Sales Operations, Executive Viewer) never see an unopenable broker row and are never funneled into Forbidden. Leads/quotes/parties routing unchanged. Tests: GlobalSearch.test.tsx now provisions a Redux store (Provider + configureStore, matching Sidebar.test.tsx convention) with a per-test permission set; the 7 existing tests default to broker-admin permissions (so the Brokers group + 4 items still render) and pass unchanged; 3 new tests added and passing: select_WhenBrokerClickedWithBrokerAdminPermission_ShouldNavigateToSettingsBrokers (asserts navigate('/settings/brokers?focus=12')), render_WhenCallerHasNoBrokerPermission_ShouldOmitBrokerGroup (leads.view only -> headers ['Clients','Leads','Quotes'], no broker option, 3 items), select_WhenBrokerViewPerformanceOnly_ShouldNavigateToBrokerPerformance (dashboards.view_broker_performance -> navigate('/brokers')). Files changed (frontend only): src/ui/src/components/shell/GlobalSearch.tsx, src/ui/src/components/shell/__tests__/GlobalSearch.test.tsx. No backend file, no search query, no store slice changed.",
+      "status_history_note": "resolved by implementor iteration 2/10",
+      "resolved_by": "implementor",
+      "resolved_at": "2026-07-14T08:00:00-04:00",
+      "evaluator_verification": "CONFIRMED RESOLVED (evaluator re-audit iteration 2/10, gates re-run not trusted from report). GlobalSearch.tsx resolveBrokerRoute is now permission-aware via selectHasAnyPermission (the same effective-permission source RouteGuard consumes): (1) brokers.view/brokers.manage -> /settings/brokers?focus={id} — reachable (router.tsx:210 gates /settings/brokers on exactly [BrokersView,BrokersManage], and brokers.view is in SETTINGS_PERMISSION_CODES so the parent /settings guard also passes); (2) else dashboards.view_broker_performance -> /brokers — VERIFIED NOT a new dead-end: router.tsx:152-158 gates /brokers on exactly DashboardsViewBrokerPerformance, a top-level shell sibling (auth-only parent), so the view-performance tier is admitted; (3) else resolveBrokerRoute returns null, toGroups drops the item, and the groups.filter(items.length>0) omits the Brokers group — so leads.view-only roles (RM/Underwriter/Sales Ops, and Executive Viewer if it lacks broker-perf) never see an unopenable broker row and are never funneled into Forbidden. Confirmed no brokers.view_performance code exists in permissions.ts/PermissionCatalog, so mapping the view-performance tier to dashboards.view_broker_performance is the correct proxy; BrokerPerformancePage does not consume ?focus so appending none is acceptable (non-blocking note). 3 new tests genuine and non-tautological (admin->/settings/brokers?focus=12; no-broker-perm-> headers [Clients,Leads,Quotes] + no broker option + 3 items; view-perf-only->/brokers) and pass with the 7 existing (10/10 in file). Gates re-run by evaluator: npm run typecheck GREEN (0 errors); npm run build GREEN (772 modules, only pre-existing >500kB chunk advisory); npx vitest run 463/463 across 91 files (was 460, +3), no regression. Scope containment CONFIRMED: only src/ui/src/components/shell/GlobalSearch.tsx + __tests__/GlobalSearch.test.tsx modified this iteration (mtimes 07:55/07:56); all backend search files (SearchStore/SearchEndpoints/GlobalSearchQuery*) untouched since iteration 1 (mtimes 07:13-07:15). No new findings.",
+      "evaluator_verified_at": "2026-07-14T08:05:00-04:00"
+    },
+    {
+      "id": "F-T038-05",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "RULING on F-T038-02 (ACCEPTED, non-blocking): returning 200 with empty groups for q<2 chars is exactly what verification V-052 specifies ('q < 2 chars -> empty') and is the correct type-ahead behavior (a 400 would be wrong UX for an incremental input). Verified by GlobalSearchTests.Search_WithShortQuery_ShouldReturnEmptyGroups (200 + empty) and the frontend never fires the request below SEARCH_MIN_QUERY_LENGTH. No change required.",
+      "evidence": "GlobalSearchQueryHandler.cs:35-39 returns GlobalSearchDto.Empty; GlobalSearchTests.cs:176-199 asserts HTTP 200 + empty; GlobalSearch.tsx:108-113 skips fetch below min length.",
+      "suggested_fix": "None - correct by spec.",
+      "status": "accepted",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T20:05:00-04:00"
+    },
+    {
+      "id": "F-T038-06",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "RULING on F-T038-03 (ACCEPTED, non-blocking): (1) matching quotes by quote_ref prefix only conforms to A-14, which lists the searchable tokens as 'lead ref/external ref, party name, quote ref, broker name' and does NOT require party-name->quote matching; a party-name query surfaces the LEAD and the quote is reachable by opening the lead (FR-45, quotes are lead-subordinate). (2) Making quote visibility follow the leads breadth rule (a quote is visible iff its lead is visible) is the consistent choice; there is no separate quotes.view_all in PermissionCatalog. Verified in-query: SearchStore applies the same callerAssignments predicate to the quote query as to the lead query when !callerHasLeadViewAll, and Search_WithoutViewAll_ShouldReturnOnlyVisibleLeads proves the assigned-only caller sees only lead A and quote A while parties stay tenant-wide. (3) Gating the endpoint on leads.view is appropriate for the lead-first shell; all seeded working personas hold leads.view. No change required.",
+      "evidence": "spec A-14 (line 66); SearchStore.cs:70-81 quote query + breadth predicate; GlobalSearchTests.cs:133-174 breadth test asserts leads/quotes limited to lead A, parties=2.",
+      "suggested_fix": "None - correct by spec.",
+      "status": "accepted",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T20:05:00-04:00"
+    },
+    {
+      "id": "F-T038-07",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "verification",
+      "description": "VERIFICATION SUMMARY (gates re-run by evaluator, not trusted from report). Backend `dotnet test QuoteIQ.slnx` against real Testcontainers: Domain 400/400, Application 32/32, Infrastructure 100/100 (Liquibase migration test applied the new 160-search changeset cleanly), Api 336/336 including the 5 GlobalSearchTests - 0 failures, no regressions. The 5 search integration tests genuinely exercise grouping+per-type cap, quote-carries-leadId, strict tenant isolation (foreign-tenant lead/quote/party/broker all absent), the assigned-only breadth rule (leads+quotes limited to assigned lead; parties tenant-wide), and the 2-char minimum. Tenant isolation is enforced in-query on EVERY group (TenantId==tenantId predicate on leads/quotes/parties/brokers); breadth is enforced in-query via lead_assignments, not post-filtered. Frontend, run separately: `npm run typecheck` GREEN, `npm run build` (tsc -b && vite build) GREEN, `npx vitest run` 460/460 across 91 files including the 7 GlobalSearch component tests (genuine: debounce+2-char min, grouped headers order Clients/Leads/Quotes/Brokers, party route /parties/{id}, quote route /leads/{leadId}?highlightQuote={id}, ArrowDown+Enter select, Esc close, empty state). V-070 (no raw hex): the new qiq-search-* CSS uses only var(--qiq-*) tokens. No stray </content> remnants in any created file. E2e global-search.spec.ts is a real body under test.describe.fixme deferred on T-041 seed data + live stack, consistent with established precedent (parties/alerts-center/lead-workflow specs); acceptable given backend+component coverage of every V-052 behavior. Sole blocker is F-T038-04.",
+      "evidence": "Evaluator-run gate outputs, 2026-07-14.",
+      "suggested_fix": "N/A",
+      "status": "open",
+      "raised_by": "evaluator",
+      "raised_at": "2026-07-14T20:05:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-53, A-14)" },
+    { "timestamp": "2026-07-14T17:25:00-04:00", "event": "started", "message": "Implementor started (iteration 1/10). Global search (FR-53, A-14): GET /api/v1/search?q= grouped type-ahead over leads/quotes/parties/brokers (pg_trgm + prefix), TENANT-SCOPED with leads/quotes breadth permission (assigned-only users search only their visible set), + TopBar GlobalSearch.tsx replacing the T-013 placeholder (grouped dropdown, arrow/Enter/Esc keyboard nav, quote->lead+highlightQuote, party->detail). Backend+frontend. The last non-capstone task; T-042 (POC demo-journey capstone) is now READY (all deps PASS) and follows. Frontend gates typecheck+build reported SEPARATELY from vitest." },
+    { "timestamp": "2026-07-14T18:35:00-04:00", "event": "tests_written", "message": "Test-first. Backend integration (real Testcontainers Postgres/Keycloak): tests/QuoteIQ.Api.Tests/Search/GlobalSearchTests.cs (+SearchTestContext.cs) — Search_ShouldGroupResultsByEntityTypeWithLimit, Search_QuoteResult_ShouldCarryLeadIdForNavigation, Search_ShouldBeTenantIsolated, Search_WithoutViewAll_ShouldReturnOnlyVisibleLeads, plus Search_WithShortQuery_ShouldReturnEmptyGroups (V-052 min-length). Frontend component tests (real DOM, mocked searchApi): src/ui/src/components/shell/__tests__/GlobalSearch.test.tsx — debounce+2-char min, grouped headers order (Clients/Leads/Quotes/Brokers), party route /parties/{id}, quote route /leads/{leadId}?highlightQuote={id}, ArrowDown+Enter select, Esc close, empty state. Playwright e2e: e2e_tests/tests/global-search.spec.ts (test.describe.fixme, real body, blocked on T-041 seed + live stack per established convention)." },
+    { "timestamp": "2026-07-14T18:38:00-04:00", "event": "implementation_written", "message": "Backend: Application/Abstractions/ISearchStore.cs (+row records), Application/Features/Search/{GlobalSearchQuery,GlobalSearchQueryHandler,GlobalSearchDto}.cs (breadth resolved in-handler via ICurrentUser/IEffectivePermissionResolver, mirroring ListLeadsQueryHandler), Infrastructure/Search/{SearchStore,SearchServiceCollectionExtensions}.cs (EF LINQ: lead_ref/external_ref prefix + party-name trigram join for leads, quote_ref prefix for quotes, party/broker name trigram; per-type Take; tenant-scoped; leads/quotes breadth via lead_assignments), wired in Infrastructure/DependencyInjection.cs; Api/Endpoints/SearchEndpoints.cs (GET /api/v1/search, RequirePermission leads.view, registered in EndpointRegistration.cs). Liquibase: db/changelog/160-search/160-search-indexes.xml (GIN gin_trgm_ops on brokers.name, leads.lead_ref, leads.external_ref, quotes.quote_ref) + included in db.changelog-master.xml — applied cleanly by Infrastructure.Tests. Frontend: src/ui/src/features/search/searchApi.ts, src/ui/src/components/shell/GlobalSearch.tsx (replacing TopBar placeholder), + qiq-search-* classes in src/ui/src/theme/components.css (tokens only, no raw hex)." },
+    { "timestamp": "2026-07-14T18:55:00-04:00", "event": "gates_run", "message": "Backend `dotnet test QuoteIQ.slnx` per-project (real Testcontainers), 0 failures: Domain 400/400, Application 32/32, Infrastructure 100/100 (new 160-search Liquibase changelog applied cleanly), Api 336/336 (incl. 5 new GlobalSearchTests). No regressions. Frontend (reported separately): `npm run typecheck` GREEN; `npm run build` (tsc -b && vite build) GREEN; `npm run test` (vitest) 460/460 across 91 files (incl. 7 new GlobalSearch tests); `npm run lint` = pre-existing baseline only (1 error TenantFormPage _removed + 6 warnings, none in T-038 files). V-070 (no raw hex): new CSS uses only var(--qiq-*) tokens. Playwright `--list` discovers global-search.spec.ts (1 test); live run N/A (fixme, stack not stood up). No stray </content> artifacts." },
+    { "timestamp": "2026-07-14T18:15:00-04:00", "event": "evaluator_fail", "message": "Evaluator returned NEEDS_FIXES (iteration 1/10). Completeness + tenant isolation + leads/quotes breadth (in-query, no leak) all CONFIRMED green; backend 868 all pass, frontend typecheck+build+vitest 460 separate; F-T038-02 (<2 chars -> 200 empty) + F-T038-03 (quote_ref-only + quotes-follow-leads-breadth + leads.view gate) ACCEPTED non-blocking. ONE BLOCKING major F-T038-04: broker search results dead-end on Forbidden for the majority of seeded working roles - search is gated only on leads.view and returns ALL tenant brokers, but GlobalSearch.tsx routes every broker hit unconditionally to /settings/brokers?focus (RouteGuard requires brokers.view/manage), so RM/Underwriter/Sales-Ops/Executive-Viewer reliably hit Forbidden on any broker-name query, violating the AC-083/T-044 'legitimate roles never funneled into Forbidden' principle. Not a data leak (guard denies correctly) but a high-frequency UX dead-end." },
+    { "timestamp": "2026-07-14T18:18:00-04:00", "event": "fix_iteration_started", "message": "T-038 NEEDS_FIXES -> fix iteration 2/10 (iteration_count 1->2). Routed back to Implementor for F-T038-04 only (client-side, no backend change): make the broker-hit route permission-aware using the effective permission set already in Redux - /settings/brokers?focus={id} for brokers.view/brokers.manage holders, else /brokers?focus={id} (Broker Performance) for brokers.view_performance holders, else omit the broker group so no role is funneled into Forbidden; add a GlobalSearch component test proving a no-broker-permission caller either doesn't see the broker group or routes to a permitted destination. F-T038-02/03 accepted (no change); F-T038-05/06/07 are evaluator rulings/summary. Re-run frontend typecheck+build+vitest separately, then hand back to Evaluator." },
+    { "timestamp": "2026-07-14T08:00:00-04:00", "event": "implementation_written", "message": "F-T038-04 resolved (frontend-only, iteration 2/10). GlobalSearch.tsx: broker-hit routing is now permission-aware via a resolveBrokerRoute helper driven by selectHasAnyPermission (same effective-permission source RouteGuard uses) with the actual PermissionCodes constants — brokers.view/brokers.manage -> `/settings/brokers?focus={id}` (unchanged); else dashboards.view_broker_performance -> `/brokers` (the T-034 Broker Performance route; that page does NOT consume a ?focus param so none is fabricated — flagged in the resolution note; note there is no brokers.view_performance code, so the view_performance tier maps to dashboards.view_broker_performance); else the broker hit is dropped (returns null) and the existing items.length>0 filter omits the Brokers group entirely, so leads.view-only roles (RM/Underwriter/Sales-Ops/Executive-Viewer) are never funneled into Forbidden. Leads/quotes/parties routing unchanged. GlobalSearch.test.tsx now wraps GlobalSearch in a Redux Provider (configureStore, per Sidebar.test.tsx convention) with a per-test permission set; the 7 existing tests default to broker-admin perms and stay green (4 items incl. Brokers), + 3 new tests. Files changed: src/ui/src/components/shell/GlobalSearch.tsx, src/ui/src/components/shell/__tests__/GlobalSearch.test.tsx. NO backend/query/store change." },
+    { "timestamp": "2026-07-14T08:05:00-04:00", "event": "gates_run", "message": "Frontend gates re-run SEPARATELY (iteration 2/10): `npm run typecheck` (tsc --noEmit -p tsconfig.app.json) GREEN (0 errors); `npm run build` (tsc -b && vite build) GREEN (772 modules transformed, built clean; only the pre-existing >500kB chunk-size advisory); `npx vitest run` GREEN 463/463 across 91 files (was 460 -> +3 new GlobalSearch broker-permission tests; GlobalSearch file 10/10); `npm run lint` = pre-existing baseline only (1 error TenantFormPage _removed + 6 warnings, none in the two touched T-038 files). V-070 N/A (no CSS touched this iteration). No stray </content> artifacts. No backend file changed (frontend-only fix). Sole prior blocker F-T038-04 now resolved." },
+    { "timestamp": "2026-07-14T18:40:00-04:00", "event": "task_passed", "message": "T-038 PASS (fix iteration 2/10). Evaluator re-audit CONFIRMED F-T038-04 resolved with no role funneled into Forbidden: brokers.view/manage -> /settings/brokers?focus (guard admits exactly those); dashboards.view_broker_performance -> /brokers (router guard verified to require exactly that code - not a new dead-end); no-broker-permission -> Brokers group OMITTED (resolveBrokerRoute null + items.length>0 filter). The 3 new tests genuine (admin->settings/brokers, no-perm->headers Clients/Leads/Quotes only, view-performance->/brokers); file 10/10. Independently re-ran gates: typecheck GREEN, build GREEN (772 modules), vitest 463 (+3), frontend-only (backend search untouched), no regression. Non-blocking note confirmed: no brokers.view_performance code exists so the view-performance tier correctly maps to dashboards.view_broker_performance, /brokers without a fabricated focus param. Combined with iteration-1 (tenant isolation + in-query breadth + backend 868 green), Global search complete. 44 PASS, 0 FAIL. Only T-042 (POC demo-journey capstone) remains." }
+  ]
+}

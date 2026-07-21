@@ -1,0 +1,124 @@
+{
+  "id": "T-006",
+  "title": "Tenant Manager backend, tenant-context middleware, and /me endpoint",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-005"],
+  "objective": "Tenants can be created (with partitions), viewed, edited, soft-removed, and restored by authorized users; every tenant-scoped request runs in a validated tenant context; /me exposes identity, memberships, permissions, and preferences (spec FR-06..FR-10, §12.1, §13).",
+  "scope": [
+    "tenants table + Features/Tenants CQRS handlers and endpoints",
+    "TenantContextMiddleware validating X-Tenant-Id",
+    "GET /api/v1/me and PUT /api/v1/me/preferences",
+    "Audit of all tenant lifecycle actions"
+  ],
+  "out_of_scope": ["Reference-data seeding inside creation (T-009 wires it in)", "Tenant Manager UI (T-014)"],
+  "implementation_details": [
+    "Liquibase 030-tenants: tenants (id bigint identity PK, name text not null, contact_name, contact_email, contact_phone, status text check in ('active','removed'), removed_at timestamptz null, removed_by bigint null, audit columns)",
+    "Features/Tenants: CreateTenantCommand{Name,ContactName,ContactEmail,ContactPhone} -> validates (name required/unique among active, email format), inserts tenant, calls SELECT create_tenant_partitions(@id) in the same transaction, invokes ITenantProvisioningHook (no-op now; T-009 adds reference seeding + settings row), audits 'tenant.created'; UpdateTenantCommand; RemoveTenantCommand (soft: status='removed', stamps removed_at/by); RestoreTenantCommand; GetTenantQuery; ListTenantsQuery{IncludeRemoved} (IncludeRemoved requires tenants.view_removed permission)",
+    "Endpoints (no X-Tenant-Id; global): GET/POST /api/v1/tenants, GET/PUT /api/v1/tenants/{id}, POST /api/v1/tenants/{id}/remove, POST /api/v1/tenants/{id}/restore — guarded by PermissionCatalog.Tenants.* via RequirePermission",
+    "Api/Tenancy/TenantContextMiddleware.cs: for routes marked tenant-scoped (route group /api/v1 except /tenants, /global, /me, /intake), reads X-Tenant-Id header, verifies tenant exists+active and caller is member (user_tenants) or holds global.view_any_tenant; populates TenantContext; 403 problem+json otherwise; removed tenants are invalid contexts",
+    "Features/Me/GetMeQuery: returns user profile, list of memberships {tenantId, tenantName}, effective permission set per membership (resolver), lastTenantId, themePreference; PUT /me/preferences persists last_tenant_id and theme (FR-04)",
+    "EndpointConventions: helper route groups TenantScopedGroup() and GlobalGroup() so later features opt in consistently"
+  ],
+  "files": [
+    "src/api/db/changelog/030-tenants/*.xml",
+    "src/api/QuoteIQ.Domain/Entities/Tenant.cs",
+    "src/api/QuoteIQ.Application/Features/Tenants/CreateTenant/*.cs",
+    "src/api/QuoteIQ.Application/Features/Tenants/UpdateTenant/*.cs",
+    "src/api/QuoteIQ.Application/Features/Tenants/RemoveTenant/*.cs",
+    "src/api/QuoteIQ.Application/Features/Tenants/RestoreTenant/*.cs",
+    "src/api/QuoteIQ.Application/Features/Tenants/ListTenants/*.cs",
+    "src/api/QuoteIQ.Application/Features/Me/GetMe/*.cs",
+    "src/api/QuoteIQ.Application/Features/Me/SetPreferences/SetMePreferencesValidator.cs",
+    "src/api/QuoteIQ.Application/Features/Me/SetPreferences/SetMePreferencesCommandHandler.cs",
+    "src/api/QuoteIQ.Application/Abstractions/ITenantStore.cs",
+    "src/api/QuoteIQ.Infrastructure/Tenancy/TenantStore.cs",
+    "src/api/QuoteIQ.Api/Tenancy/TenantContextMiddleware.cs",
+    "src/api/QuoteIQ.Api/Endpoints/TenantEndpoints.cs",
+    "src/api/QuoteIQ.Api/Endpoints/MeEndpoints.cs",
+    "src/api/QuoteIQ.Api/QuoteIQ.Api.csproj",
+    "src/api/tests/QuoteIQ.Api.Tests/Tenants/TenantEndpointsTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Tenancy/TenantContextMiddlewareTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Tenancy/TenantContextMiddlewareRouteClassificationTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Me/SetMePreferencesTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "RequiresTenantContext_WhenPathIsExemptOrSubPath_ShouldReturnFalse",
+      "RequiresTenantContext_WhenPathOnlySharesPrefixWithExemptRoute_ShouldReturnTrue",
+      "RequiresTenantContext_WhenPathOutsideApiV1_ShouldReturnFalse"
+    ],
+    "integration": [
+      "CreateTenant_WhenValid_ShouldCreateTenantAndPartitions",
+      "CreateTenant_WhenDuplicateActiveName_ShouldReturn422",
+      "RemoveTenant_WhenCalled_ShouldSoftDeleteAndHideFromDefaultList",
+      "RestoreTenant_WhenRemoved_ShouldReactivate",
+      "ListTenants_WhenCallerLacksViewPermission_ShouldReturn403",
+      "ListTenants_WhenIncludeRemovedWithoutViewRemovedPermission_ShouldReturn403",
+      "TenantScopedEndpoint_WhenCallerNotMember_ShouldReturn403",
+      "TenantScopedEndpoint_WhenInternalWithViewAnyTenant_ShouldSucceed",
+      "TenantScopedEndpoint_WhenTenantRemoved_ShouldReturn403",
+      "TenantScopedEndpoint_WhenXTenantIdHeaderMissing_ShouldReturn403",
+      "TenantScopedEndpoint_WhenXTenantIdHeaderNonNumeric_ShouldReturn403",
+      "GetMe_ShouldReturnMembershipsAndEffectivePermissions",
+      "TenantLifecycle_ShouldWriteAuditRows (extended: tenant.updated audit before/after assertion)",
+      "SetPreferences_WhenValid_ShouldPersistLastTenantIdAndTheme",
+      "SetPreferences_WhenLastTenantIdNotAMember_ShouldReturn403",
+      "SetPreferences_WhenThemeInvalid_ShouldReturn422"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-006", "AC-008", "AC-015", "AC-068", "AC-075"],
+  "verification_ids": ["V-006", "V-008", "V-015", "V-068", "V-075"],
+  "findings": [
+    {
+      "id": "F-015",
+      "severity": "major",
+      "status": "resolved",
+      "iteration": 1,
+      "resolved_iteration": 2,
+      "summary": "Test/verification gap: security-relevant behaviors implemented but unproven",
+      "detail": "(1) V-006 negative duplicate-active-tenant-name -> 422 untested; (2) V-006 negative caller-without-tenants.*-permission -> 403 untested on the actual tenant routes; (3) tenants.view_removed gate (the one permission check inside a handler instead of the filter) has zero tests; (4) PUT /api/v1/me/preferences has no tests (persistence + non-member lastTenantId -> 403); (5) middleware missing/non-numeric X-Tenant-Id -> 403 fail-closed path untested. Fix: ~5 integration tests in existing Api.Tests fixtures.",
+      "resolution": "Added CreateTenant_WhenDuplicateActiveName_ShouldReturn422, ListTenants_WhenCallerLacksViewPermission_ShouldReturn403, ListTenants_WhenIncludeRemovedWithoutViewRemovedPermission_ShouldReturn403 to TenantEndpointsTests.cs; TenantScopedEndpoint_WhenXTenantIdHeaderMissing_ShouldReturn403 and TenantScopedEndpoint_WhenXTenantIdHeaderNonNumeric_ShouldReturn403 to TenantContextMiddlewareTests.cs; new Me/SetMePreferencesTests.cs with SetPreferences_WhenValid_ShouldPersistLastTenantIdAndTheme, SetPreferences_WhenLastTenantIdNotAMember_ShouldReturn403, SetPreferences_WhenThemeInvalid_ShouldReturn422 -- all against real Postgres + real Keycloak JWTs, no mocks."
+    },
+    {
+      "id": "F-016",
+      "severity": "minor",
+      "status": "resolved",
+      "iteration": 1,
+      "resolved_iteration": 2,
+      "summary": "Middleware exempt-prefix matching uses raw StartsWith (fails open for future colliding routes)",
+      "detail": "TenantContextMiddleware.RequiresTenantContext matches exempt prefixes with raw StartsWith: /api/v1/me also exempts /api/v1/messages|metrics|members; /api/v1/tenants exempts /api/v1/tenantsummary. No current route collides but this fails open. Fix: exact match or require next char '/'.",
+      "resolution": "RequiresTenantContext now delegates to IsExempt, which requires the matched prefix to be the full path or immediately followed by '/'. Made internal (InternalsVisibleTo QuoteIQ.Api.Tests added to QuoteIQ.Api.csproj) and covered by a new pure unit-test class TenantContextMiddlewareRouteClassificationTests.cs proving /api/v1/tenantsummary, /api/v1/messages, /api/v1/leads are NOT exempted while real exempt sub-paths still are."
+    },
+    {
+      "id": "F-017",
+      "severity": "minor",
+      "status": "resolved",
+      "iteration": 1,
+      "resolved_iteration": 2,
+      "summary": "SetMePreferencesCommand has no validator; theme_preference unbounded text",
+      "detail": "themePreference persisted as arbitrary unbounded text with no allow-list or length cap. Violates zero-trust boundary validation (CLAUDE.md, NFR-06). Fix: FluentValidation validator (allow-list or length cap).",
+      "resolution": "Added SetMePreferencesValidator (FluentValidation): themePreference must be null or one of light/dark (spec NFR-04 defines only light+dark; no 'system' value specified anywhere in spec.md -- documented deviation, not a silent gap-fill) with a 20-char length cap. Handler now validates first and returns Error 'PREFERENCES_VALIDATION_FAILED', mapped to 422 in MeEndpoints. Covered by SetPreferences_WhenThemeInvalid_ShouldReturn422."
+    },
+    {
+      "id": "F-018",
+      "severity": "minor",
+      "status": "resolved",
+      "iteration": 1,
+      "resolved_iteration": 2,
+      "summary": "tenant.updated audit lacks before-image; tenant.created audit written after transaction commit",
+      "detail": "Spec §15 requires lifecycle audited with actor + before/after; tenant.updated captures only new values. tenant.created audit row is written after CreateAsync's transaction commits, leaving a crash window with a tenant but no creation audit row. Fix: capture before-image for updates; write creation audit inside the same transaction (or document accepted risk).",
+      "resolution": "(a) UpdateTenantCommandHandler now snapshots the tenant's Name/ContactName/ContactEmail/ContactPhone before mutating and writes { Before, After } in the tenant.updated audit Details. (b) ITenantStore.CreateAsync now takes a Func<CancellationToken,Task> onCreatedWithinTransactionAsync invoked after the tenant row + partitions exist but before the transaction commits; CreateTenantCommandHandler passes the audit write as that callback so tenant.created is atomic with tenant creation. ITenantProvisioningHook.OnTenantCreatedAsync deliberately stays post-commit (out of scope; T-009 carry, advisory A-T6-4) -- only the audit write moved. Extended TenantLifecycle_ShouldWriteAuditRows to parse the tenant.updated audit_log.details JSON and assert Before.Name != After.Name == the new name."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-06..FR-10, §12.1, §13)" },
+    { "timestamp": "2026-07-11T23:00:00-04:00", "event": "task_started", "message": "Dependency satisfied (T-005 PASS iteration 2); marked IN_PROGRESS; delegated to Implementor (iteration 1) with carried advisories from T-005 evaluation (user_tenants query-filter trap, tenants.manage catalog alignment, extend MeEndpoint rather than duplicate, IsCrossTenant gating per A-T3-2)" },
+    { "timestamp": "2026-07-11T23:40:00-04:00", "event": "implementation_written", "message": "Implementor iteration 1 complete. 030-tenants changeset, Tenant entity, Result/Error abstractions (new, per CLAUDE.md convention), 6 Tenants CQRS features + 2 Me features (Cortex.Mediator, colocated validators), TenantContextMiddleware (X-Tenant-Id validation, membership OR global.view_any_tenant -> IsCrossTenant), EndpointConventions TenantScopedGroup/GlobalGroup, TenantEndpoints + MeEndpoints (replaced T-004 MeEndpoint, extended not duplicated), PermissionCatalog extended with tenants.restore + tenants.view_removed (granular codes chosen over inventing tenants.manage; documented in catalog docs). user_tenants filter bypass centralized in ITenantAccessValidator + IUserTenantMembershipReader using IgnoreQueryFilters with explanatory doc comments. Store seams (ITenantStore, ITenantProvisioningHook no-op, IUserPreferencesStore) per established DIP pattern. Test-only create_tenant_partitions override fixed to register user_tenants. Tests: 8 new Api tests (test-first; 4 TenantEndpoints, 3 TenantContextMiddleware, 1 GetMe); AuthenticationTests updated (seeds app user since /me now resolves full profile). Suite 54/54 twice (Infrastructure 38, Api 16). Live verified end-to-end: liquibase incremental (2 new changesets), API booted Local, real JWT: POST /tenants 201 + tenant.created audit row + user_tenants_p1 partition via psql, remove/restore lifecycle, /me memberships, preferences PUT, non-member 403 problem+json on tenant-scoped route. Teardown preserved volumes. Frontend untouched. Status EVALUATING." },
+    { "timestamp": "2026-07-12T00:20:00-04:00", "event": "evaluator_result", "message": "Evaluator verdict FAIL -> NEEDS_FIXES (iteration 1/10). Implementation quality high: middleware fails closed on every traced path, IsCrossTenant correctly gated, IgnoreQueryFilters confined to the two documented read-only sites (repo-wide grep clean), all 6 routes RequirePermission-guarded, partition creation transactional with rollback, no DELETE routes, suite 54/54 twice, live psql evidence (tenants table, partition p1, audit rows with actor). Findings: F-015 (major, 5 untested security-relevant behaviors), F-016 (minor, StartsWith exempt-prefix fails open), F-017 (minor, no validator on preferences), F-018 (minor, audit before-image + created-audit outside transaction). Advisories: A-T6-1 granular tenants.* codes correct vs V-006 shorthand; A-T6-2 Result/Error sound (watch code->HTTP switch duplication); A-T6-3 store seams acceptable, avoid proliferation; A-T6-4 CARRY TO T-009: ITenantProvisioningHook invoked after commit but FR-08 needs seeding inside creation transaction; A-T6-5 /me lists removed tenants (T-013/T-014 relevance); A-T6-6 CARRY TO T-013: view_any_tenant user without membership cannot persist lastTenantId; A-T6-7 no structured logging of denials in middleware. AC-006 partial (F-015), AC-008/015/068 substantial, AC-075 satisfied." },
+    { "timestamp": "2026-07-11T23:20:00-04:00", "event": "fixes_implemented", "message": "Implementor iteration 2 (fix pass) complete, all 4 findings resolved. F-015: 10 new integration tests added across TenantEndpointsTests.cs (CreateTenant_WhenDuplicateActiveName_ShouldReturn422, ListTenants_WhenCallerLacksViewPermission_ShouldReturn403, ListTenants_WhenIncludeRemovedWithoutViewRemovedPermission_ShouldReturn403), TenantContextMiddlewareTests.cs (missing/non-numeric X-Tenant-Id -> 403), and new Me/SetMePreferencesTests.cs (happy path persistence, non-member 403, invalid theme 422) -- all real Postgres + real Keycloak JWTs, no mocks. F-016: TenantContextMiddleware.RequiresTenantContext made internal (InternalsVisibleTo QuoteIQ.Api.Tests) and its exempt-prefix check now requires an exact match or a '/' boundary (new IsExempt helper); proven by a new pure unit-test class TenantContextMiddlewareRouteClassificationTests.cs (spec §17 pure-algorithm exception, no mocks needed). F-017: added SetMePreferencesValidator (FluentValidation) restricting themePreference to light/dark (spec NFR-04 defines only those two; no 'system' value anywhere in spec.md -- explicitly documented as a deviation, not a silent gap-fill) with a 20-char cap; handler validates first, new Error code PREFERENCES_VALIDATION_FAILED mapped to 422 in MeEndpoints. F-018: (a) UpdateTenantCommandHandler now captures a before-image and writes {Before, After} into the tenant.updated audit Details; (b) ITenantStore.CreateAsync signature changed to accept a callback invoked inside the creation transaction before commit, and CreateTenantCommandHandler now passes the tenant.created audit write as that callback so it commits atomically with the tenant row + partitions (ITenantProvisioningHook deliberately stays post-commit, out of scope, carried to T-009 per A-T6-4). TenantLifecycle_ShouldWriteAuditRows extended to parse the persisted JSON and assert Before/After. Full suite: dotnet test QuoteIQ.slnx run twice, both green -- QuoteIQ.Infrastructure.Tests 38/38, QuoteIQ.Api.Tests 36/36 (74 total; 54 pre-existing + 20 new/extended). Frontend untouched. Status IMPLEMENTED, handed back to Evaluator." },
+    { "timestamp": "2026-07-12T01:00:00-04:00", "event": "task_passed", "message": "Iteration-2 evaluator verdict PASS. F-015..F-018 all confirmed resolved (tests genuine against real Postgres/Keycloak; IsExempt boundary fix proven by route-classification unit tests; theme allow-list matches spec NFR-04 light+dark; audit callback verified transaction-atomic via shared scoped DbContext, rollback on callback failure). Suite 74/74 twice, deterministic. No regressions; changes confined to T-006 surface. AC-006/008/015/068/075 all SATISFIED at T-006 share (UI/e2e portions to T-013/T-014/T-042). Carried advisories: A-T6-4 (T-009: move provisioning hook inside creation transaction per FR-08), A-T6-6 (T-013: view_any_tenant user without membership cannot persist lastTenantId), A-T6-7 (structured logging of middleware denials), NEW A-T6-8 (keep CreateAsync callback work short and DB-only), NEW A-T6-9 (explicit test that failed 403 attempts write no success audit rows - T-007). Task marked PASS." }
+  ]
+}

@@ -1,0 +1,3028 @@
+{
+  "generated_at": "2026-07-11T10:59:32-04:00",
+  "acceptance_path": ".claude/acceptance.json",
+  "verifications": [
+    {
+      "id": "V-001",
+      "acceptance_id": "AC-001",
+      "title": "Auth gating on UI and API",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration sweep asserting every mapped endpoint (except /health, reset paths) returns 401 without a bearer token.",
+        "endpoints": [
+          "GET /api/v1/leads",
+          "GET /api/v1/me",
+          "GET /api/v1/dashboards/executive"
+        ],
+        "negative_tests": [
+          "No token -> 401",
+          "Expired token -> 401",
+          "Wrong audience -> 401"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/auth-gating.spec.ts",
+        "test_title": "unauthenticated visitor is redirected to login for every route and no sign-up exists",
+        "steps": [
+          "Without auth state, visit /overview, /leads, /parties, /alerts, /settings/brokers, /admin/tenants",
+          "Assert each redirects to the Keycloak login page",
+          "On the login page assert no sign-up/register link exists"
+        ],
+        "expected_results": [
+          "Every deep link lands on Keycloak login",
+          "No register/sign-up affordance anywhere"
+        ],
+        "selectors_or_locators": [
+          "#kc-form-login",
+          "input[name=\"username\"]",
+          "page.getByRole('link', { name: /register|sign up/i }) — expect count 0"
+        ],
+        "test_data": "None — anonymous requests only.",
+        "setup": "App + Keycloak running via docker-compose; no storageState.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-004",
+        "T-013"
+      ],
+      "expected_results": [
+        "Application unreachable without authentication; only login and password reset are anonymous"
+      ]
+    },
+    {
+      "id": "V-002",
+      "acceptance_id": "AC-002",
+      "title": "Generic login failure message",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/login.spec.ts",
+        "test_title": "wrong password, unknown email, and deactivated user all get the same generic error",
+        "steps": [
+          "Attempt login with known email + wrong password; capture error text",
+          "Attempt login with unknown email; capture error text",
+          "Deactivate a seeded user via User Manager (admin session), attempt login; capture error text",
+          "Compare all three messages"
+        ],
+        "expected_results": [
+          "All three attempts show identical generic text (e.g., 'Incorrect email or password')",
+          "No message reveals whether the account exists or is deactivated"
+        ],
+        "selectors_or_locators": [
+          "#kc-form-login",
+          "#input-error, .kc-feedback-text"
+        ],
+        "test_data": "Seeded users: rm1@brittany.test (active), deactivate-target@brittany.test; unknown: nobody@nowhere.test",
+        "setup": "Seeded environment; admin storageState for the deactivation step.",
+        "teardown": "Reactivate the deactivated user via API."
+      },
+      "task_ids": [
+        "T-004",
+        "T-013"
+      ],
+      "expected_results": [
+        "Login failures are indistinguishable across wrong-password, unknown-account, and deactivated-account cases"
+      ]
+    },
+    {
+      "id": "V-003",
+      "acceptance_id": "AC-003",
+      "title": "Password reset uniform flow",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/password-reset.spec.ts",
+        "test_title": "forgot password shows the same confirmation for existing and unknown emails",
+        "steps": [
+          "Click 'Forgot password?' on login",
+          "Submit an existing email; capture confirmation text",
+          "Repeat with an unknown email; capture confirmation text",
+          "Assert texts are identical"
+        ],
+        "expected_results": [
+          "Identical confirmation regardless of account existence",
+          "No account details revealed"
+        ],
+        "selectors_or_locators": [
+          "a:has-text('Forgot')",
+          "#kc-reset-password-form",
+          "input[name=\"username\"]"
+        ],
+        "test_data": "existing: rm1@brittany.test; unknown: ghost@nowhere.test",
+        "setup": "Keycloak reset flow enabled; SMTP not asserted (link delivery verified manually per A-8 exception).",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-004"
+      ],
+      "expected_results": [
+        "Uniform confirmation; time-limited single-use link; reset audited (manual check of audit log + Keycloak events)"
+      ]
+    },
+    {
+      "id": "V-004",
+      "acceptance_id": "AC-004",
+      "title": "Post-login lands in last active tenant",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "login lands on last active tenant default screen and preference persists",
+        "steps": [
+          "Login as multi-tenant user",
+          "Switch to second tenant via tenant switcher",
+          "Sign out and log back in",
+          "Assert active tenant is the second tenant on the default screen"
+        ],
+        "expected_results": [
+          "Re-login restores the previously selected tenant",
+          "Default screen (Overview) loads in that context"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='tenant-switcher']",
+          "[data-testid='active-tenant-name']"
+        ],
+        "test_data": "Multi-tenant user internal@brittany.test with two seeded tenants.",
+        "setup": "Second tenant created in suite setup if absent.",
+        "teardown": "Switch preference back to primary tenant."
+      },
+      "task_ids": [
+        "T-013"
+      ],
+      "expected_results": [
+        "last_tenant preference round-trips through PUT /me/preferences"
+      ]
+    },
+    {
+      "id": "V-005",
+      "acceptance_id": "AC-005",
+      "title": "Keycloak pages themed as QuoteIQ",
+      "method": "manual",
+      "playwright": {
+        "test_file": "e2e_tests/tests/login.spec.ts",
+        "test_title": "login page shows QuoteIQ wordmark",
+        "steps": [
+          "Open login page",
+          "Assert the QuoteIQ wordmark/branding is present"
+        ],
+        "expected_results": [
+          "Wordmark 'QuoteIQ' visible on the Keycloak-served page"
+        ],
+        "selectors_or_locators": [
+          "text=QuoteIQ",
+          "#kc-header-wrapper"
+        ],
+        "test_data": "None.",
+        "setup": "Keycloak with quoteiq theme mounted.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-004"
+      ],
+      "expected_results": [
+        "Login/reset pages carry QuoteIQ placeholder branding; visual polish confirmed manually"
+      ]
+    },
+    {
+      "id": "V-006",
+      "acceptance_id": "AC-006",
+      "title": "Tenant lifecycle with audit",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration tests for create/update/remove/restore incl. audit rows and removed-tenant hiding.",
+        "endpoints": [
+          "POST /api/v1/tenants",
+          "PUT /api/v1/tenants/{id}",
+          "POST /api/v1/tenants/{id}/remove",
+          "POST /api/v1/tenants/{id}/restore"
+        ],
+        "negative_tests": [
+          "Caller without tenants.manage -> 403",
+          "Duplicate active tenant name -> 422"
+        ],
+        "role_permission_setup": "Internal user with tenants.* permissions vs tenant-admin without them.",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/tenant-manager.spec.ts",
+        "test_title": "create, edit, soft-remove, and restore a tenant",
+        "steps": [
+          "Login as Internal user; open Tenant Manager",
+          "Create tenant 'E2E Insurance' with contact fields",
+          "Edit contact email; save",
+          "Remove tenant via danger dialog; assert gone from default list",
+          "Enable include-removed filter; restore tenant"
+        ],
+        "expected_results": [
+          "Tenant appears with Active chip after create",
+          "Removal shows soft-delete consequence text and hides tenant from default list",
+          "Restore returns tenant to Active"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='tenant-list']",
+          "getByRole('button', { name: '+ New Tenant' })",
+          "[data-testid='remove-tenant-dialog']",
+          "[data-testid='include-removed-toggle']"
+        ],
+        "test_data": "Tenant name unique per run: 'E2E Insurance {runId}'.",
+        "setup": "Internal persona storageState.",
+        "teardown": "Soft-remove the created tenant."
+      },
+      "task_ids": [
+        "T-006",
+        "T-014"
+      ],
+      "expected_results": [
+        "Full lifecycle works; audit_log rows exist for each action (asserted at integration level)"
+      ]
+    },
+    {
+      "id": "V-007",
+      "acceptance_id": "AC-007",
+      "title": "Tenant creation seeds reference data",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration test asserting per-list counts and flags after POST /tenants; template-edit isolation test.",
+        "endpoints": [
+          "POST /api/v1/tenants",
+          "GET /api/v1/settings/reference-data/{listType}"
+        ],
+        "negative_tests": [
+          "Seeding failure rolls back tenant creation"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/tenant-manager.spec.ts",
+        "test_title": "newly created tenant has populated reference lists immediately",
+        "steps": [
+          "Create a tenant as Internal user",
+          "Switch into the new tenant",
+          "Open Settings > Reference data",
+          "Check request channels, product lines, lead statuses, lost reasons lists"
+        ],
+        "expected_results": [
+          "All lists pre-populated with PRD 6.3 defaults (e.g., 12 product lines, 11 lead statuses)",
+          "Terminal statuses show no disable action"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='reference-list-type-nav']",
+          "[data-testid='reference-items-table'] tr"
+        ],
+        "test_data": "Fresh tenant from this test.",
+        "setup": "Internal persona.",
+        "teardown": "Soft-remove created tenant."
+      },
+      "task_ids": [
+        "T-009"
+      ],
+      "expected_results": [
+        "New tenant operational without manual list setup"
+      ]
+    },
+    {
+      "id": "V-008",
+      "acceptance_id": "AC-008",
+      "title": "Tenant data isolation",
+      "method": "security",
+      "api": {
+        "approach": "Integration matrix: for every tenant-scoped endpoint, tenant-A user requests tenant-B ids and lists under tenant-B header.",
+        "endpoints": [
+          "all tenant-scoped routes"
+        ],
+        "negative_tests": [
+          "X-Tenant-Id of non-member tenant -> 403",
+          "Direct id fetch of other-tenant record under own header -> 404",
+          "Removed tenant context -> 403"
+        ],
+        "role_permission_setup": "userA (tenant A only), userB (tenant B only), internal (view_any_tenant).",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/tenant-isolation.spec.ts",
+        "test_title": "second tenant sees no first-tenant data anywhere",
+        "steps": [
+          "Login as tenant-B-only user",
+          "Visit Leads, Parties, dashboards, Alerts, global search for tenant-A party names and lead refs"
+        ],
+        "expected_results": [
+          "All lists empty or tenant-B-only",
+          "Search returns no tenant-A records",
+          "Dashboards show tenant-B data only"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='leads-table']",
+          "[data-testid='global-search-input']",
+          "[data-testid='search-results']"
+        ],
+        "test_data": "Seeded tenant A (The Brittany) + minimal tenant B with distinct record names.",
+        "setup": "Tenant B seeded with 2 leads in suite setup.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-003",
+        "T-006",
+        "T-042"
+      ],
+      "expected_results": [
+        "No cross-tenant read or write path exists"
+      ]
+    },
+    {
+      "id": "V-009",
+      "acceptance_id": "AC-009",
+      "title": "Tenant switcher behavior",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "tenant switcher swaps context and keeps active tenant visible",
+        "steps": [
+          "Login as multi-tenant user; note active tenant label",
+          "Open Leads and note rows",
+          "Switch tenant; assert label updates and Leads reloads with other tenant's data",
+          "Login as single-tenant user; assert no switcher renders"
+        ],
+        "expected_results": [
+          "Active tenant always visible in shell",
+          "Lists reload per tenant",
+          "Single-tenant users see no switcher"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='tenant-switcher']",
+          "[data-testid='active-tenant-name']",
+          "[data-testid='leads-table']"
+        ],
+        "test_data": "internal@brittany.test (multi), rm1@brittany.test (single).",
+        "setup": "Two tenants seeded.",
+        "teardown": "Reset internal user to tenant A."
+      },
+      "task_ids": [
+        "T-013"
+      ],
+      "expected_results": [
+        "Context switching is explicit, visible, and data-correct"
+      ]
+    },
+    {
+      "id": "V-010",
+      "acceptance_id": "AC-010",
+      "title": "Business rules configuration",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration tests for GET/PUT validation rules (amber<red, currency code, format templates).",
+        "endpoints": [
+          "GET/PUT /api/v1/settings/business-rules"
+        ],
+        "negative_tests": [
+          "amber >= red -> 422",
+          "bad currency code -> 422",
+          "format without {SEQ:n} -> 422",
+          "no permission -> 403"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "editing business rules persists and drives behavior",
+        "steps": [
+          "Login as tenant admin; open Settings > Business rules",
+          "Set high-value threshold to 1,000,000 and aging amber/red to 5/10; save",
+          "Open Leads list; assert aging colors follow new thresholds",
+          "Create a lead with estimated premium 2,000,000; assert priority derives High"
+        ],
+        "expected_results": [
+          "Save succeeds with toast",
+          "Aging colors and priority derivation reflect new values"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='business-rules-form']",
+          "input[name='highValueThreshold']",
+          "[data-testid='age-cell']"
+        ],
+        "test_data": "Threshold 1,000,000 BWP; aging 5/10.",
+        "setup": "Tenant admin persona on seeded tenant.",
+        "teardown": "Restore default rule values via API."
+      },
+      "task_ids": [
+        "T-010",
+        "T-016"
+      ],
+      "expected_results": [
+        "Rules persist per tenant, validate, audit, and take effect downstream"
+      ]
+    },
+    {
+      "id": "V-011",
+      "acceptance_id": "AC-011",
+      "title": "RBAC grant paths",
+      "method": "integration",
+      "api": {
+        "approach": "Integration tests granting one permission via each path (direct permission, direct role, group role, group permission) to four users and asserting a permission-gated endpoint responds 200; a fifth user with none gets 403.",
+        "endpoints": [
+          "any RequirePermission-gated endpoint"
+        ],
+        "negative_tests": [
+          "No grant -> 403",
+          "Grant in other tenant -> 403"
+        ],
+        "role_permission_setup": "Four users, one grant path each, single tenant.",
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-005"
+      ],
+      "expected_results": [
+        "Each grant path independently confers access; missing grant denies"
+      ]
+    },
+    {
+      "id": "V-012",
+      "acceptance_id": "AC-012",
+      "title": "User Manager administration",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration tests for Keycloak provisioning, deactivation, tenant-minimum validation, audit.",
+        "endpoints": [
+          "POST /api/v1/users",
+          "POST /api/v1/users/{id}/deactivate"
+        ],
+        "negative_tests": [
+          "Non-internal user with zero tenants -> 422",
+          "Duplicate email -> 422"
+        ],
+        "role_permission_setup": "Admin with users.manage.",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/user-manager.spec.ts",
+        "test_title": "create user with roles and groups, then deactivate",
+        "steps": [
+          "Login as tenant admin; open User Manager",
+          "Create user (first, last, unique email) assigned to tenant + RM role + a group",
+          "Assert user appears in list",
+          "Deactivate via danger dialog",
+          "Attempt login as that user (new context)"
+        ],
+        "expected_results": [
+          "User created and listed",
+          "Deactivated user cannot log in and receives the generic error",
+          "History/audit retained"
+        ],
+        "selectors_or_locators": [
+          "getByRole('button', { name: '+ New User' })",
+          "[data-testid='user-form']",
+          "[data-testid='deactivate-user-dialog']"
+        ],
+        "test_data": "email: e2e-user-{runId}@brittany.test",
+        "setup": "Tenant admin persona.",
+        "teardown": "Leave deactivated (harmless)."
+      },
+      "task_ids": [
+        "T-007",
+        "T-015"
+      ],
+      "expected_results": [
+        "Full user administration works with Keycloak sync and audit"
+      ]
+    },
+    {
+      "id": "V-013",
+      "acceptance_id": "AC-013",
+      "title": "Effective access view",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/user-manager.spec.ts",
+        "test_title": "effective access shows inherited and direct grants per tenant",
+        "steps": [
+          "Create role R1 with leads.view; create group G1 with role R1",
+          "Create user in tenant with direct permission parties.view and membership in G1",
+          "Open the user's Effective access tab"
+        ],
+        "expected_results": [
+          "Tab lists direct permission parties.view, group G1, inherited leads.view, and tenant assignment",
+          "Resolved permission set shows the union per tenant"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='effective-access-tab']",
+          "[data-testid='resolved-permissions']"
+        ],
+        "test_data": "Role R1-{runId}, group G1-{runId}.",
+        "setup": "Tenant admin persona.",
+        "teardown": "Disable created role/group."
+      },
+      "task_ids": [
+        "T-007",
+        "T-015"
+      ],
+      "expected_results": [
+        "Administrators can understand effective access at a glance"
+      ]
+    },
+    {
+      "id": "V-014",
+      "acceptance_id": "AC-014",
+      "title": "Effective permission union semantics",
+      "method": "integration",
+      "api": {
+        "approach": "Resolver integration tests over crafted grant matrices: overlapping grants union; tenant-scoped grants excluded outside their tenant; global roles apply everywhere.",
+        "endpoints": [
+          "IEffectivePermissionResolver (service-level with real DB)"
+        ],
+        "negative_tests": [
+          "Other-tenant grant excluded",
+          "Disabled role excluded",
+          "Removed group membership excluded"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-005"
+      ],
+      "expected_results": [
+        "Resolution matches PRD D.2 union semantics exactly"
+      ]
+    },
+    {
+      "id": "V-015",
+      "acceptance_id": "AC-015",
+      "title": "Internal role capabilities",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: internal user reads any tenant with view_any_tenant; non-internal denied on /tenants and /global.",
+        "endpoints": [
+          "GET /api/v1/tenants",
+          "PUT /api/v1/global/default-reference-items"
+        ],
+        "negative_tests": [
+          "Tenant admin on global endpoints -> 403"
+        ],
+        "role_permission_setup": "internal vs tenant-admin personas.",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/rbac-visibility.spec.ts",
+        "test_title": "internal user can enter any tenant; tenant admin cannot see Tenant Manager",
+        "steps": [
+          "Login as Internal; assert Tenant Manager nav visible; switch into any tenant",
+          "Login as tenant admin; assert Tenant Manager nav absent and /admin/tenants deep link shows Forbidden"
+        ],
+        "expected_results": [
+          "Internal has global reach; tenant admin does not"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='nav-tenant-manager']",
+          "[data-testid='forbidden-page']"
+        ],
+        "test_data": "internal@brittany.test, admin@brittany.test.",
+        "setup": "Seeded personas.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-005",
+        "T-006"
+      ],
+      "expected_results": [
+        "Internal capabilities gated by explicit global permissions and audited"
+      ]
+    },
+    {
+      "id": "V-016",
+      "acceptance_id": "AC-016",
+      "title": "Permission-driven visibility; illegal ops hidden",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/rbac-visibility.spec.ts",
+        "test_title": "nav entries and workflow actions render only when permitted and legal",
+        "steps": [
+          "Login as RM (no admin permissions); assert Settings/User Manager/Tenant Manager nav absent",
+          "Open an owned lead in New status; assert More actions lists only legal ops (no Reopen, no Approve pricing)",
+          "Login as executive viewer; open same lead; assert no workflow buttons render"
+        ],
+        "expected_results": [
+          "Admin nav hidden without permission",
+          "Illegal/unpermitted operations absent (not disabled)"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='nav-settings']",
+          "[data-testid='more-actions-menu']",
+          "[data-testid='primary-workflow-action']"
+        ],
+        "test_data": "Seeded RM, executive viewer personas; a New lead owned by the RM.",
+        "setup": "Seeded environment.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-013",
+        "T-028"
+      ],
+      "expected_results": [
+        "UI mirrors server-computed availableOperations and permissions"
+      ]
+    },
+    {
+      "id": "V-017",
+      "acceptance_id": "AC-017",
+      "title": "Settings subsection gating",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "settings shows only permitted subsections",
+        "steps": [
+          "Grant a test user only brokers.manage",
+          "Login as that user; open Settings",
+          "Assert only the Brokers tab renders; deep-link /settings/business-rules shows Forbidden"
+        ],
+        "expected_results": [
+          "Vertical tabs limited to permitted subsections",
+          "Direct navigation to unpermitted tab denied"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='settings-tabs']",
+          "[data-testid='forbidden-page']"
+        ],
+        "test_data": "User brokers-only-{runId}@brittany.test.",
+        "setup": "Create scoped user via API in suite setup.",
+        "teardown": "Deactivate scoped user."
+      },
+      "task_ids": [
+        "T-016"
+      ],
+      "expected_results": [
+        "Per-subsection permissions enforced in UI and API"
+      ]
+    },
+    {
+      "id": "V-018",
+      "acceptance_id": "AC-018",
+      "title": "Reference list management",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration CRUD per list type incl. cover-type/product-line linkage and broker-channel flag.",
+        "endpoints": [
+          "GET/POST/PUT /api/v1/settings/reference-data/{listType}",
+          "POST .../reorder",
+          "POST .../{id}/disable"
+        ],
+        "negative_tests": [
+          "Cover type without product line -> 422",
+          "No permission -> 403"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "add, reorder, and disable reference values",
+        "steps": [
+          "Open Settings > Reference data > Request channels",
+          "Add channel 'Partner portal' with broker-channel flag on",
+          "Reorder it to the top; reload; assert order persisted",
+          "Disable it; open New Lead form; assert it is absent from the channel dropdown"
+        ],
+        "expected_results": [
+          "Value added with flag, reorder persists, disabled value gone from pickers"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='reference-items-table']",
+          "[data-testid='broker-channel-toggle']",
+          "[data-testid='reorder-up']"
+        ],
+        "test_data": "Channel 'Partner portal {runId}'.",
+        "setup": "Tenant admin persona.",
+        "teardown": "Value left disabled."
+      },
+      "task_ids": [
+        "T-008",
+        "T-016"
+      ],
+      "expected_results": [
+        "All eleven lists manageable with type-specific rules and audit"
+      ]
+    },
+    {
+      "id": "V-019",
+      "acceptance_id": "AC-019",
+      "title": "Guarded status rules",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: disable terminal -> 422 TERMINAL_STATUS_CANNOT_BE_DISABLED; canonical_key/reporting_category immutable; intermediate statuses restricted to open/quoted.",
+        "endpoints": [
+          "PUT/POST /api/v1/settings/reference-data/lead_status"
+        ],
+        "negative_tests": [
+          "Disable Won -> 422",
+          "Change canonical category -> 422",
+          "New status with category won -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "statuses rename but stay category-mapped; terminal statuses cannot be disabled",
+        "steps": [
+          "Open Reference data > Lead statuses",
+          "Rename 'Quote Sent' to 'Proposal Sent'; save",
+          "Assert rename persisted, reporting category column unchanged and read-only",
+          "Assert Won/Lost/Expired/Withdrawn rows show no disable action",
+          "Open a lead with a sent quote; assert its chip now reads 'Proposal Sent' with the quoted-category color"
+        ],
+        "expected_results": [
+          "Rename works, category fixed, terminal protected, chips follow category color"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='reference-items-table']",
+          "[data-testid='reporting-category-cell']",
+          "[data-testid='status-chip']"
+        ],
+        "test_data": "Rename target 'Quote Sent'.",
+        "setup": "Tenant admin persona; seeded lead in Quote Sent.",
+        "teardown": "Rename back to 'Quote Sent'."
+      },
+      "task_ids": [
+        "T-008"
+      ],
+      "expected_results": [
+        "Status guard rules enforced end to end"
+      ]
+    },
+    {
+      "id": "V-020",
+      "acceptance_id": "AC-020",
+      "title": "Disabled values resolvable historically",
+      "method": "integration",
+      "api": {
+        "approach": "Create lead using a reference value; disable the value; re-read lead detail, list rows, and dashboards.",
+        "endpoints": [
+          "GET /api/v1/leads/{id}"
+        ],
+        "negative_tests": [
+          "New lead with the disabled value -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-008"
+      ],
+      "expected_results": [
+        "Historical records display the disabled value; pickers and new writes exclude it"
+      ]
+    },
+    {
+      "id": "V-021",
+      "acceptance_id": "AC-021",
+      "title": "Global template Internal-only",
+      "method": "integration",
+      "api": {
+        "approach": "PUT template as Internal succeeds and next tenant seeds new values; PUT as tenant admin -> 403.",
+        "endpoints": [
+          "GET/PUT /api/v1/global/default-reference-items"
+        ],
+        "negative_tests": [
+          "Tenant admin -> 403",
+          "Existing tenants unaffected by template edit"
+        ],
+        "role_permission_setup": "internal with global.manage_templates.",
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-008"
+      ],
+      "expected_results": [
+        "Template editable only by Internal; affects future tenants only"
+      ]
+    },
+    {
+      "id": "V-022",
+      "acceptance_id": "AC-022",
+      "title": "Business assignments configuration",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: exactly-one-accountable-owner validation; eligible-user lookups per role.",
+        "endpoints": [
+          "GET/PUT /api/v1/settings/business-assignments",
+          "GET .../eligible-users"
+        ],
+        "negative_tests": [
+          "Two accountable owners -> 422",
+          "Zero -> 422",
+          "Foreign-tenant role -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "configure lead and quote assignable roles with accountable owner",
+        "steps": [
+          "Open Settings > Business assignments",
+          "Add Underwriter role to lead assignable roles; keep RM as accountable owner; save",
+          "Open a lead's Assign dialog; assert one dropdown per configured role with RM marked required"
+        ],
+        "expected_results": [
+          "Configuration persists and drives Assign dialog composition"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='business-assignments-form']",
+          "[data-testid='accountable-owner-radio']",
+          "[data-testid='assign-dialog']"
+        ],
+        "test_data": "Tenant roles RM, Underwriter from seed.",
+        "setup": "Tenant admin persona.",
+        "teardown": "Restore seed configuration via API."
+      },
+      "task_ids": [
+        "T-011",
+        "T-016"
+      ],
+      "expected_results": [
+        "Assignment model configurable per tenant per PRD 8"
+      ]
+    },
+    {
+      "id": "V-023",
+      "acceptance_id": "AC-023",
+      "title": "Broker administration",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: CRUD, one-primary-contact invariant, disabled broker excluded from pickers.",
+        "endpoints": [
+          "POST/PUT /api/v1/brokers",
+          "POST /api/v1/brokers/{id}/disable",
+          "contacts subresources"
+        ],
+        "negative_tests": [
+          "Nameless broker -> 422",
+          "Second primary demotes first"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "add broker with contacts, set primary, disable",
+        "steps": [
+          "Open Settings > Brokers; add broker 'E2E Brokers' tier 2 with two contacts, second marked primary",
+          "Assert first contact demoted",
+          "Disable the broker",
+          "Open New Lead form with a broker channel; assert broker absent from picker"
+        ],
+        "expected_results": [
+          "Broker CRUD works; exactly one primary; disabled brokers hidden from pickers"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='broker-form-drawer']",
+          "[data-testid='contacts-editor']",
+          "[data-testid='primary-contact-radio']"
+        ],
+        "test_data": "Broker 'E2E Brokers {runId}'.",
+        "setup": "Tenant admin persona.",
+        "teardown": "Broker left disabled."
+      },
+      "task_ids": [
+        "T-012",
+        "T-016"
+      ],
+      "expected_results": [
+        "Broker admin complete with audit"
+      ]
+    },
+    {
+      "id": "V-024",
+      "acceptance_id": "AC-024",
+      "title": "API credential lifecycle",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: provision creates Keycloak client; regenerate invalidates old secret (old token request fails); disable blocks token issuance; all audited.",
+        "endpoints": [
+          "POST /api/v1/settings/api-credentials",
+          "POST .../regenerate",
+          "POST .../disable"
+        ],
+        "negative_tests": [
+          "Reveal without permission -> 403",
+          "Token request with rotated-out secret -> 401 at Keycloak"
+        ],
+        "role_permission_setup": "Admin with apiaccess.manage.",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/api-access.spec.ts",
+        "test_title": "enable tenant API access, reveal and regenerate secret",
+        "steps": [
+          "Open Settings > API access; enable API access",
+          "Assert client id displays and secret shows once in reveal dialog with copy button",
+          "Regenerate via danger confirm; assert new secret differs",
+          "Open a broker page; provision broker credential"
+        ],
+        "expected_results": [
+          "Credential provisioning UI complete; secrets revealed only explicitly"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='api-access-tab']",
+          "[data-testid='secret-reveal-dialog']",
+          "[data-testid='regenerate-button']"
+        ],
+        "test_data": "Tenant-level + one broker credential.",
+        "setup": "Tenant admin persona; Keycloak container.",
+        "teardown": "Disable created credentials."
+      },
+      "task_ids": [
+        "T-030"
+      ],
+      "expected_results": [
+        "Provision/reveal/regenerate/disable all permission-bound and audited"
+      ]
+    },
+    {
+      "id": "V-025",
+      "acceptance_id": "AC-025",
+      "title": "Parties list",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/parties.spec.ts",
+        "test_title": "parties list filters, searches, sorts, and paginates",
+        "steps": [
+          "Open Parties",
+          "Assert columns incl. open/total lead counts and last activity",
+          "Filter by party type Corporate; assert rows narrow",
+          "Type a seeded party name in search; assert match",
+          "Assert pagination summary '1-25 of N'"
+        ],
+        "expected_results": [
+          "List behaves per PRD 12.9 with 25-per-page pagination"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='parties-table']",
+          "[data-testid='party-type-filter']",
+          "[data-testid='pagination-summary']"
+        ],
+        "test_data": "Seeded 200 parties.",
+        "setup": "Seeded environment; RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-025"
+      ],
+      "expected_results": [
+        "Parties list complete"
+      ]
+    },
+    {
+      "id": "V-026",
+      "acceptance_id": "AC-026",
+      "title": "Party detail with leads card",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/parties.spec.ts",
+        "test_title": "party detail shows its leads and pre-fills New Lead",
+        "steps": [
+          "Open a seeded party with multiple leads",
+          "Assert summary panel and Leads card rows (no Party column)",
+          "Click + New Lead on the card",
+          "Assert intake opens with the Party section locked to this party"
+        ],
+        "expected_results": [
+          "Party's leads workable from detail; intake pre-filled and locked"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='party-summary']",
+          "[data-testid='party-leads-card']",
+          "[data-testid='party-section-locked']"
+        ],
+        "test_data": "Seeded party with 3+ leads.",
+        "setup": "Seeded environment.",
+        "teardown": "Cancel intake form."
+      },
+      "task_ids": [
+        "T-025"
+      ],
+      "expected_results": [
+        "FR-27 behaviors verified"
+      ]
+    },
+    {
+      "id": "V-027",
+      "acceptance_id": "AC-027",
+      "title": "Party form validation",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: region optional, email format validation, duplicate warning payload, no DELETE route.",
+        "endpoints": [
+          "POST/PUT /api/v1/parties"
+        ],
+        "negative_tests": [
+          "Missing name -> 422",
+          "Bad email -> 422",
+          "DELETE /parties/{id} -> 404/405"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/parties.spec.ts",
+        "test_title": "create party without region; duplicate name warns but allows save",
+        "steps": [
+          "Open + New Party; fill name matching an existing party, type Corporate, leave region empty",
+          "Assert duplicate warning banner lists matches with links but form remains submittable",
+          "Save; assert navigation to detail with toast"
+        ],
+        "expected_results": [
+          "Region optional (Q-9); duplicate warning non-blocking; validation per UI standards"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='party-form']",
+          "[data-testid='duplicate-warning-banner']",
+          "select[name='regionId']"
+        ],
+        "test_data": "Name duplicating seeded 'Botswana Mining Co.' with suffix trimmed-case variant.",
+        "setup": "RM persona with parties.create.",
+        "teardown": "None (party retained)."
+      },
+      "task_ids": [
+        "T-017",
+        "T-025"
+      ],
+      "expected_results": [
+        "Party validation matches spec incl. Q-9"
+      ]
+    },
+    {
+      "id": "V-028",
+      "acceptance_id": "AC-028",
+      "title": "Intake form field contract",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration validators: conditional broker, cover-type dependency, policy-term Other companion, priority derivation.",
+        "endpoints": [
+          "POST /api/v1/leads"
+        ],
+        "negative_tests": [
+          "Broker channel without broker -> 422",
+          "Cover type of other product line -> 422",
+          "policy_term=other without text -> 422",
+          "future date received -> 422",
+          "premium <= 0 -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-intake.spec.ts",
+        "test_title": "intake form behaves per PRD 9.3 field spec",
+        "steps": [
+          "Open + New Lead",
+          "Select existing party; assert read-only summary collapse",
+          "Choose broker channel; assert Broker becomes required; choose non-broker channel; assert optional",
+          "Change product line; assert cover type resets and repopulates",
+          "Enter estimated premium above tenant threshold; assert Priority derives High but is editable",
+          "Select policy term Other; assert required companion text appears",
+          "Assert currency inputs show tenant symbol prefix and thousands separators"
+        ],
+        "expected_results": [
+          "All conditional behaviors per FR-29 including Q-11 companion"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='party-select']",
+          "[data-testid='party-summary-collapsed']",
+          "select[name='requestChannelId']",
+          "[data-testid='broker-select']",
+          "select[name='coverTypeId']",
+          "input[name='policyTermOther']",
+          "[data-testid='currency-input']"
+        ],
+        "test_data": "Seeded party, broker channel 'Broker email', threshold from tenant settings.",
+        "setup": "RM persona; seeded tenant.",
+        "teardown": "Cancel without saving."
+      },
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "expected_results": [
+        "Field contract verified in UI and API"
+      ]
+    },
+    {
+      "id": "V-029",
+      "acceptance_id": "AC-029",
+      "title": "System reference and New status at intake",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: response carries generated lead_ref matching tenant format; status is canonical new; payloads with status/outcome fields rejected by contract (unknown fields ignored or 400).",
+        "endpoints": [
+          "POST /api/v1/leads"
+        ],
+        "negative_tests": [
+          "Parallel creates yield unique sequential refs"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-intake.spec.ts",
+        "test_title": "intake exposes no lifecycle fields and generates the reference on save",
+        "steps": [
+          "Open + New Lead; assert no status, follow-up, outcome, or quote inputs exist anywhere on the form",
+          "Complete and save",
+          "On Lead Detail assert ref matches L-YYYY-#### pattern and status chip is New"
+        ],
+        "expected_results": [
+          "No lifecycle capture at intake; system ref shown after save"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='lead-form']",
+          "[data-testid='lead-ref']",
+          "[data-testid='status-chip']"
+        ],
+        "test_data": "Minimal valid lead.",
+        "setup": "RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "expected_results": [
+        "FR-30 enforced"
+      ]
+    },
+    {
+      "id": "V-030",
+      "acceptance_id": "AC-030",
+      "title": "Duplicate lead warning",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: same party+product open lead in window returns warning envelope without persisting; createAnyway persists.",
+        "endpoints": [
+          "POST /api/v1/leads"
+        ],
+        "negative_tests": [
+          "Outside window -> no warning",
+          "Closed duplicate -> no warning"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-intake.spec.ts",
+        "test_title": "duplicate dialog lists matches and Create anyway proceeds",
+        "steps": [
+          "Create lead for party P product Motor",
+          "Start a second lead for P + Motor; submit",
+          "Assert duplicate dialog lists the first lead with a link",
+          "Click Review existing; assert navigation to the first lead",
+          "Repeat submission and click Create anyway; assert second lead created"
+        ],
+        "expected_results": [
+          "Non-blocking duplicate flow with both paths working"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='duplicate-lead-dialog']",
+          "getByRole('button', { name: 'Create anyway' })",
+          "getByRole('button', { name: 'Review existing' })"
+        ],
+        "test_data": "Party P created for this test; product Motor.",
+        "setup": "RM persona.",
+        "teardown": "Withdraw the duplicate lead."
+      },
+      "task_ids": [
+        "T-018",
+        "T-026"
+      ],
+      "expected_results": [
+        "FR-31 verified"
+      ]
+    },
+    {
+      "id": "V-031",
+      "acceptance_id": "AC-031",
+      "title": "Intake success flow and edit parity",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-intake.spec.ts",
+        "test_title": "success lands on detail with toast; edit reuses spec without lifecycle data",
+        "steps": [
+          "Create a lead; assert redirect to Lead Detail and toast 'Lead {ref} created'",
+          "Click Edit lead; assert same three sections pre-populated",
+          "Assert no status/outcome/follow-up fields; change estimated premium; save",
+          "Assert summary updates and an audit-friendly toast shows"
+        ],
+        "expected_results": [
+          "Success and edit flows per FR-32"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='toast-success']",
+          "getByRole('button', { name: 'Edit lead' })",
+          "[data-testid='lead-form']"
+        ],
+        "test_data": "Fresh lead this test.",
+        "setup": "RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-026"
+      ],
+      "expected_results": [
+        "FR-32 verified"
+      ]
+    },
+    {
+      "id": "V-032",
+      "acceptance_id": "AC-032",
+      "title": "REST API intake with credential scoping",
+      "method": "security",
+      "api": {
+        "approach": "Integration only (not UI-triggerable): obtain client-credentials tokens from Keycloak for broker-scoped and tenant-scoped clients; exercise POST /api/v1/intake/leads.",
+        "endpoints": [
+          "POST /api/v1/intake/leads",
+          "Keycloak token endpoint"
+        ],
+        "negative_tests": [
+          "Broker credential + payload naming another broker -> 422 BROKER_NOT_ALLOWED",
+          "Tenant credential + broker not in tenant -> 422",
+          "Disabled credential -> 403",
+          "Missing required field -> 422 structured list",
+          "Duplicate -> 201 with warnings payload",
+          "Ownerless submission -> 201 unassigned New lead that raises the unassigned alert"
+        ],
+        "role_permission_setup": "Provisioned tenant + broker credentials from T-030 setup.",
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-030"
+      ],
+      "expected_results": [
+        "Credential scoping unspoofable; API contract per FR-33"
+      ]
+    },
+    {
+      "id": "V-033",
+      "acceptance_id": "AC-033",
+      "title": "Workflow-only transitions and history",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: PUT /leads/{id} with status-like fields cannot change status; every operation appends history with actor/inputs; no status field accepted anywhere.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/*",
+          "PUT /api/v1/leads/{id}"
+        ],
+        "negative_tests": [
+          "Direct status write attempt has no effect",
+          "History rows are append-only (no update/delete endpoints)"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "status changes only through operations and appear in the timeline",
+        "steps": [
+          "Open a New lead; assert no editable status control exists on any screen",
+          "Run Assign via dialog",
+          "Assert chip updates in place and a timeline entry appears with actor and operation"
+        ],
+        "expected_results": [
+          "No editable status anywhere; history visible per operation"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='status-chip']",
+          "[data-testid='timeline-entry']"
+        ],
+        "test_data": "Fresh lead.",
+        "setup": "RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-019"
+      ],
+      "expected_results": [
+        "FR-34 verified"
+      ]
+    },
+    {
+      "id": "V-034",
+      "acceptance_id": "AC-034",
+      "title": "Multi-role Assign dialog",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: assign payload sets/clears multiple roles atomically; New->Assigned on first accountable owner; per-role history inputs.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/assign"
+        ],
+        "negative_tests": [
+          "Clearing accountable owner -> 422",
+          "Ineligible user for role -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "assign dialog manages all configured roles in one operation",
+        "steps": [
+          "Open Assign on a New lead",
+          "Assert one searchable dropdown per configured lead role, accountable owner marked required",
+          "Set owner + underwriter; submit",
+          "Assert status Assigned, both avatars in header (owner first)",
+          "Reopen dialog; clear underwriter; submit; assert underwriter removed and status unchanged"
+        ],
+        "expected_results": [
+          "Single dialog sets/changes/clears any subset; New->Assigned once"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='assign-dialog']",
+          "[data-testid='assignee-avatars']",
+          "[data-testid='role-select-accountable']"
+        ],
+        "test_data": "Business assignments: RM (accountable) + Underwriter.",
+        "setup": "RM persona; fresh lead.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "expected_results": [
+        "FR-35 verified"
+      ]
+    },
+    {
+      "id": "V-035",
+      "acceptance_id": "AC-035",
+      "title": "Lead operation matrix conformance",
+      "method": "integration",
+      "api": {
+        "approach": "Unit: exhaustive LeadWorkflow matrix vs PRD 10.4. Integration: every operation invoked from legal and illegal statuses via API; 409 payload includes legal ops.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/{op} for all 12 ops"
+        ],
+        "negative_tests": [
+          "Each op from every illegal status -> 409 ILLEGAL_TRANSITION",
+          "Missing required inputs per op -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "walk the standard lifecycle through dialogs",
+        "steps": [
+          "Fresh lead: Assign -> Send to underwriting -> Start pricing -> Create quote (via card) -> Log follow-up after send -> Start negotiation (after quote sent in quote spec) -> Mark lost with reason",
+          "At each step assert chip, timeline entry, and that the header primary action matches the new status"
+        ],
+        "expected_results": [
+          "Lifecycle progresses exactly per PRD 10.4 with contextual primary actions"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='primary-workflow-action']",
+          "[data-testid='more-actions-menu']",
+          "[data-testid='status-chip']"
+        ],
+        "test_data": "Fresh lead; lost reason 'Pricing too high'.",
+        "setup": "RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "expected_results": [
+        "Matrix conformance proven at unit, API, and UI levels"
+      ]
+    },
+    {
+      "id": "V-036",
+      "acceptance_id": "AC-036",
+      "title": "Pricing approval sub-state",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: request->approve, request->reject->re-request->approve loops; state on lead unchanged; pending-beyond-target alert; high-value Send gate when rule enabled.",
+        "endpoints": [
+          "POST .../request-pricing-approval",
+          "POST .../approve-pricing",
+          "POST .../reject-pricing",
+          "POST /api/v1/quotes/{id}/operations/send"
+        ],
+        "negative_tests": [
+          "Approve without permission -> 403",
+          "Reject without reason -> 422",
+          "Send high-value quote without approval when rule on -> 422 PRICING_APPROVAL_REQUIRED"
+        ],
+        "role_permission_setup": "Approver user with pricing.approve; requester RM without it.",
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "pricing approval request, reject, re-request, approve",
+        "steps": [
+          "On a Pricing lead as RM: Request pricing approval choosing the approver",
+          "Login as approver; open lead; Reject with reason",
+          "As RM re-request; as approver Approve",
+          "Assert approval state transitions visible in timeline and lead status stayed Pricing"
+        ],
+        "expected_results": [
+          "Sub-state Pending->Rejected->Pending->Approved without lead status change"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='request-pricing-approval-dialog']",
+          "[data-testid='approve-reject-dialog']",
+          "[data-testid='timeline-entry']"
+        ],
+        "test_data": "Seeded approver persona (Sales Head).",
+        "setup": "Lead moved to Pricing in setup.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-019",
+        "T-024"
+      ],
+      "expected_results": [
+        "FR-37 verified incl. alert and gate"
+      ]
+    },
+    {
+      "id": "V-037",
+      "acceptance_id": "AC-037",
+      "title": "Quote operation matrix conformance",
+      "method": "e2e",
+      "api": {
+        "approach": "Unit: QuoteWorkflow matrix. Integration: all six ops from legal/illegal statuses; send gates; revise versioning; won/lost cascades.",
+        "endpoints": [
+          "POST /api/v1/quotes/{id}/operations/{op}"
+        ],
+        "negative_tests": [
+          "Send without valid-until -> 422",
+          "Send without next follow-up -> 422",
+          "Revise a Draft -> 409",
+          "Won without bound premium -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "quote lifecycle: draft, send, revise, mark won with cascades",
+        "steps": [
+          "Create draft quote on a Pricing lead",
+          "Send it (valid-until + next follow-up); assert lead chip becomes Quote Sent",
+          "Revise with new premium; assert version 2 marked current, version 1 in history",
+          "Create a second draft quote; then Mark won on the revised quote (bound premium defaulted)",
+          "Assert lead Closed Won and the second quote Withdrawn"
+        ],
+        "expected_results": [
+          "All PRD 10.4 quote behaviors incl. sibling withdrawal"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='quotes-card']",
+          "[data-testid='send-quote-dialog']",
+          "[data-testid='revise-quote-dialog']",
+          "[data-testid='mark-won-dialog']",
+          "[data-testid='version-history']"
+        ],
+        "test_data": "Premiums 500,000 then 450,000; bound 450,000.",
+        "setup": "Lead in Pricing with RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-020",
+        "T-029"
+      ],
+      "expected_results": [
+        "Quote matrix verified at all levels"
+      ]
+    },
+    {
+      "id": "V-038",
+      "acceptance_id": "AC-038",
+      "title": "Closed Won only via quote Mark won",
+      "method": "integration",
+      "api": {
+        "approach": "Assert no lead-level won operation route exists (404 for POST /leads/{id}/operations/mark-won); MarkQuoteWon is the only writer of closed_won.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/mark-won (expected 404)",
+          "POST /api/v1/quotes/{id}/operations/mark-won"
+        ],
+        "negative_tests": [
+          "Lead-level won route absent",
+          "availableOperations for leads never includes a won operation"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-020"
+      ],
+      "expected_results": [
+        "FR-39 enforced structurally"
+      ]
+    },
+    {
+      "id": "V-039",
+      "acceptance_id": "AC-039",
+      "title": "Lifecycle guardrails",
+      "method": "integration",
+      "api": {
+        "approach": "Integration set: lost requires reason (comment when Other); won requires bound premium + decision date; follow-up required past Quote Sent; date-order validators; closed-record edits require correction permission and audit.",
+        "endpoints": [
+          "lead + quote operation routes",
+          "PUT /api/v1/leads/{id}",
+          "PUT /api/v1/quotes/{id}"
+        ],
+        "negative_tests": [
+          "Lost without reason -> 422",
+          "Reason Other without comment -> 422",
+          "Sent date before received -> 422",
+          "Closed lead edit without permission -> 403",
+          "Closed lead edit with permission -> 200 + audit row"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-019",
+        "T-020"
+      ],
+      "expected_results": [
+        "All FR-40 guardrails enforced server-side"
+      ]
+    },
+    {
+      "id": "V-040",
+      "acceptance_id": "AC-040",
+      "title": "Workflow dialog pattern",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "dialogs follow the shared pattern with danger styling and in-place updates",
+        "steps": [
+          "Open Mark lost on an open lead; assert title format 'Mark lost — {ref} · {party}', consequence line, danger-styled primary button",
+          "Submit without reason; assert inline 'Select a lost reason' error under the dropdown and dialog stays open",
+          "Select reason and submit; assert toast, chip updates without full page reload (URL unchanged, no navigation event), timeline entry added"
+        ],
+        "expected_results": [
+          "PRD 12.8 dialog anatomy and behavior verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='workflow-dialog-title']",
+          "[data-testid='dialog-danger-button']",
+          "[data-testid='field-error']"
+        ],
+        "test_data": "Open lead; reason 'Competitor won'.",
+        "setup": "RM persona.",
+        "teardown": "Reopen the lead via permitted persona."
+      },
+      "task_ids": [
+        "T-028",
+        "T-029"
+      ],
+      "expected_results": [
+        "FR-41 verified"
+      ]
+    },
+    {
+      "id": "V-041",
+      "acceptance_id": "AC-041",
+      "title": "Automatic expiry jobs only",
+      "method": "integration",
+      "api": {
+        "approach": "Invoke QuoteExpiryJob and LeadInactivityExpiryJob directly against fixtures with manipulated dates; assert only they change status automatically and stalled/SLA fixtures merely raise alerts.",
+        "endpoints": [
+          "job classes (service-level)"
+        ],
+        "negative_tests": [
+          "Draft/closed quotes untouched by expiry",
+          "Recently-active lead not expired",
+          "Stalled lead status unchanged by alert evaluation"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-023"
+      ],
+      "expected_results": [
+        "FR-42 automation boundary respected with system-actor history rows"
+      ]
+    },
+    {
+      "id": "V-042",
+      "acceptance_id": "AC-042",
+      "title": "Leads list working queue",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/leads-list.spec.ts",
+        "test_title": "leads list columns, filters, search, pagination, and bulk reassign",
+        "steps": [
+          "Open Leads as Sales Head (view_all)",
+          "Assert column set incl. flags and aging colors (amber/red rows present in seed)",
+          "Filter status=Quote Sent + product line Motor; assert narrowing",
+          "Search a seeded lead ref; assert single match",
+          "Toggle My leads; assert only own-assigned remain",
+          "Select two leads; Bulk reassign without note -> inline error; add note + new owner; submit",
+          "Assert owners changed and toast confirms"
+        ],
+        "expected_results": [
+          "Full PRD 12.4 queue behavior incl. Q-12 note requirement"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='leads-table']",
+          "[data-testid='flag-chips']",
+          "[data-testid='my-leads-toggle']",
+          "[data-testid='bulk-reassign-dialog']",
+          "textarea[name='note']"
+        ],
+        "test_data": "Seeded 300 leads; two open leads for reassign.",
+        "setup": "Sales Head persona.",
+        "teardown": "Reassign the two leads back via API."
+      },
+      "task_ids": [
+        "T-027"
+      ],
+      "expected_results": [
+        "FR-43 verified"
+      ]
+    },
+    {
+      "id": "V-043",
+      "acceptance_id": "AC-043",
+      "title": "Lead detail composition",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "lead detail renders header, summary, timeline, and outcome panel correctly",
+        "steps": [
+          "Open a seeded Quote Sent lead with follow-ups and a quote",
+          "Assert header: ref+party title, chip, flags, assignee avatars (owner first), age, primary action Log follow-up",
+          "Assert summary groups (Request, Coverage, Party card linking to party detail)",
+          "Assert timeline interleaves status changes, follow-ups, and quote events newest first with next-follow-up banner (red + Overdue chip when past)",
+          "Open a seeded Closed Won lead; assert outcome panel shows bound premium and closer; assert Closed Lost lead shows reason/competitor/comments"
+        ],
+        "expected_results": [
+          "PRD 12.5 layout complete; outcome panel only when closed"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='lead-header']",
+          "[data-testid='summary-panel']",
+          "[data-testid='next-follow-up-banner']",
+          "[data-testid='outcome-panel']",
+          "[data-testid='party-card-link']"
+        ],
+        "test_data": "Seeded leads: one Quote Sent with overdue follow-up, one Closed Won, one Closed Lost.",
+        "setup": "Seeded environment; Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-022",
+        "T-028"
+      ],
+      "expected_results": [
+        "FR-44 verified"
+      ]
+    },
+    {
+      "id": "V-044",
+      "acceptance_id": "AC-044",
+      "title": "Quotes lead-subordinate only",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "no top-level Quotes nav; quote access always lands in lead context",
+        "steps": [
+          "Assert sidebar has no Quotes entry",
+          "Global-search a seeded quote ref; select it",
+          "Assert navigation lands on the lead detail with the quote row highlighted"
+        ],
+        "expected_results": [
+          "FR-45 navigation rules hold"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='sidebar-nav']",
+          "[data-testid='global-search-input']",
+          "[data-testid='quote-row-highlighted']"
+        ],
+        "test_data": "Seeded quote ref.",
+        "setup": "Seeded environment.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-029"
+      ],
+      "expected_results": [
+        "FR-45 verified"
+      ]
+    },
+    {
+      "id": "V-045",
+      "acceptance_id": "AC-045",
+      "title": "New Quote form rules",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: premium > 0, prepared >= lead received, valid-until required at send not draft.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/quotes",
+          "PUT /api/v1/quotes/{id}"
+        ],
+        "negative_tests": [
+          "Premium 0 -> 422",
+          "Prepared before received -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "new quote modal validates and saves as draft",
+        "steps": [
+          "Open + New Quote on an open lead",
+          "Assert ref/version read-only, product/cover pre-filled from lead but editable",
+          "Submit without premium -> inline error",
+          "Set premium and a prepared date before the lead's received date -> inline error",
+          "Fix dates; Save as draft; assert Draft row appears with toast"
+        ],
+        "expected_results": [
+          "FR-46 validation and success behavior"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='new-quote-modal']",
+          "input[name='quotedPremium']",
+          "input[name='preparedDate']",
+          "[data-testid='quotes-card'] tr"
+        ],
+        "test_data": "Premium 750,000.",
+        "setup": "Open lead in Pricing.",
+        "teardown": "Withdraw the draft quote."
+      },
+      "task_ids": [
+        "T-020",
+        "T-029"
+      ],
+      "expected_results": [
+        "FR-46 verified"
+      ]
+    },
+    {
+      "id": "V-046",
+      "acceptance_id": "AC-046",
+      "title": "Quote detail panel",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "expanded quote panel shows fields, histories, attachments, and legal buttons only",
+        "steps": [
+          "Expand a seeded Revised quote row",
+          "Assert field grid, version list with current badge, status history entries",
+          "Assert workflow buttons are exactly the legal set for Revised (Send-not-present, Mark won, Mark lost, Withdraw, Assign)"
+        ],
+        "expected_results": [
+          "Panel content per FR-47 with legality-filtered actions"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='quote-detail-panel']",
+          "[data-testid='version-history']",
+          "[data-testid='quote-status-history']",
+          "[data-testid='quote-actions']"
+        ],
+        "test_data": "Seeded Revised quote.",
+        "setup": "Seeded environment.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-029"
+      ],
+      "expected_results": [
+        "FR-47 verified"
+      ]
+    },
+    {
+      "id": "V-047",
+      "acceptance_id": "AC-047",
+      "title": "Attachment rules",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration vs MinIO: round-trip integrity, magic-number rejection (renamed .exe as .pdf), per-tenant cap boundary, closed-quote 403, soft-delete audit, cross-tenant 404.",
+        "endpoints": [
+          "POST /api/v1/quotes/{id}/attachments",
+          "GET /api/v1/attachments/{id}",
+          "DELETE /api/v1/attachments/{id}"
+        ],
+        "negative_tests": [
+          "Disallowed type -> 422",
+          "Spoofed extension -> 422",
+          "Over cap -> 422",
+          "Other tenant download -> 404"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/quote-workflow.spec.ts",
+        "test_title": "upload, download, and remove quote attachments",
+        "steps": [
+          "Expand an open quote; upload sample.pdf",
+          "Assert it lists with size; download and assert content-disposition attachment",
+          "Attempt sample.exe upload; assert inline rejection",
+          "Remove the PDF; assert list empties"
+        ],
+        "expected_results": [
+          "FR-48 attachment flow verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='attachments-section']",
+          "input[type='file']",
+          "[data-testid='attachment-row']"
+        ],
+        "test_data": "fixtures/sample.pdf (50KB), fixtures/sample.exe.",
+        "setup": "Open quote; MinIO running.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-021",
+        "T-029"
+      ],
+      "expected_results": [
+        "Attachments validated, streamed, audited"
+      ]
+    },
+    {
+      "id": "V-048",
+      "acceptance_id": "AC-048",
+      "title": "Quote editing rules by status",
+      "method": "integration",
+      "api": {
+        "approach": "PUT draft succeeds; PUT sent -> 409 (revise required); PUT/ops on closed -> 403 without Quotes.CorrectClosed, 200 + audit with it.",
+        "endpoints": [
+          "PUT /api/v1/quotes/{id}"
+        ],
+        "negative_tests": [
+          "Sent direct edit -> 409",
+          "Closed edit unprivileged -> 403"
+        ],
+        "role_permission_setup": "User with and without quotes.correct_closed.",
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-020"
+      ],
+      "expected_results": [
+        "FR-49 editing rules enforced"
+      ]
+    },
+    {
+      "id": "V-049",
+      "acceptance_id": "AC-049",
+      "title": "Single current quote",
+      "method": "integration",
+      "api": {
+        "approach": "Create multiple quotes, revise, set-current; assert exactly one is_current per lead at every step and rollups use it.",
+        "endpoints": [
+          "POST /api/v1/quotes/{id}/set-current",
+          "GET /api/v1/leads/{id}/quotes"
+        ],
+        "negative_tests": [
+          "set-current on closed quote -> 409"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-020"
+      ],
+      "expected_results": [
+        "FR-50 invariant holds"
+      ]
+    },
+    {
+      "id": "V-050",
+      "acceptance_id": "AC-050",
+      "title": "Follow-up logging",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: next-follow-up required + future when past Quote Sent; counters update; no status change.",
+        "endpoints": [
+          "POST /api/v1/leads/{id}/operations/log-follow-up"
+        ],
+        "negative_tests": [
+          "Past next date -> 422",
+          "Missing next date past Quote Sent -> 422"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/lead-workflow.spec.ts",
+        "test_title": "log follow-up updates dates, count, and timeline without status change",
+        "steps": [
+          "On a Quote Sent lead open Log follow-up",
+          "Submit without next date -> inline error",
+          "Set outcome note + tomorrow as next date; submit",
+          "Assert follow-up count incremented, next-follow-up banner updated, timeline entry added, chip unchanged"
+        ],
+        "expected_results": [
+          "FR-51 verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='log-follow-up-dialog']",
+          "input[name='nextFollowUpDate']",
+          "[data-testid='next-follow-up-banner']"
+        ],
+        "test_data": "Seeded Quote Sent lead.",
+        "setup": "RM persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-019",
+        "T-028"
+      ],
+      "expected_results": [
+        "Follow-up discipline capturable"
+      ]
+    },
+    {
+      "id": "V-051",
+      "acceptance_id": "AC-051",
+      "title": "Shell composition",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "sidebar, top bar, user card, and footer render per PRD 12.2",
+        "steps": [
+          "Login as Sales Head",
+          "Assert sidebar order: Overview, Leads, Parties, Pipeline, Brokers, RM Performance, Loss Analysis, Alerts (with badge slot), Reports, separator, admin entries per permissions",
+          "Assert top bar: page title, search, bell, help, Export, + New Lead",
+          "Assert footer: copyright, 'All amounts in BWP' (tenant currency), data timestamp with refresh control",
+          "Assert user card shows initials, name, role line, and menu with profile/theme/sign-out"
+        ],
+        "expected_results": [
+          "Shell matches FR-52 composition"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='sidebar-nav']",
+          "[data-testid='topbar']",
+          "[data-testid='footer-currency']",
+          "[data-testid='user-card-menu']"
+        ],
+        "test_data": "Seeded Sales Head persona.",
+        "setup": "Seeded environment.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-013"
+      ],
+      "expected_results": [
+        "FR-52 verified"
+      ]
+    },
+    {
+      "id": "V-052",
+      "acceptance_id": "AC-052",
+      "title": "Global search",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: grouped results, per-type limit, tenant scoping, breadth filtering.",
+        "endpoints": [
+          "GET /api/v1/search?q="
+        ],
+        "negative_tests": [
+          "q < 2 chars -> empty",
+          "Other-tenant names -> no results",
+          "assigned-only user sees only visible leads/quotes"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/global-search.spec.ts",
+        "test_title": "grouped type-ahead search routes correctly per entity",
+        "steps": [
+          "Type a seeded party name; assert grouped dropdown (Parties/Leads/Quotes/Brokers headers)",
+          "Arrow-key to the party result and press Enter; assert party detail opens",
+          "Search a quote ref; select; assert its lead opens with quote highlighted"
+        ],
+        "expected_results": [
+          "FR-53 behaviors incl. keyboard navigation"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='global-search-input']",
+          "[data-testid='search-group-header']",
+          "[data-testid='search-result-item']"
+        ],
+        "test_data": "Seeded party + quote refs.",
+        "setup": "Seeded environment.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-038"
+      ],
+      "expected_results": [
+        "Search verified"
+      ]
+    },
+    {
+      "id": "V-053",
+      "acceptance_id": "AC-053",
+      "title": "Dashboard framework behaviors",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-framework.spec.ts",
+        "test_title": "filters persist across dashboards, drills work, deltas color by good direction",
+        "steps": [
+          "On Overview set Product line = Motor and a custom date range",
+          "Navigate to Pipeline; assert same filters applied; Clear filters resets both",
+          "Click a KPI card; assert drill list opens with matching rows",
+          "Assert Average Turnaround KPI with falling value renders its delta green while a rising Lost Premium delta renders red/amber"
+        ],
+        "expected_results": [
+          "FR-54 framework behaviors verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='filter-bar']",
+          "[data-testid='kpi-card']",
+          "[data-testid='kpi-delta']",
+          "[data-testid='drill-list']"
+        ],
+        "test_data": "Seeded data with movement in both directions (seed guarantees).",
+        "setup": "Seeded environment.",
+        "teardown": "Clear filters."
+      },
+      "task_ids": [
+        "T-031"
+      ],
+      "expected_results": [
+        "Framework verified incl. A-16 persistence"
+      ]
+    },
+    {
+      "id": "V-054",
+      "acceptance_id": "AC-054",
+      "title": "Executive Overview content",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration against a hand-computed fixture: all nine KPI values, open-per-stage counts, aging buckets, trend series, high-value rows, attention counts.",
+        "endpoints": [
+          "GET /api/v1/dashboards/executive"
+        ],
+        "negative_tests": [
+          "Pipeline-by-stage excludes closed stages and is not cumulative"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-overview.spec.ts",
+        "test_title": "overview renders nine KPIs, three charts, high-value table, and attention panel with drills",
+        "steps": [
+          "Open Overview",
+          "Assert 9 KPI cards labeled with lead/quote distinction",
+          "Assert Pipeline by Stage bars, aging donut with center total, Won vs Lost trend with Weekly/Monthly selector",
+          "Assert High-Value Opportunities rows drill to Lead Detail",
+          "Click Requires Attention 'Overdue Follow-ups' row; assert Alerts center opens pre-filtered to Overdue"
+        ],
+        "expected_results": [
+          "FR-55 widgets present, labeled, and drillable"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='kpi-row'] [data-testid='kpi-card']",
+          "[data-testid='pipeline-by-stage']",
+          "[data-testid='aging-donut']",
+          "[data-testid='won-lost-trend']",
+          "[data-testid='requires-attention']"
+        ],
+        "test_data": "Seeded data set.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-032"
+      ],
+      "expected_results": [
+        "Overview verified against seeded expectations"
+      ]
+    },
+    {
+      "id": "V-055",
+      "acceptance_id": "AC-055",
+      "title": "Pipeline & Conversion content",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration against fixture: funnel cumulative counts with Lost last, product-line stacks summing to monthly totals, open-stage-only heatmap, Q-8 overdue-quote definition in Immediate Actions.",
+        "endpoints": [
+          "GET /api/v1/dashboards/pipeline"
+        ],
+        "negative_tests": [
+          "Heatmap has no Won/Lost rows"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-pipeline.spec.ts",
+        "test_title": "pipeline dashboard renders funnel, stacks, donuts, heatmap, at-risk table, and immediate actions",
+        "steps": [
+          "Open Pipeline",
+          "Assert 9 KPIs, funnel with conversion-from-top percentages and Lost last in red",
+          "Assert stacked product-line columns with legend and monthly totals",
+          "Assert source and channel donuts",
+          "Assert heatmap rows are open stages only with graded cells; click a hot cell; assert drill list of aged items",
+          "Click Immediate Actions 'Unassigned leads'; assert Alerts center pre-filtered"
+        ],
+        "expected_results": [
+          "FR-56 widgets verified incl. prototype deviations"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='conversion-funnel']",
+          "[data-testid='product-line-stacks']",
+          "[data-testid='aging-heatmap']",
+          "[data-testid='at-risk-table']",
+          "[data-testid='immediate-actions']"
+        ],
+        "test_data": "Seeded data set.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-033"
+      ],
+      "expected_results": [
+        "Pipeline dashboard verified"
+      ]
+    },
+    {
+      "id": "V-056",
+      "acceptance_id": "AC-056",
+      "title": "Broker Performance content",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: ranking order, conversion math, matrix coordinates/bubbles, top-loss-reason mode.",
+        "endpoints": [
+          "GET /api/v1/dashboards/broker-performance"
+        ],
+        "negative_tests": [
+          "Brokers without period activity excluded from Active count"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-brokers.spec.ts",
+        "test_title": "brokers dashboard renders KPIs, ranking, quadrant matrix, and full table",
+        "steps": [
+          "Open Brokers dashboard",
+          "Assert 6 KPI cards",
+          "Assert Top Brokers bars with conversion column",
+          "Assert scatter matrix with quadrant legend colors matching the shared palette",
+          "Assert full table: tier chips, color-coded conversion, top loss reason column",
+          "Click a broker row; assert drill-through"
+        ],
+        "expected_results": [
+          "FR-57 verified with consistent quadrant palette"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='top-brokers-ranking']",
+          "[data-testid='broker-matrix']",
+          "[data-testid='quadrant-legend']",
+          "[data-testid='broker-performance-table']"
+        ],
+        "test_data": "Seeded 18 brokers with skewed performance.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-034"
+      ],
+      "expected_results": [
+        "Broker dashboard verified"
+      ]
+    },
+    {
+      "id": "V-057",
+      "acceptance_id": "AC-057",
+      "title": "RM Performance content",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: RM ranking by won premium, follow-up compliance metric, SLA-target flagging, watchlist action labels, five insight types.",
+        "endpoints": [
+          "GET /api/v1/dashboards/rm-performance"
+        ],
+        "negative_tests": [
+          "Filter variant params (teamOrRmId, brokerTypeId) honored"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-rm.spec.ts",
+        "test_title": "rm dashboard renders rankings, turnaround bars with SLA marker, watchlist, and insights",
+        "steps": [
+          "Open RM Performance",
+          "Assert filter bar shows RM/Team and Broker Type instead of RM and Broker",
+          "Assert 6 KPIs, Top RMs and Top Brokers rankings",
+          "Assert turnaround bars show a dashed SLA target line and beyond-target bars flagged",
+          "Assert watchlist rows carry color-coded suggested-action chips",
+          "Assert Leadership Insights panel lists five insight entries"
+        ],
+        "expected_results": [
+          "FR-58 verified incl. filter variant"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='filter-bar-rm-variant']",
+          "[data-testid='top-rms-ranking']",
+          "[data-testid='turnaround-bars']",
+          "[data-testid='sla-target-marker']",
+          "[data-testid='performance-watchlist']",
+          "[data-testid='leadership-insights']"
+        ],
+        "test_data": "Seeded 6 RMs with varied performance.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-035"
+      ],
+      "expected_results": [
+        "RM dashboard verified"
+      ]
+    },
+    {
+      "id": "V-058",
+      "acceptance_id": "AC-058",
+      "title": "Loss Analysis content",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: KPI math (price gap only over known competitor premiums), no win-back field, pre/post-quote split in drills.",
+        "endpoints": [
+          "GET /api/v1/dashboards/loss-analysis",
+          "GET /api/v1/dashboards/drill?widget=loss.count_by_reason"
+        ],
+        "negative_tests": [
+          "Payload contains no winBackPotential"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/dashboard-loss.spec.ts",
+        "test_title": "loss dashboard renders five KPIs, charts, competitor table, and commentary",
+        "steps": [
+          "Open Loss Analysis",
+          "Assert exactly 5 KPI cards and none named Win-back",
+          "Assert Lost Premium by Reason bars (red) with amounts and by Product Line (amber)",
+          "Assert 6-month trend with area fill",
+          "Assert competitor table and commentary feed with reason chips",
+          "Open reason drill; assert before/after-quote distinction column"
+        ],
+        "expected_results": [
+          "FR-59 verified incl. exclusion"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='loss-kpi-row']",
+          "[data-testid='lost-by-reason']",
+          "[data-testid='competitor-table']",
+          "[data-testid='loss-commentary']"
+        ],
+        "test_data": "Seeded ~75 lost leads across taxonomy.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-036"
+      ],
+      "expected_results": [
+        "Loss dashboard verified"
+      ]
+    },
+    {
+      "id": "V-059",
+      "acceptance_id": "AC-059",
+      "title": "SLA visibility placements",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: SLA/Turnaround report computes PRD 17.1 metrics incl. underwriting delay queue.",
+        "endpoints": [
+          "GET /api/v1/reports/sla-turnaround"
+        ],
+        "negative_tests": [
+          "No /sla dashboard route exists"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/reports.spec.ts",
+        "test_title": "SLA metrics appear in their prescribed locations and nowhere standalone",
+        "steps": [
+          "Assert sidebar has no SLA entry",
+          "Assert Pipeline shows SLA Breaches KPI and aging heatmap",
+          "Assert RM Performance shows turnaround bars with target marker",
+          "Assert Alerts center has an SLA tab with the underwriting delay entries",
+          "Open SLA/Turnaround report; assert breach-by-stage chart data and underwriting delay queue table"
+        ],
+        "expected_results": [
+          "FR-60 placement verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='sidebar-nav']",
+          "[data-testid='kpi-card-sla-breaches']",
+          "[data-testid='alerts-tab-sla']",
+          "[data-testid='uw-delay-queue']"
+        ],
+        "test_data": "Seeded SLA-breaching records.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-033",
+        "T-035",
+        "T-040"
+      ],
+      "expected_results": [
+        "SLA visibility per PRD 17"
+      ]
+    },
+    {
+      "id": "V-060",
+      "acceptance_id": "AC-060",
+      "title": "Alert rules materialization",
+      "method": "integration",
+      "api": {
+        "approach": "Unit: boundary tests per rule class (at/over/under threshold). Integration: AlertEvaluationJob against fixtures for all 11 types; resolve-on-clear; open-alert uniqueness.",
+        "endpoints": [
+          "AlertEvaluationJob (service)",
+          "GET /api/v1/alerts"
+        ],
+        "negative_tests": [
+          "Condition cleared -> alert resolved with reason",
+          "Duplicate open alert prevented",
+          "Thresholds respected exactly at boundary"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-024"
+      ],
+      "expected_results": [
+        "All eleven FR-61 types create and resolve correctly"
+      ]
+    },
+    {
+      "id": "V-061",
+      "acceptance_id": "AC-061",
+      "title": "Alerts center behavior",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/alerts-center.spec.ts",
+        "test_title": "category cards, tabs, queue, and contextual actions work the queue",
+        "steps": [
+          "Open Alerts center",
+          "Assert category cards with definitions and counts; click Expiring card; assert Expiring tab activates",
+          "Assert queue header rollup 'Premium at risk: …'",
+          "On an unassigned-lead row click 'Assign & acknowledge'; complete assign dialog",
+          "Assert the alert clears from the queue (after refetch)",
+          "Click another row; assert Lead Detail opens with the alerting quote highlighted"
+        ],
+        "expected_results": [
+          "FR-62 verified end to end"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='alert-category-card']",
+          "[data-testid='alerts-tabs']",
+          "[data-testid='premium-at-risk-rollup']",
+          "[data-testid='alert-action-link']"
+        ],
+        "test_data": "Seeded alert conditions per category.",
+        "setup": "Sales Head persona; alert evaluation ran post-seed.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-037"
+      ],
+      "expected_results": [
+        "Alerts center converts alerts into workflow actions"
+      ]
+    },
+    {
+      "id": "V-062",
+      "acceptance_id": "AC-062",
+      "title": "New-alert badge semantics",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: badge counts alerts created after last_opened_at per user; reset upserts timestamp; per-user independence.",
+        "endpoints": [
+          "GET /api/v1/alerts/badge",
+          "POST /api/v1/alerts/badge/reset"
+        ],
+        "negative_tests": [
+          "Open-alert count != badge count",
+          "Other user's reset does not affect this user"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/alerts-center.spec.ts",
+        "test_title": "badge shows new-since-last-visit and resets on open per user",
+        "steps": [
+          "Login as user A; note badge count on nav and bell match",
+          "Open Alerts center; assert badge resets to zero and persists zero after reload",
+          "Trigger a new alert condition via API (create overdue follow-up lead) and run evaluation",
+          "Assert badge shows 1 for user A; login as user B in second context; assert B's badge reflects B's own last visit"
+        ],
+        "expected_results": [
+          "FR-63 per-user semantics verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='nav-alerts-badge']",
+          "[data-testid='notification-bell-badge']"
+        ],
+        "test_data": "API-created overdue lead.",
+        "setup": "Two personas; API helper for alert triggering.",
+        "teardown": "Close created lead."
+      },
+      "task_ids": [
+        "T-024",
+        "T-037"
+      ],
+      "expected_results": [
+        "Badge semantics correct"
+      ]
+    },
+    {
+      "id": "V-063",
+      "acceptance_id": "AC-063",
+      "title": "Reports screen on-demand",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/reports.spec.ts",
+        "test_title": "report cards open print-ready views and CSVs with no scheduling UI",
+        "steps": [
+          "Open Reports as Sales Head; assert cards for the standard reports with Open report + CSV buttons",
+          "Assert no scheduling/cadence UI exists",
+          "Open Executive Weekly; assert print-ready view header shows tenant, report date, period, currency, last refreshed",
+          "Click CSV on Pipeline & Conversion; assert file downloads"
+        ],
+        "expected_results": [
+          "FR-64 verified; scheduling absent"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='report-card']",
+          "[data-testid='report-header-meta']",
+          "page.waitForEvent('download')"
+        ],
+        "test_data": "Seeded data.",
+        "setup": "Sales Head persona.",
+        "teardown": "None."
+      },
+      "task_ids": [
+        "T-040"
+      ],
+      "expected_results": [
+        "Reports on-demand only"
+      ]
+    },
+    {
+      "id": "V-064",
+      "acceptance_id": "AC-064",
+      "title": "Export fidelity and restriction",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: filtered CSV/Excel content matches list query; metadata block present; export permission and cross-tenant permission enforced; injection guard applied; export audited.",
+        "endpoints": [
+          "GET /api/v1/exports/leads",
+          "GET /api/v1/reports/{key}/csv"
+        ],
+        "negative_tests": [
+          "No export permission -> 403",
+          "Cross-tenant without global permission -> 403",
+          "Cell '=SUM(A1)' arrives quoted"
+        ],
+        "playwright_triggerable": true
+      },
+      "playwright": {
+        "test_file": "e2e_tests/tests/exports.spec.ts",
+        "test_title": "filtered list export downloads a file reflecting active filters",
+        "steps": [
+          "On Leads list filter status=Quote Sent",
+          "Export CSV via toolbar; capture download",
+          "Parse the file: assert only Quote Sent rows, and header lines include tenant name, period, currency, last refreshed"
+        ],
+        "expected_results": [
+          "FR-65 verified"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='export-menu']",
+          "page.waitForEvent('download')"
+        ],
+        "test_data": "Seeded leads.",
+        "setup": "Sales Head persona with export permission.",
+        "teardown": "Delete downloaded temp file."
+      },
+      "task_ids": [
+        "T-039",
+        "T-040"
+      ],
+      "expected_results": [
+        "Exports faithful and restricted"
+      ]
+    },
+    {
+      "id": "V-065",
+      "acceptance_id": "AC-065",
+      "title": "Data-quality validation catalog",
+      "method": "integration",
+      "api": {
+        "approach": "Integration sweep asserting each PRD 21.2 rule rejects with a structured error and persists nothing: mandatory fields, quote-requires-lead, date ordering, inactive/foreign reference values, premium bounds, tenant context requirement.",
+        "endpoints": [
+          "POST /api/v1/leads",
+          "POST /api/v1/leads/{id}/quotes",
+          "operation routes"
+        ],
+        "negative_tests": [
+          "Each rule violated individually -> 422 with field/code/message",
+          "Foreign-tenant reference id -> 422/404",
+          "Missing X-Tenant-Id on tenant-scoped route -> 400/403"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-018",
+        "T-019",
+        "T-020"
+      ],
+      "expected_results": [
+        "Validation catalog complete server-side"
+      ]
+    },
+    {
+      "id": "V-066",
+      "acceptance_id": "AC-066",
+      "title": "Seed completeness and idempotency",
+      "method": "integration",
+      "api": {
+        "approach": "Run seed on fresh DB; SeedVerifier asserts all FR-67 minimums/distributions; run seed again; assert identical counts and refs; run alert evaluation; assert every category populated.",
+        "endpoints": [
+          "seed command (process-level)"
+        ],
+        "negative_tests": [
+          "Verifier fails loudly when a minimum is violated (tested by fixture mutation)"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-041"
+      ],
+      "expected_results": [
+        "Seed meets PRD 23.1 and is repeatable"
+      ]
+    },
+    {
+      "id": "V-067",
+      "acceptance_id": "AC-067",
+      "title": "Per-endpoint isolation coverage",
+      "method": "security",
+      "api": {
+        "approach": "A conventions test enumerates all mapped tenant-scoped routes and asserts each appears in the isolation test matrix (fails when a new endpoint lacks an isolation test); matrix executes tenant-A-vs-B probes.",
+        "endpoints": [
+          "all"
+        ],
+        "negative_tests": [
+          "Unlisted new endpoint fails the conventions test"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-003",
+        "T-042"
+      ],
+      "expected_results": [
+        "Isolation coverage is enforced structurally, not by memory"
+      ]
+    },
+    {
+      "id": "V-068",
+      "acceptance_id": "AC-068",
+      "title": "Audit coverage",
+      "method": "integration",
+      "api": {
+        "approach": "For each privileged action category, execute the action and assert an audit_log row with actor, action code, entity, and before/after where applicable.",
+        "endpoints": [
+          "tenant/user/role/reference/rule/credential/workflow/export routes"
+        ],
+        "negative_tests": [
+          "Failed (403) attempts do not write success audit rows"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-003",
+        "T-006",
+        "T-007"
+      ],
+      "expected_results": [
+        "NFR-02 audit trail complete"
+      ]
+    },
+    {
+      "id": "V-069",
+      "acceptance_id": "AC-069",
+      "title": "Accessibility scan",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/a11y.spec.ts",
+        "test_title": "axe scan on key screens in both themes finds no critical violations",
+        "steps": [
+          "For each of Overview, Leads list, Lead detail, New Lead form, Alerts center: load page, run AxeBuilder, switch to dark theme, re-run",
+          "Collect violations of impact critical"
+        ],
+        "expected_results": [
+          "Zero critical violations on all five screens in both themes",
+          "Status chips include text (never color-only)"
+        ],
+        "selectors_or_locators": [
+          "AxeBuilder({ page })",
+          "[data-testid='status-chip']"
+        ],
+        "test_data": "Seeded data.",
+        "setup": "@axe-core/playwright installed; Sales Head persona.",
+        "teardown": "Reset theme to light."
+      },
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "WCAG 2.1 AA gate enforced in CI"
+      ]
+    },
+    {
+      "id": "V-070",
+      "acceptance_id": "AC-070",
+      "title": "Theming tokens",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/shell.spec.ts",
+        "test_title": "theme toggle switches tokens and persists per user",
+        "steps": [
+          "Toggle dark theme from the user-card menu",
+          "Assert html[data-theme='dark'] and a card surface uses the dark token value",
+          "Reload; assert theme persisted",
+          "Grep-level check (CI script) that src/ui components contain no raw hex colors outside tokens.css"
+        ],
+        "expected_results": [
+          "Both themes render via tokens; preference persists"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='theme-toggle']",
+          "html[data-theme='dark']"
+        ],
+        "test_data": "None.",
+        "setup": "Any persona.",
+        "teardown": "Reset to light."
+      },
+      "task_ids": [
+        "T-013"
+      ],
+      "expected_results": [
+        "NFR-04 verified"
+      ]
+    },
+    {
+      "id": "V-071",
+      "acceptance_id": "AC-071",
+      "title": "Performance at seed volume",
+      "method": "integration",
+      "api": {
+        "approach": "Timed integration tests against the seeded DB: each dashboard endpoint completes < 2s (warm); list endpoints return exactly 25 rows with total counts.",
+        "endpoints": [
+          "GET /api/v1/dashboards/*",
+          "GET /api/v1/leads"
+        ],
+        "negative_tests": [
+          "Oversized pageSize clamped"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-032",
+        "T-041"
+      ],
+      "expected_results": [
+        "NFR-05 targets met at seed volume"
+      ]
+    },
+    {
+      "id": "V-072",
+      "acceptance_id": "AC-072",
+      "title": "Vault-only secrets",
+      "method": "security",
+      "api": {
+        "approach": "Integration: API boots against Vault container and serves; boot with a missing key fails fast listing key names only. Repo scan asserts no connection strings/secrets in appsettings or source.",
+        "endpoints": [
+          "startup path"
+        ],
+        "negative_tests": [
+          "Missing Vault key -> startup failure naming the key, never the value",
+          "Repo scan finds no secret literals"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-002"
+      ],
+      "expected_results": [
+        "NFR-06 secrets discipline verified"
+      ]
+    },
+    {
+      "id": "V-073",
+      "acceptance_id": "AC-073",
+      "title": "Deterministic CI suite",
+      "method": "manual",
+      "api": {
+        "approach": "CI job runs the full suite twice (second run shuffled where the runner supports it); both runs green with identical outcomes. Reviewed as part of CI setup.",
+        "endpoints": [],
+        "negative_tests": [
+          "Any flaky test is a finding"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-001"
+      ],
+      "expected_results": [
+        "NFR-07 verified operationally in CI"
+      ]
+    },
+    {
+      "id": "V-074",
+      "acceptance_id": "AC-074",
+      "title": "Tenant display currency",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/settings.spec.ts",
+        "test_title": "changing tenant currency updates prefixes, footers, and formatting",
+        "steps": [
+          "As tenant admin set currency to ZAR/R in Business rules",
+          "Assert footer reads 'All amounts in ZAR'",
+          "Open New Lead; assert currency inputs show the new prefix",
+          "Open Overview; assert KPI compact values use the new code",
+          "Export a list; assert header metadata shows ZAR",
+          "Restore BWP"
+        ],
+        "expected_results": [
+          "A-3 display-currency behavior verified across surfaces"
+        ],
+        "selectors_or_locators": [
+          "[data-testid='footer-currency']",
+          "[data-testid='currency-input']",
+          "[data-testid='kpi-card']"
+        ],
+        "test_data": "Currency ZAR.",
+        "setup": "Tenant admin persona.",
+        "teardown": "Restore BWP via API."
+      },
+      "task_ids": [
+        "T-010",
+        "T-013",
+        "T-016"
+      ],
+      "expected_results": [
+        "Currency is a pure per-tenant display setting"
+      ]
+    },
+    {
+      "id": "V-075",
+      "acceptance_id": "AC-075",
+      "title": "No hard deletes",
+      "method": "integration",
+      "api": {
+        "approach": "Assert no DELETE routes exist for tenants/users/leads/quotes/parties; removal flows set soft flags; historical reads still resolve.",
+        "endpoints": [
+          "route table inspection",
+          "remove/deactivate/disable routes"
+        ],
+        "negative_tests": [
+          "DELETE /api/v1/tenants/{id} -> 404/405",
+          "Removed tenant's data intact in DB"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-006",
+        "T-007"
+      ],
+      "expected_results": [
+        "NFR-09 verified"
+      ]
+    },
+    {
+      "id": "V-076",
+      "acceptance_id": "AC-076",
+      "title": "Numeric keys and partitioning",
+      "method": "integration",
+      "api": {
+        "approach": "Schema-inspection test over information_schema/pg_partitioned_table: PKs are bigint (no uuid columns as keys), tenant-scoped tables are LIST-partitioned on tenant_id with composite PKs, tenant creation creates partitions.",
+        "endpoints": [
+          "database catalog queries"
+        ],
+        "negative_tests": [
+          "New tenant-scoped table lacking partitioning fails the conventions test"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-003"
+      ],
+      "expected_results": [
+        "Spec §11 physical conventions enforced structurally"
+      ]
+    },
+    {
+      "id": "V-077",
+      "acceptance_id": "AC-077",
+      "title": "Upload hardening",
+      "method": "security",
+      "api": {
+        "approach": "Integration: spoofed extension (exe bytes as .pdf) rejected via magic number; tenant-prefixed keys verified in MinIO; downloads carry attachment disposition; bucket unreachable without credentials (compose config review).",
+        "endpoints": [
+          "POST /api/v1/quotes/{id}/attachments",
+          "GET /api/v1/attachments/{id}"
+        ],
+        "negative_tests": [
+          "Spoofed magic number -> 422",
+          "Anonymous bucket access denied"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-021"
+      ],
+      "expected_results": [
+        "§16 upload hardening verified"
+      ]
+    },
+    {
+      "id": "V-078",
+      "acceptance_id": "AC-078",
+      "title": "Intake rate limiting",
+      "method": "security",
+      "api": {
+        "approach": "Integration: burst past the configured limit with credential A -> 429; concurrent credential B unaffected.",
+        "endpoints": [
+          "POST /api/v1/intake/leads"
+        ],
+        "negative_tests": [
+          "429 carries Retry-After",
+          "Limit is per-client not global"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-030"
+      ],
+      "expected_results": [
+        "Rate limiting per client verified"
+      ]
+    },
+    {
+      "id": "V-079",
+      "acceptance_id": "AC-079",
+      "title": "Security headers and CORS",
+      "method": "security",
+      "api": {
+        "approach": "Integration: assert HSTS, X-Content-Type-Options, Referrer-Policy on responses; preflight from unknown origin rejected, from configured SPA origin allowed.",
+        "endpoints": [
+          "any API response",
+          "OPTIONS preflight"
+        ],
+        "negative_tests": [
+          "Unknown origin -> no CORS allow headers"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-042"
+      ],
+      "expected_results": [
+        "§16 middleware posture verified"
+      ]
+    },
+    {
+      "id": "V-080",
+      "acceptance_id": "AC-080",
+      "title": "Formula and rule isolation",
+      "method": "unit",
+      "api": {
+        "approach": "Unit suites for MetricDefinitions (every PRD 22 formula incl. zero-denominator), ExecutiveEscalationRule (Q-10 composition table), SuggestedActionRule, and each alert predicate; architecture test asserting no dashboard/report query handler contains inline conversion-rate arithmetic (references the definition classes).",
+        "endpoints": [],
+        "negative_tests": [
+          "Zero denominators return explicit null/0 per definition",
+          "Boundary threshold cases"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-024",
+        "T-031",
+        "T-035"
+      ],
+      "expected_results": [
+        "§9.6 isolation verified; formulas modifiable in one place"
+      ]
+    },
+    {
+      "id": "V-081",
+      "acceptance_id": "AC-081",
+      "title": "Per-environment configuration",
+      "method": "manual",
+      "api": {
+        "approach": "Review + integration: appsettings files exist for local/dev/qa/stage/uat/prod with placeholder Vault paths; local docker-compose boots the full stack (API, UI, PG, Keycloak, Vault, MinIO) and the demo journey runs against it.",
+        "endpoints": [
+          "startup path"
+        ],
+        "negative_tests": [
+          "Selecting a placeholder environment fails fast with clear message rather than booting half-configured"
+        ],
+        "playwright_triggerable": false
+      },
+      "task_ids": [
+        "T-002"
+      ],
+      "expected_results": [
+        "Q-7 satisfied: local fully functional, other environments stubbed"
+      ]
+    },
+    {
+      "id": "V-082",
+      "acceptance_id": "AC-082",
+      "title": "Design-system visual fidelity smoke",
+      "method": "e2e",
+      "playwright": {
+        "test_file": "e2e_tests/tests/visual-shell.spec.ts",
+        "test_title": "shell and design-system computed-style smoke",
+        "steps": [
+          "Log in via the real Keycloak authorization-code flow as e2e-rm@quoteiq.test (seed-shell-e2e.sh persona)",
+          "Wait for the app shell to render (data-testid app-shell)",
+          "Read computed styles of the active sidebar nav item (qiq-nav-item--active): background-color and text-decoration-line",
+          "Read computed styles of the + New Lead button (data-testid new-lead-button): background-color and color",
+          "Read computed styles of a .qiq-card element: background-color, border-width, border-radius",
+          "Assert the notification bell and help buttons contain an svg element and do not contain the literal texts Bell or Help",
+          "Read computed body font-family"
+        ],
+        "expected_results": [
+          "Active nav item background resolves to the --qiq-accent value for the active theme and text-decoration-line is none",
+          "+ New Lead background resolves to --qiq-accent with --qiq-accent-contrast text",
+          "Card computes --qiq-surface-card background, 1px border, 10px radius",
+          "Bell/help are icon buttons (svg present, no placeholder text)",
+          "Body font-family begins with the --qiq-font-sans stack (Inter/Segoe UI)"
+        ],
+        "selectors_or_locators": [
+          "[data-testid=sidebar-nav] .qiq-nav-item--active",
+          "[data-testid=new-lead-button]",
+          ".qiq-card",
+          "[data-testid=notification-bell] svg",
+          "[data-testid=help-button] svg",
+          "body"
+        ],
+        "test_data": "Persona e2e-rm@quoteiq.test / Passw0rd!123 from e2e_tests/seed/seed-shell-e2e.sh; no other data needed (assertions are style-level, not data-level)",
+        "setup": "docker compose infra up; API and SPA dev server running; bash e2e_tests/seed/seed-shell-e2e.sh applied (idempotent)",
+        "teardown": "None (read-only assertions; session cookie cleared by browser context disposal)"
+      },
+      "task_ids": [
+        "T-043"
+      ],
+      "expected_results": [
+        "visual-shell.spec.ts passes against the locally running stack",
+        "V-070 no-raw-hex grep still passes over src/ui/src",
+        "All prior unit tests, typecheck, lint, build remain green",
+        "Human side-by-side sign-off of regenerated docs/ui-remediation/current-state captures vs docs/prototype/screenshots"
+      ]
+    },
+    {
+      "id": "V-083",
+      "acceptance_id": "AC-083",
+      "title": "Per-role 403 sweep",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration tests pin the new read/write authorization split per endpoint (member read 200, non-privileged write 403, broker detail read 403); a scripted Playwright crawl logs in as one persona per seeded role, visits every routed screen plus a lead detail, and records any >=400 API response — expected zero, plus a permitted landing page per role.",
+        "endpoints": [
+          "GET /api/v1/settings/reference-data/{listType}",
+          "GET /api/v1/settings/business-assignments",
+          "GET /api/v1/settings/business-rules",
+          "GET /api/v1/brokers"
+        ],
+        "negative_tests": [
+          "POST /settings/reference-data/{listType} as plain member -> 403",
+          "PUT /settings/business-rules|business-assignments without manage -> 403",
+          "GET /brokers/{id} as plain member -> 403 (contact-bearing detail stays gated)",
+          "Non-member of the X-Tenant-Id tenant -> 403 from TenantContextMiddleware (pre-existing tests)"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-044"
+      ],
+      "expected_results": [
+        "All 7 role personas: landing page renders (forbidden landing only for the flagged zero-membership Internal case), 0 distinct failing API calls during the crawl",
+        "New integration tests green; full backend suite green; existing Playwright suite green"
+      ]
+    },
+    {
+      "id": "V-084",
+      "acceptance_id": "AC-084",
+      "title": "Zero-membership Internal shell flow",
+      "method": "e2e",
+      "api": {
+        "approach": "Integration: GET /me returns globalPermissions with empty memberships for a tenant-less-grant user; PUT /me/preferences persists a non-member lastTenantId for a global.view_any_tenant holder and still 403s for a plain non-member. E2E: scripted internal1 login asserts the /admin/tenants landing, the all-tenants switcher, a successful switch into The Brittany, and rehydration of the cross-tenant context after a full reload — with zero failing API calls throughout.",
+        "endpoints": [
+          "GET /api/v1/me",
+          "PUT /api/v1/me/preferences",
+          "GET /api/v1/tenants",
+          "GET /api/v1/tenants/{id}"
+        ],
+        "negative_tests": [
+          "PUT /me/preferences with a non-member lastTenantId and no global.view_any_tenant -> 403",
+          "Force-navigating a switched-in Internal user to a route needing permissions they lack (e.g. /leads without leads.view) -> Forbidden page, no API call"
+        ],
+        "playwright_triggerable": true
+      },
+      "task_ids": [
+        "T-045"
+      ],
+      "expected_results": [
+        "internal1 lands on Tenant Manager with the full tenant list and 0 failing API calls",
+        "Cross-tenant selection survives reload; UI capabilities equal global grants",
+        "All prior suites remain green"
+      ]
+    }
+  ]
+}

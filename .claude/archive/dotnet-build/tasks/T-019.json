@@ -1,0 +1,109 @@
+{
+  "id": "T-019",
+  "title": "Lead workflow engine: operations, legality matrix, status history, pricing approvals, follow-ups",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-018"],
+  "objective": "All twelve lead workflow operations from PRD 10.4 execute as commands with legality validation, op-specific inputs, append-only status history, audit, and availableOperations exposure (spec FR-34..FR-37, FR-40..FR-42, §9.2).",
+  "scope": [
+    "Tables: lead_status_history, pricing_approvals, follow_ups (partitioned)",
+    "LeadWorkflow legality matrix keyed on canonical_key/reporting category",
+    "Operation commands: Assign/Reassign, StartInformationGathering, SendToUnderwriting, StartPricing, RequestPricingApproval, ApprovePricing, RejectPricing, LogFollowUp, StartNegotiation, MarkLeadLost, WithdrawLead, ReopenLead",
+    "POST /api/v1/leads/{id}/operations/{op} routes",
+    "AvailableOperations on GET /leads/{id}"
+  ],
+  "out_of_scope": ["Quote operations and cascades' quote side (T-020 implements IQuoteCascadeService)", "Automatic expiry jobs (T-023)"],
+  "implementation_details": [
+    "Liquibase 100-lead-workflow: lead_status_history (tenant_id, id, lead_id, operation text, previous_status_id, new_status_id, acted_by, acted_at, inputs jsonb); pricing_approvals per spec §11.3; follow_ups (tenant_id, id, lead_id, follow_up_date date, outcome_note text, next_follow_up_date date null, logged_by, logged_at)",
+    "Domain/Workflow/LeadWorkflow.cs: static legality matrix Dictionary<LeadOperation, OperationRule{AllowedFrom(canonical keys or categories), Target(canonical key or 'unchanged')}> transcribed exactly from PRD 10.4 lead table; statuses resolved via reference_items canonical_key; tenant-added intermediate statuses inherit their reporting category's operation set; pure and unit-testable",
+    "Application/Features/Leads/Workflow/: one command+validator+handler per operation; shared LeadOperationExecutor: load lead (tenant-filtered), check legality (409 ILLEGAL_TRANSITION with legal ops hint), check permission (per-op permission map, e.g. pricing approve/reject -> Pricing.Approve; Reopen -> Leads.Reopen), apply mutation + side effects, append history row with inputs jsonb, audit, enqueue alert re-evaluation hook (IAlertReevaluationQueue no-op until T-024)",
+    "AssignLead: payload {assignments:[{businessAssignmentId, userId|null}], comment?}; accountable owner required non-null; upserts lead_assignments; New -> Assigned sets date_assigned; reassign keeps status; history inputs record per-role previous/new",
+    "SendToUnderwriting: {underwritingOwnerUserId, note?} -> sets underwriting-role assignment + status underwriting; underwriting SLA clock = history timestamp",
+    "RequestPricingApproval: {approverUserId (must hold Pricing.Approve), proposedPremium?, note?} -> pricing_approvals row state pending, lead.pricing_approval_state=pending; ApprovePricing {note?} / RejectPricing {rejectionReason required} permission-bound, only by/for pending request; rejection allows re-request",
+    "LogFollowUp: {followUpDate default today, outcomeNote, nextFollowUpDate} -> nextFollowUpDate required and future when lead open past quote_sent (category quoted); inserts follow_ups, updates lead last/next follow-up + follow_up_count; no status change",
+    "MarkLeadLost: {lostReasonId required active LostReason, competitor?, competitorPremium?, lossComments (required when reason canonical 'other')} -> status closed_lost, decision_date, lost_before_quote computed (no quote ever sent), calls IQuoteCascadeService.CascadeLeadLost(leadId); WithdrawLead {withdrawalNote required} -> withdrawn + CascadeLeadWithdrawn; ReopenLead {reopenReason required} permission-bound -> returns to last open/quoted status from history (A-13)",
+    "AvailableOperationsCalculator: legality matrix ∩ caller permissions -> string[] on GetLead DTO; used by UI to hide illegal actions (FR-17)"
+  ],
+  "files": [
+    "src/api/db/changelog/100-lead-workflow/*.xml",
+    "src/api/QuoteIQ.Domain/Workflow/LeadWorkflow.cs",
+    "src/api/QuoteIQ.Domain/Workflow/LeadOperation.cs",
+    "src/api/QuoteIQ.Application/Features/Leads/Workflow/**/*.cs",
+    "src/api/QuoteIQ.Application/Abstractions/IQuoteCascadeService.cs",
+    "src/api/QuoteIQ.Application/Abstractions/IAlertReevaluationQueue.cs",
+    "src/api/QuoteIQ.Api/Endpoints/LeadWorkflowEndpoints.cs",
+    "src/api/tests/QuoteIQ.Domain.Tests/Workflow/LeadWorkflowMatrixTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Leads/Workflow/*.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "LeadWorkflowMatrix_EveryOperationByEveryCanonicalStatus_ShouldMatchPrd104Table (exhaustive legal + illegal)",
+      "LeadWorkflowMatrix_TenantAddedOpenStatus_ShouldInheritCategoryOperations"
+    ],
+    "integration": [
+      "Assign_WhenNew_ShouldSetAssignedAndDateAssignedAndHistory",
+      "Reassign_ShouldKeepStatusAndRecordPerRoleChanges",
+      "SendToUnderwriting_ShouldSetRoleAndStatus",
+      "PricingApproval_RequestApprove_And_RequestRejectRerequest_Loops",
+      "ApprovePricing_WithoutPermission_ShouldReturn403",
+      "LogFollowUp_WhenQuoteSentWithoutNextDate_ShouldReturnValidationError",
+      "MarkLost_WithoutReason_ShouldReturnValidationError; WithReasonOther_RequiresComment",
+      "MarkLost_BeforeAnyQuote_ShouldRecordLostBeforeQuoteTrue",
+      "Reopen_ShouldReturnToLastOpenStatusAndAudit",
+      "IllegalTransition_ShouldReturn409WithLegalOperations",
+      "EveryOperation_ShouldAppendHistoryRowWithInputs"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-033", "AC-034", "AC-035", "AC-036", "AC-039", "AC-050", "AC-065"],
+  "verification_ids": ["V-033", "V-034", "V-035", "V-036", "V-039", "V-050", "V-065"],
+  "findings": [
+    {
+      "id": "F-057",
+      "source": "tests-code-review",
+      "severity": "major",
+      "category": "completeness",
+      "description": "The SendToUnderwriting role-assignment side effect (required by AC-035 'side effects match PRD 10.4 exactly' + FR-36 'sets underwriting role') is entirely UNVERIFIED, and the test name misrepresents coverage. LeadWorkflowTestContext.SeedAccountableOwnerAsync configures NO underwriting-named role, so SendToUnderwritingCommandHandler's underwritingRole lookup resolves null, the assignment/eligibility branch is dead in the test, and SendToUnderwriting_ShouldSetRoleAndStatus asserts only StatusCanonicalKey=='underwriting'. Both the 'underwrit' heuristic match path AND the InvalidAssignee eligibility-rejection (422) path have zero coverage. The heuristic DESIGN itself is accepted as a documented interim (no IsUnderwritingOwner marker exists - a T-011 schema follow-up); this finding is the missing verification of the required side effect.",
+      "evidence": "src/api/tests/QuoteIQ.Api.Tests/Leads/Workflow/LeadWorkflowTestContext.cs:52-58; src/api/QuoteIQ.Application/Features/Leads/Workflow/SendToUnderwriting/SendToUnderwritingCommandHandler.cs:56-58 (null role) + 60-86 (dead branch); LeadWorkflowTests.cs:93-110.",
+      "recommendation": "Add an integration test that configures a lead-assignable role whose name contains 'underwrit', asserts a LeadAssignment row IS written for that role after SendToUnderwriting, AND asserts an ineligible underwritingOwnerUserId returns 422. If exercising the now-live branch reveals a code defect, fix it. Rename/scope the existing test honestly.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T13:55:00-04:00",
+      "resolution": "Verified fix iteration 2 (evaluator independent audit). Two new tests genuinely exercise the previously-dead branch and would catch a break: positive (SendToUnderwriting_WhenUnderwritingRoleConfigured_ShouldAssignUnderwritingOwnerAndSetStatus) seeds a BusinessAssignment AppliesTo=lead role named 'Underwriter' matching the RoleName.Contains('underwrit') heuristic, makes a user eligible for THAT role via AddEligibleOwnerAsync(underwritingRole.RoleId), and asserts a lead_assignments row exists by BusinessAssignmentId==underwritingRole.AssignmentId (distinct from the accountable-owner assignment) with UserId==underwriterId - would fail if the assignment weren't persisted (guards the side effect, not the DTO); negative (SendToUnderwriting_WhenUnderwritingOwnerIneligible_ShouldReturn422) seeds the role with no eligible user + passes the accountable-owner as underwritingOwnerUserId -> 422 LEAD_WORKFLOW_INVALID_ASSIGNEE via the genuine eligibility-rejection path (not an earlier guard). Old test renamed SendToUnderwriting_ShouldSetStatusWhenNoUnderwritingRoleConfigured (graceful-degrade, assertion kept, honestly named). No-production-code-change claim VERIFIED TRUE by file mtimes (only the 2 test files touched); the handler branch is correct as designed, no defect. Evaluator re-ran the 2 tests by name -> pass."
+    },
+    {
+      "id": "F-058",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "RejectPricing 'reason required -> 422' (a V-036 negative) has no integration coverage. RejectPricingValidator enforces it (unit-safe) but no API test exercises the 422.",
+      "evidence": "RejectPricingValidator.cs:10; no RejectPricing_WithoutReason test in LeadWorkflowTests.cs.",
+      "recommendation": "Add RejectPricing_WithoutReason_ShouldReturn422. Non-blocking.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T13:55:00-04:00",
+      "resolution": "Verified fix iteration 2. RejectPricing_WithoutReason_ShouldReturn422 added: moves the lead to Pricing, opens a genuine pending approval, rejects with rejectionReason=null -> 422; approver granted Pricing.Approve/Reject/Leads.View (legitimate separate-approver setup, not a weakening). With a pending request + permitted approver, the null-reason validation is the only failure path. Evaluator re-ran by name -> pass."
+    },
+    {
+      "id": "F-059",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "maintainability",
+      "description": "Two housekeeping/advisory items: (a) BusinessAssignment has no IsUnderwritingOwner structural marker, forcing SendToUnderwriting to use a fragile case-insensitive 'underwrit' role-name substring match - a real marker on the business_assignments schema is a good follow-up (T-011 territory); (b) a stray empty directory 'src/api/db;C' exists (untracked, benign shell-artifact) that should be removed.",
+      "evidence": "SendToUnderwritingCommandHandler.cs role-name match; stray src/api/db;C directory.",
+      "recommendation": "Track IsUnderwritingOwner as a T-011/schema follow-up; remove the stray directory during this fix. Non-blocking.",
+      "status": "RESOLVED",
+      "created_at": "2026-07-13T13:55:00-04:00",
+      "resolution": "Verified fix iteration 2. Stray src/api/db;C directory removed (not found anywhere under src/api). No IsUnderwritingOwner marker added - BusinessAssignment still carries only IsAccountableOwner; the only 'IsUnderwritingOwner' reference is the handler XML doc comment naming the deferred T-011 follow-up. CARRIED FORWARD: add an IsUnderwritingOwner (or equivalent structural role-purpose marker) to business_assignments in a future T-011 schema pass so SendToUnderwriting no longer relies on the case-insensitive 'underwrit' role-name substring match."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-34..FR-42, §9.2, PRD 10.4)" },
+    { "timestamp": "2026-07-13T11:50:00-04:00", "event": "task_started", "message": "T-019 IN_PROGRESS; delegated to Implementor (iteration 1/10). Dep T-018 (leads core) PASS. Large backend task, test-first: Liquibase 100-lead-workflow (lead_status_history, pricing_approvals, follow_ups partitioned); Domain/Workflow/LeadWorkflow.cs pure legality matrix transcribed EXACTLY from PRD 10.4 (keyed on canonical_key/reporting-category; tenant intermediate statuses inherit category ops); shared LeadOperationExecutor (load tenant-filtered, legality 409 ILLEGAL_TRANSITION+legal-ops hint, per-op permission map, mutation+side effects, append history row w/ inputs jsonb, audit, IAlertReevaluationQueue no-op hook); 12 operation commands (Assign/Reassign, StartInformationGathering, SendToUnderwriting, StartPricing, RequestPricingApproval, ApprovePricing, RejectPricing, LogFollowUp, StartNegotiation, MarkLeadLost, WithdrawLead, ReopenLead); IQuoteCascadeService no-op seam (T-020 implements); AvailableOperationsCalculator = legality ∩ caller permissions on GetLead. POST /api/v1/leads/{id}/operations/{op}. AC-033/034/035/036/039/050/065. Exhaustive matrix unit tests + integration per operation." },
+    { "timestamp": "2026-07-13T13:45:00-04:00", "event": "implementation_written", "message": "T-019 IMPLEMENTED (iteration 1/10). Liquibase 100-lead-workflow (lead_status_history, pricing_approvals, follow_ups partitioned), registered + applied live + idempotent. Domain/Workflow: LeadOperation (12), LeadStatusKeys, LeadWorkflow (pure legality matrix), LeadOperationPermissions. Entities LeadStatusHistory/PricingApproval/FollowUp. Abstractions IQuoteCascadeService/IAlertReevaluationQueue/ILeadWorkflowStore + NoOp impls (cascade seam for T-020, alert seam for T-024). Features/Leads/Workflow: LeadOperationExecutor + one command+validator+handler per op (Assign, StartInformationGathering, SendToUnderwriting, StartPricing, RequestPricingApproval, ApprovePricing, RejectPricing, LogFollowUp, StartNegotiation, MarkLeadLost, WithdrawLead, ReopenLead). LeadWorkflowEndpoints POST /leads/{id}/operations/{op}. PERMISSION MAP: Assign->leads.assign; info-gathering/underwriting/pricing/negotiation/follow-up->leads.update; RequestPricingApproval->pricing.request; Approve->pricing.approve; Reject->pricing.reject; MarkLost/Withdraw->leads.close; Reopen->NEW leads.reopen (added + mirrored to client permissionCatalog.ts + drift-guard passing). 409 envelope {code:LEAD_ILLEGAL_TRANSITION, detail, legalOperations:[...]} via new Error.Extensions bag merged into problem+json. Reopen A-13: builds chronological status timeline from lead_status_history and walks backward past the terminal entry to the most recent Open/Quoted status. AvailableOperationsCalculator (legality ∩ caller permissions) replaces the T-018 seam on GetLead (CreateLeadTests updated to grant Leads.Assign - now permission-aware, not a weakening). FLAGGED FOR EVALUATOR: (1) PRD 10.4 'open' used both narrowly + broadly - LeadWorkflow keys legality by canonical status key first, falling back to reporting category {Open,Quoted} only for the 4 ops PRD phrases as 'any open status' (Assign/Reassign, LogFollowUp, MarkLost, Withdraw); narrow ops (transitions, 3 pricing sub-ops, Reopen) do NOT extend to tenant-added custom statuses - verify this matches PRD 10.4 intent. (2) SendToUnderwriting 'sets underwriting assignable role' has NO structural marker on BusinessAssignment (only IsAccountableOwner exists) - resolved via case-insensitive role-NAME matching on 'underwrit', degrading gracefully (status still transitions) if unconfigured; recommends a real IsUnderwritingOwner-style flag for T-011/future - FRAGILE HEURISTIC, evaluator assess acceptable-with-follow-up vs finding. Tests: Domain LeadWorkflowMatrixTests 179 exhaustive (every op x every canonical status legal/illegal + tenant-added-status inheritance); Api 14 integration (Assign/Reassign/underwriting/pricing-approve+reject-rerequest-loop/approve-403/follow-up-validation/mark-lost-variants/lost-before-quote/reopen/illegal-409/every-op-appends-history). Playwright lead-workflow.spec.ts 5 test.fixme (V-033/034/035/036/050 - Lead Detail UI T-028; V-039/065 integration-only satisfied by Api tests). Full suite twice: Domain 190/190 (11+179), Infrastructure 45/45, Api 213/213 (199+14) = 448/448. Frontend typecheck + e2e tsc clean. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T13:55:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT NEEDS_FIXES. Implementation strong; independent suite 448/448 (Domain 190, Infrastructure 45, Api 213), no flakes. VERIFIED CORRECT (independent, not just trusting tests): legality matrix spot-checked against FR-36 + spec line 300 + A-13 (Assign/SendToUnderwriting/pricing/negotiation/mark-lost/withdraw/reopen cells all match; matrix illegal from closed_won etc); the 179 matrix tests hand-author an INDEPENDENT ExpectedLegalOperations set (not tautological). 'open' narrow-vs-broad ruling ACCEPTABLE (category {Open,Quoted} fallback for the 4 broad ops only; tenant-custom-status inheritance tested). Pricing loop CORRECT + well-tested (request->reject->re-request->approve, 403). History appends with inputs jsonb (every-op test). availableOperations = legality ∩ permissions (CreateLeadTests Leads.Assign grant is required by the now-permission-aware calculator, NOT a weakening). 409 LEAD_ILLEGAL_TRANSITION + legalOperations hint via Error.Extensions clean. Reopen A-13 walk-back correct. Mark-lost/withdraw cascades + no-op seams correct. Tenant isolation clean (explicit TenantId, foreign 404, per-op server-side permission x2, audited). SendToUnderwriting role-name heuristic DESIGN accepted as documented interim. BLOCKING F-057 (major): the SendToUnderwriting role-assignment side effect (AC-035/FR-36) is entirely UNTESTED - test seeds no underwriting role so the branch is dead, test asserts only status; both heuristic-match and ineligible-422 paths uncovered. Plus F-058 (minor: RejectPricing reason-required 422 untested) and F-059 (info: no IsUnderwritingOwner marker -> fragile name-match, T-011 follow-up; stray src/api/db;C dir). Note: PRD 10.4 not verbatim in spec - matrix verified against FR-36/line300/A-13." },
+    { "timestamp": "2026-07-13T13:58:00-04:00", "event": "fix_iteration_started", "message": "T-019 NEEDS_FIXES; fix iteration 2/10 delegated. F-057 (BLOCKING): add integration test configuring a lead-assignable role whose name contains 'underwrit', assert a LeadAssignment row is written for it after SendToUnderwriting AND an ineligible underwritingOwnerUserId -> 422 (exercises the currently-dead heuristic-match + eligibility-rejection branches; if a code defect surfaces, fix it); rename/scope the misleading test. F-058: add RejectPricing_WithoutReason_ShouldReturn422. F-059: remove the stray src/api/db;C directory (IsUnderwritingOwner marker deferred as a T-011 follow-up). iteration_count -> 2." },
+    { "timestamp": "2026-07-13T14:30:00-04:00", "event": "implementation_written", "message": "T-019 fix iteration 2/10 COMPLETE. F-057 closed: LeadWorkflowTestContext gained LeadRoleFixture + SeedLeadRoleAsync (mirrors SeedAccountableOwnerAsync) seeding an additional lead-assignable role. New tests: SendToUnderwriting_WhenUnderwritingRoleConfigured_ShouldAssignUnderwritingOwnerAndSetStatus (seeds 'Underwriter' role + eligible user, asserts status->underwriting AND a lead_assignments row written for that role/user, queried directly from DB); SendToUnderwriting_WhenUnderwritingOwnerIneligible_ShouldReturn422 (ineligible assignee -> 422 LEAD_WORKFLOW_INVALID_ASSIGNEE). Both exercise the previously-dead SendToUnderwritingCommandHandler branch (role-name heuristic lookup + eligibility + LeadAssignment upsert) - NO production defect found, branch works as designed, no production code changed. Renamed the old test -> SendToUnderwriting_ShouldSetStatusWhenNoUnderwritingRoleConfigured documenting the graceful-degrade case (assertion kept). F-058 closed: RejectPricing_WithoutReason_ShouldReturn422 added. F-059 closed: stray src/api/db;C removed (IsUnderwritingOwner deferred to T-011). Full suite twice: Domain 190/190, Infrastructure 45/45, Api 216/216 = 451/451 both runs, no flakes. No production code changed; frontend/e2e untouched. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T14:40:00-04:00", "event": "evaluator_result", "message": "Re-evaluation (fix iteration 2/10): VERDICT PASS. F-057/F-058/F-059 all RESOLVED, no regression, no new findings. Independent suite (--no-build, cap in effect, clean first attempt no flakes): Domain 190/190, Infrastructure 45/45, Api 216/216 = 451/451; targeted re-run of the 3 fix tests by name -> 3/3 pass. F-057: the 2 new tests genuinely exercise the previously-dead branch and would catch a break (positive asserts lead_assignments row by the distinct underwriting BusinessAssignmentId + UserId, eligibility made role-specific via AddEligibleOwnerAsync(underwritingRole.RoleId); negative hits the true InvalidAssignee eligibility-rejection 422, not an earlier guard); old test honestly renamed; no-production-code-change VERIFIED by mtimes (only 2 test files touched); handler branch correct as designed. F-058: RejectPricing reason-422 legit. F-059: stray dir gone, no IsUnderwritingOwner added (deferred T-011). Iteration-1 conclusions hold (matrix/pricing/history/availableOps/Reopen/isolation unchanged). Recommend PASS." },
+    { "timestamp": "2026-07-13T14:42:00-04:00", "event": "task_passed", "message": "T-019 PASS (iteration 2/10). Backend suite 451/451 (Domain 190, Infrastructure 45, Api 216). AC-033/034/035/036/039/050/065 satisfied; V-033/034/035/036/050 Playwright carried as test.fixme until T-028 Lead Detail UI, V-039/065 integration-covered. Findings F-057/F-058/F-059 RESOLVED. Lead workflow engine complete: 12 ops, PRD-10.4 legality matrix, pricing loop, follow-ups, Reopen A-13, availableOperations. CARRY-FORWARD: IsUnderwritingOwner structural marker on business_assignments (currently a role-name heuristic) - future T-011 schema follow-up, non-blocking. T-019 PASS UNBLOCKS T-020 (Quotes backend; dep T-019) to READY. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

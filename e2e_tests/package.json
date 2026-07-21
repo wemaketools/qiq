@@ -1,0 +1,18 @@
+{
+  "name": "quoteiq-e2e-tests",
+  "version": "1.0.0",
+  "description": "Playwright end-to-end tests for QuoteIQ",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --ui"
+  },
+  "license": "UNLICENSED",
+  "type": "module",
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}

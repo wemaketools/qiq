@@ -1,0 +1,112 @@
+{
+  "id": "T-005",
+  "title": "RBAC core: schema, permission catalog, effective-permission resolver, authorization policies",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-003", "T-004"],
+  "objective": "Model users, permissions, roles, groups, and all assignment paths; resolve effective permissions per tenant; enforce them via RequirePermission endpoint policies (spec FR-12..FR-16, §13, PRD 20/D).",
+  "scope": [
+    "Liquibase: users, user_tenants, permissions, roles, role_permissions, user_roles, user_permissions, user_groups, group_members, group_roles, group_permissions",
+    "PermissionCatalog constants + idempotent startup seeding",
+    "EffectivePermissionResolver implementing union semantics (PRD D.2) with tenant scoping and global grants",
+    "RequirePermission authorization for minimal-API endpoints",
+    "Record-level visibility breadth permissions defined (leads.view_all, quotes.view_all) for use by later tasks"
+  ],
+  "out_of_scope": ["User Manager endpoints (T-007)", "Tenant CRUD (T-006)"],
+  "implementation_details": [
+    "Tables: users (id bigint identity, keycloak_id text unique, first_name, last_name, email citext unique, is_active bool, last_tenant_id bigint null, theme_preference text); user_tenants (user_id, tenant_id, unique pair); roles (id, tenant_id bigint null = global, name, is_active, unique(tenant_id,name)); permissions (code text PK, category, description); assignment tables per spec §11.1. RBAC tables are global (unpartitioned) since roles may be global; tenant scoping via tenant_id columns and resolver logic",
+    "Domain/Security/PermissionCatalog.cs: nested static classes per category (Tenants, Users, Roles, Groups, Leads, Parties, Quotes, Brokers, ReferenceData, BusinessRules, BusinessAssignments, ApiAccess, Dashboards, Reports, Alerts, Audit, Global) with string constants, e.g. Leads.Create = \"leads.create\", Leads.ViewAll = \"leads.view_all\", Quotes.ViewAll = \"quotes.view_all\", Pricing.Approve = \"pricing.approve\", Global.ViewAnyTenant = \"global.view_any_tenant\", Global.ManageTemplates = \"global.manage_templates\"; full list mirrors PRD 20.6",
+    "Infrastructure/Security/PermissionCatalogSeeder.cs: IHostedService inserting missing permission rows at startup (idempotent upsert on code)",
+    "Application/Security/IEffectivePermissionResolver.cs: Task<IReadOnlySet<string>> ResolveAsync(long userId, long? tenantId, CancellationToken); Infrastructure implementation unioning: direct user_permissions, user_roles' role_permissions, group (via group_members) group_roles' permissions, group_permissions — each filtered to rows where tenant_id matches the context tenant OR tenant_id is null (global); result cached per request scope",
+    "Api/Auth/RequirePermissionFilter.cs: IEndpointFilter taking permission code; extension .RequirePermission(string) on RouteHandlerBuilder; returns 403 problem+json on failure; resolves app user from keycloak sub via IUserResolver (maps/loads users row, 401 if none or inactive)",
+    "ICurrentUser completed: exposes AppUserId, KeycloakId, Email"
+  ],
+  "files": [
+    "src/api/db/changelog/020-rbac/020-rbac-tables.xml",
+    "src/api/db/changelog/db.changelog-master.xml",
+    "src/api/db/changelog/functions/create_tenant_partitions.sql",
+    "src/api/QuoteIQ.Domain/Security/PermissionCatalog.cs",
+    "src/api/QuoteIQ.Domain/Entities/User.cs",
+    "src/api/QuoteIQ.Domain/Entities/UserTenant.cs",
+    "src/api/QuoteIQ.Domain/Entities/Permission.cs",
+    "src/api/QuoteIQ.Domain/Entities/Role.cs",
+    "src/api/QuoteIQ.Domain/Entities/RolePermission.cs",
+    "src/api/QuoteIQ.Domain/Entities/UserRole.cs",
+    "src/api/QuoteIQ.Domain/Entities/UserPermission.cs",
+    "src/api/QuoteIQ.Domain/Entities/UserGroup.cs",
+    "src/api/QuoteIQ.Domain/Entities/GroupMember.cs",
+    "src/api/QuoteIQ.Domain/Entities/GroupRole.cs",
+    "src/api/QuoteIQ.Domain/Entities/GroupPermission.cs",
+    "src/api/QuoteIQ.Application/Security/IEffectivePermissionResolver.cs",
+    "src/api/QuoteIQ.Application/Security/IUserResolver.cs",
+    "src/api/QuoteIQ.Infrastructure/Security/EffectivePermissionResolver.cs",
+    "src/api/QuoteIQ.Infrastructure/Security/UserResolver.cs",
+    "src/api/QuoteIQ.Infrastructure/Security/PermissionCatalogSeeder.cs",
+    "src/api/QuoteIQ.Infrastructure/Security/SecurityServiceCollectionExtensions.cs",
+    "src/api/QuoteIQ.Infrastructure/DependencyInjection.cs",
+    "src/api/QuoteIQ.Infrastructure/Persistence/QuoteIqDbContext.cs",
+    "src/api/QuoteIQ.Infrastructure/QuoteIQ.Infrastructure.csproj",
+    "src/api/QuoteIQ.Api/Auth/RequirePermissionFilter.cs",
+    "src/api/QuoteIQ.Api/Auth/CurrentUser.cs",
+    "src/api/QuoteIQ.Api/Auth/AuthenticationSetup.cs",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Security/EffectivePermissionResolverTests.cs",
+    "src/api/tests/QuoteIQ.Infrastructure.Tests/Security/PermissionCatalogSeederTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Auth/RequirePermissionTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Fixtures/PostgresFixture.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/Auth/AuthenticationTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/HealthEndpointTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/QuoteIQ.Api.Tests.csproj"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "Resolver_WhenDirectPermission_ShouldInclude",
+      "Resolver_WhenRoleViaGroup_ShouldInclude",
+      "Resolver_WhenPermissionInOtherTenant_ShouldExclude",
+      "Resolver_WhenGlobalRole_ShouldApplyInAnyTenant",
+      "RequirePermission_WhenMissing_ShouldReturn403 / WhenPresent_ShouldReturn200",
+      "PermissionCatalogSeeder_WhenRunTwice_ShouldBeIdempotent"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-011", "AC-014", "AC-015"],
+  "verification_ids": ["V-011", "V-014", "V-015"],
+  "findings": [
+    {
+      "id": "F-012",
+      "severity": "major",
+      "status": "resolved",
+      "resolved_in_iteration": 2,
+      "iteration": 1,
+      "summary": "Test gap on security-critical exclusion semantics (V-014/V-011 negative tests)",
+      "detail": "V-014 explicitly lists negative tests 'Disabled role excluded' and 'Removed group membership excluded' - neither exists. Cross-tenant exclusion is only tested on the direct user_permissions path; no test proves a tenant-A role grant, tenant-A group role, or tenant-A group direct permission is excluded when resolving tenant B, and no test proves r.IsActive=false / g.IsActive=false exclusion. Filters exist and are correct in EffectivePermissionResolver.cs, but a refactor dropping any g.TenantId/r.TenantId/IsActive clause would still pass the current suite. Fix: add resolver integration tests in EffectivePermissionResolverTests.cs: other-tenant role grant excluded, other-tenant group role excluded, other-tenant group direct excluded, disabled role excluded, disabled group excluded, removed group membership excluded.",
+      "resolution": "Added 6 tests to EffectivePermissionResolverTests.cs: Resolver_WhenRoleGrantedInOtherTenant_ShouldExclude, Resolver_WhenGroupRoleInOtherTenant_ShouldExclude, Resolver_WhenGroupDirectPermissionInOtherTenant_ShouldExclude, Resolver_WhenRoleIsDisabled_ShouldExclude, Resolver_WhenGroupIsDisabled_ShouldExclude (covers both group-role and group-direct paths), Resolver_WhenGroupMembershipRemoved_ShouldExclude. Spot-verified mutation-kill for the other-tenant-role clause and the group-IsActive clause by temporarily stripping the corresponding filter(s) in EffectivePermissionResolver.cs and confirming the new tests failed as expected, then restored the file (confirmed byte-identical to pre-edit content)."
+    },
+    {
+      "id": "F-013",
+      "severity": "minor",
+      "status": "resolved",
+      "resolved_in_iteration": 2,
+      "iteration": 1,
+      "summary": "Inactive-user 401 untested at HTTP level",
+      "detail": "RequirePermissionFilter's !resolvedUser.IsActive -> 401 branch has no test; RequirePermissionTests cover present->200, missing-permission->403, no-app-user->401 only. Fix: add a case in RequirePermissionTests.cs seeding IsActive=false and asserting 401.",
+      "resolution": "Added RequirePermission_WhenAppUserIsInactive_ShouldReturn401 to RequirePermissionTests.cs (seeds app user with IsActive=false via new SeedAppUserAsync isActive parameter). Spot-verified mutation-kill by temporarily removing the !resolvedUser.IsActive clause in RequirePermissionFilter.cs, confirming the test failed (200 instead of 401), then restored the file (confirmed byte-identical to pre-edit content)."
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-12..FR-16, §11.1, §13)" },
+    { "timestamp": "2026-07-11T20:45:00-04:00", "event": "task_started", "message": "Dependencies satisfied (T-003 PASS iteration 2, T-004 PASS iteration 1); marked IN_PROGRESS; delegated to Implementor (iteration 1)" },
+    {
+      "timestamp": "2026-07-11T21:30:00-04:00",
+      "event": "implementation_written",
+      "message": "RBAC schema (020-rbac Liquibase changeset), PermissionCatalog (73 codes across 17 categories + Pricing sub-workflow codes, derived from PRD 20.6's example categories since PRD 20.6 is prose not an exhaustive code list), PermissionCatalogSeeder (idempotent IHostedService), EffectivePermissionResolver (4-path union with per-scope caching), IUserResolver/UserResolver, RequirePermissionFilter + .RequirePermission() extension, ICurrentUser completed via CurrentUser.SetAppUserId (existing UserId/KeycloakSubjectId properties reused rather than renamed to AppUserId/KeycloakId; see deviations). user_tenants reclassified from 'global' to ordinary tenant-scoped/LIST-partitioned (composite PK) since its tenant_id is NOT NULL, to satisfy PartitioningConventionsChecker; registered in create_tenant_partitions.sql. Tests written first per test-first rule (7 resolver tests, 2 seeder tests, 3 RequirePermission HTTP tests) then production code, then existing AuthenticationTests/HealthEndpointTests updated to supply a Postgres connection (PermissionCatalogSeeder now runs at every real-host boot). Full suite: 39/39 passing (32 Infrastructure.Tests + 7 Api.Tests), run twice, deterministic. Live: docker-compose liquibase one-shot applied 020-rbac cleanly and incrementally (Run: 13, Previously run: 2) against the existing dev postgres_data volume, second run was a no-op (Run: 0, Previously run: 15); API booted twice under Local env with real Vault/Keycloak/Postgres via docker-compose, PermissionCatalogSeeder inserted exactly 73 rows on first boot and reported '73 already present, 0 new' on second boot; compose stack torn down without -v. Frontend untouched (no src/ui changes)."
+    },
+    { "timestamp": "2026-07-11T22:35:00-04:00", "event": "evaluator_result", "message": "Evaluator verdict FAIL -> NEEDS_FIXES (iteration 1/10). Production code audited CORRECT: all 4 resolver paths carry tenant-or-global + IsActive filters, filter fails closed (401/403 verified), caching request-scoped, seeder insert-or-sync only, schema uniques and partitioning conventions confirmed, suite 39/39 twice, live liquibase no-op + 73 permission rows verified via psql. Blocking findings TEST-ONLY: F-012 (major, missing negative tests for cross-tenant/inactive exclusion on role and group paths per V-014), F-013 (minor, inactive-user 401 HTTP test). Advisories: catalog derivation reasonable, all spec-referenced codes exist; NOTE verification V-006/V-012 mention tenants.manage/users.manage which are not in the catalog - T-006/T-007 must add codes or align wording; ICurrentUser naming deviation acceptable (stale doc comment); bespoke test host faithful; user_tenants ITenantScoped currently safe but latent trap - T-006/T-007 must use IsCrossTenant/IgnoreQueryFilters deliberately for cross-tenant membership lookups and writes; global-scope uniqueness not DB-enforced (defer to T-007, NULLS NOT DISTINCT); roles/group tables exempt from tenant guard by design - T-007 handlers must authorize; one-type-per-file colocations OK per feature-proximity rule. AC-011 substantially satisfied, AC-014 impl correct but negative coverage incomplete (blocking), AC-015 satisfied at T-005 share." },
+    {
+      "timestamp": "2026-07-11T23:15:00-04:00",
+      "event": "implementation_written",
+      "message": "Fix iteration 2/10 (test-gap-only, no production code changes). Added 6 negative tests to EffectivePermissionResolverTests.cs (F-012: other-tenant role/group-role/group-direct exclusion, disabled role/group exclusion, removed group membership exclusion) and 1 test to RequirePermissionTests.cs (F-013: inactive app user -> 401), following existing AAA/random-tenant-isolation patterns, no mocks. Also fixed the stale ICurrentUser.UserId doc comment (removed 'placeholder until T-005/T-006' language now that app-user resolution has landed). Full suite green twice: QuoteIQ.Infrastructure.Tests 38/38 (was 32, +6), QuoteIQ.Api.Tests 8/8 (was 7, +1). Spot-checked mutation-kill for 3 of the 7 new tests (other-tenant role exclusion, disabled-group exclusion covering both group-role and group-direct paths in one test, inactive-user 401) by temporarily removing the corresponding filter clause in production code, observing the targeted test fail, then restoring the file (verified byte-identical to pre-edit content via re-read, since src/api is untracked in git so `git diff` could not be used). Frontend untouched. No other production code, docker-compose.yml, changelogs, or .claude/ files touched beyond this task file."
+    }
+  ]
+}

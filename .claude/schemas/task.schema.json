@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "task.schema.json",
+  "title": "QuoteIQ Harness Task",
+  "type": "object",
+  "required": ["id", "title", "status", "iteration_count", "max_iterations", "depends_on", "objective", "scope", "out_of_scope", "implementation_details", "files", "test_plan", "acceptance_ids", "verification_ids", "findings", "history"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^T-\\d{3}$" },
+    "title": { "type": "string" },
+    "status": { "enum": ["PENDING", "READY", "IN_PROGRESS", "IMPLEMENTED", "EVALUATING", "NEEDS_FIXES", "PASS", "FAIL", "BLOCKED"] },
+    "iteration_count": { "type": "integer", "minimum": 0 },
+    "max_iterations": { "type": "integer", "minimum": 1 },
+    "depends_on": { "type": "array", "items": { "type": "string", "pattern": "^T-\\d{3}$" } },
+    "objective": { "type": "string" },
+    "scope": { "type": "array", "items": { "type": "string" } },
+    "out_of_scope": { "type": "array", "items": { "type": "string" } },
+    "implementation_details": { "type": "array", "items": { "type": "string" } },
+    "files": { "type": "array", "items": { "type": "string" } },
+    "test_plan": {
+      "type": "object",
+      "required": ["unit", "integration", "e2e"],
+      "additionalProperties": false,
+      "properties": {
+        "unit": { "type": "array", "items": { "type": "string" } },
+        "integration": { "type": "array", "items": { "type": "string" } },
+        "e2e": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "acceptance_ids": { "type": "array", "items": { "type": "string" } },
+    "verification_ids": { "type": "array", "items": { "type": "string" } },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "summary", "status"],
+        "properties": {
+          "id": { "type": "string" },
+          "severity": { "enum": ["blocker", "major", "minor"] },
+          "summary": { "type": "string" },
+          "detail": { "type": "string" },
+          "status": { "enum": ["open", "resolved", "wont_fix"] },
+          "raised_by": { "type": "string" },
+          "raised_at": { "type": "string" }
+        }
+      }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["timestamp", "event"],
+        "properties": {
+          "timestamp": { "type": "string" },
+          "event": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

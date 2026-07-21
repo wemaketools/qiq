@@ -1,0 +1,107 @@
+{
+  "id": "T-009",
+  "title": "Hono app skeleton in the Vercel catch-all function: routing, RFC 7807 errors, zod validation plumbing, request logging, health",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-007"
+  ],
+  "objective": "Stand up the /api/v1 serving skeleton: a Hono app hosted in api/v1/[[...segments]].ts, with the request pipeline scaffolding from spec 9.2 — correlation-id + structured request logging, RFC 7807 problem+json error mapping with structured errors[], zod validation helpers producing 422s, the typed Result pattern for business failures, and a health endpoint (A-19, M-04, spec 9.2).",
+  "scope": [
+    "api/v1/[[...segments]].ts Vercel function entry adapting the request to the Hono app (src/server/router or lib/router)",
+    "Hono app factory with middleware order: request-context/correlation-id -> logging -> (auth slot, filled by T-011) -> (tenant slot, filled by T-013) -> route -> error mapper",
+    "lib/errors: typed error taxonomy (ValidationError 400/422, UnauthorizedError 401, ForbiddenError 403, NotFoundError 404, ConflictError/IllegalOperation 409 with legal-operation hint, InternalError 500 sanitized with correlation id) mapped to RFC 7807 problem+json with errors:[{field,code,message}]",
+    "lib/validation: zod helper validateBody/validateQuery/validateParams producing the preserved 422 shape",
+    "Result<T,E> (ok/err) pattern helpers for expected business failures (no exceptions for business flow)",
+    "GET /api/v1/health endpoint (anonymous) returning status + version",
+    "Local runner story: vercel dev (or documented equivalent) serves the function; Vite proxy note for later T-018"
+  ],
+  "out_of_scope": [
+    "Authentication middleware (T-011)",
+    "Tenant/permission middleware (T-012/T-013)",
+    "Any business routes",
+    "Cron/queue endpoints (T-031)"
+  ],
+  "implementation_details": [
+    "Hono app mounted at basePath /api/v1; export a buildApp(deps) factory taking injected config/logger/db for testability; the Vercel entry calls handle(app) via Hono's Vercel adapter.",
+    "Error mapper: single app.onError + a notFound handler; problem+json media type application/problem+json; shape { type, title, status, detail, errors?, correlationId } matching the .NET responses byte-compatibly (verify field casing against the reference API).",
+    "Correlation id: honor inbound x-correlation-id else generate UUID; attach to context and logger; return in responses (header) as the reference does.",
+    "Validation helper returns 422 with errors:[{field,code,message}] preserving FluentValidation-style codes where the frontend depends on them.",
+    "Security headers baseline (spec 16 transport/headers) added here or in vercel.json — decide and note.",
+    "Keep the router lib thin: route registration happens in domain tasks via app.route('/leads', leadsRoutes) composition."
+  ],
+  "files": [
+    "api/v1/[[...segments]].ts",
+    "src/server/router/app.ts",
+    "src/server/lib/errors/index.ts",
+    "src/server/lib/errors/problem.ts",
+    "src/server/lib/validation/index.ts",
+    "src/server/lib/result.ts",
+    "src/server/domains/health/routes.ts",
+    "src/server/tests/integration/http.skeleton.test.ts"
+  ],
+  "test_plan": {
+    "unit": [
+      "Result helpers: ok/err composition and mapping",
+      "Problem-json mapper: each error class maps to correct status/shape; 500 detail sanitized but correlation id present",
+      "zod validation helper: invalid body yields 422 with errors[] field/code/message"
+    ],
+    "integration": [
+      "GET /api/v1/health returns 200 via the Hono app under the Vercel adapter",
+      "Unknown route returns problem+json 404; thrown unexpected error returns sanitized 500 with correlation id; request log line emitted with correlation id, route, status, duration"
+    ],
+    "e2e": [
+      "None yet (suite adaptation in T-043)"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-011",
+    "AC-014",
+    "AC-095",
+    "AC-096"
+  ],
+  "verification_ids": [
+    "V-013",
+    "V-014",
+    "V-017",
+    "V-123",
+    "V-124"
+  ],
+  "findings": [
+    {
+      "id": "F-009-1",
+      "severity": "major",
+      "status": "resolved",
+      "summary": "SPA api/client.ts parses problem+json `errors` as Record<string,string[]>, but the spec-mandated (and now implemented) shape is errors:[{field,code,message}] — the array form makes the SPA throw a TypeError instead of producing a NormalizedError.",
+      "detail": "src/ui/src/api/client.ts:30 declares `errors?: Record<string, string[]>` and does Object.entries(body.errors).flatMap(([field, messages]) => messages.map(...)). Against an array, messages.map is invoked on an object and throws inside toNormalizedError, so the caller's rejection is a TypeError rather than a NormalizedError. Orchestrator independently confirmed the declaration at client.ts:30. Mitigation already in place: no .NET SPA-facing endpoint ever emitted errors[] (validation failures were flattened into detail as 'CODE: msg1; msg2'; the dictionary branch only fired for ASP.NET model-binding failures), and T-009 ALWAYS populates detail on 422 with the same join, so the existing error banner still renders text. This is therefore latent rather than currently user-visible, but it will bite as soon as a ported endpoint returns errors[] to the SPA.",
+      "owner": "T-043",
+      "suggested_fix": "Update toNormalizedError in src/ui/src/api/client.ts to read errors:[{field,code,message}] (and optionally keep tolerating the legacy dictionary during cutover). Add a test asserting a 422 with errors[] yields a NormalizedError with populated fieldErrors.",
+      "resolution": "Resolved FOR T-009 by transfer to owning task T-043 (recorded there as open F-043-1); the SPA parser bug is not a T-009 defect - T-009 implements the spec-mandated errors:[{field,code,message}] contract (A-3, spec §14, AC-096). Evaluator correction to the recorded mitigation: 'detail is always populated on 422' does NOT keep the SPA banner rendering once errors[] is present in a body the SPA parses - the TypeError in toNormalizedError fires at Object.entries(body.errors).flatMap(...) BEFORE detail is read. The mismatch is latent solely because no SPA-facing route exists on the new backend yet (only /health; SPA still talks to the .NET API via its oidc client). Sequencing constraint added on T-043's copy: the client.ts fix must land before any validated endpoint is served to the SPA (no later than T-018's dev proxy going live against ported endpoints).",
+      "resolved_by": "evaluator",
+      "resolved_at": "2026-07-18T23:45:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to A-19/Q-3b, M-02, M-04, spec 9.2, section 14 error semantics."
+    },
+    {
+      "timestamp": "2026-07-18T22:00:00-04:00",
+      "event": "started",
+      "message": "Delegated to Implementor. T-004 and T-009 run in parallel (supabase/migrations vs src/server/router+lib/errors+validation). Orchestrator owns harness JSON during parallel execution."
+    },
+    {
+      "timestamp": "2026-07-18T23:20:00-04:00",
+      "event": "implemented",
+      "message": "Hono skeleton implemented. Problem+json contract MEASURED against a reproduction of the .NET Results.Problem call sites rather than assumed - notably 422 resolves to an RFC 4918 URI while its neighbours use RFC 9110 (the implementor had guessed RFC 9110 15.5.21 before measuring). Middleware order deviates deliberately: the error boundary sits between logging and the auth slot rather than innermost, so throws from the (still empty) auth/tenant slots are still mapped to problem+json and so logging observes the mapped status. Security headers implemented in the Hono app rather than vercel.json (parity on error responses + HSTS must be config-suppressed outside deployed envs); vercel.json untouched and still has no crons key. 500 sanitization proven: toProblem branches on status>=500 before touching the error; tests assert absence of secrets/stack/connection strings from the body while asserting the real message IS in the server log under the same correlationId. 7 mutations each confirmed red. Verified serving via scripts/dev/serve-api.ts (no Vercel CLI available): health 200, unknown route 404 problem+json, correlation id echoed, security headers on 200 and 404. Orchestrator independently confirmed 23 files/391 tests, typecheck 0, lint 0, 422 URI, and the SPA errors-shape mismatch recorded as F-009-1."
+    },
+    {
+      "timestamp": "2026-07-18T23:45:00-04:00",
+      "event": "evaluator_pass",
+      "message": "Evaluator PASS. Contract fidelity spot-checked against .NET source (read-only): IntakeLeadCommandHandler.cs confirms errors[] array with ToCamelCase field + ErrorCode ?? 'INVALID'; GroupEndpoints/LeadWorkflowEndpoints confirm detail='CODE: message' and the ['code'] extension; RequirePermissionFilter confirms the 401/403 titles/messages; SecurityHeadersMiddleware.cs matches the ported header set byte-for-byte incl. HSTS suppressed in local/dev. The 422 -> RFC 4918 s11.2 URI matches ASP.NET Core's actual ProblemDetailsDefaults table (422 was never moved to RFC 9110), corroborating the measured-not-guessed claim. Mutation reproduced first-hand: sabotaging the status>=500 sanitization branch (detail = error.message) turned 3 tests red including the integration secret-leak assertion; reverted, 47/47 green. RULING - middleware-order deviation ACCEPTED: placing the error boundary between logging and the auth/tenant slots is the only ordering in which (a) throws from the future auth/tenant middleware are mapped to problem+json 401/403 and (b) the request log line records the mapped status (innermost placement would let logging's finally observe an in-flight exception before onError maps it). Spec s9.2 describes logical response mapping, not middleware nesting. Seams verified fillable: slots sit between the boundary registration and app.route(); env.ts pre-types userId/tenantId; the logging middleware reads both post-next(), proven by a dedicated test - T-011/T-013 insert app.use() calls with zero restructuring. F-009-1 dispositioned: not a T-009 defect (spec-mandated contract); transferred to T-043 as open F-043-1 with a sharpened sequencing constraint; the 'detail always populated' mitigation clause corrected (inert once errors[] is present - latency rests on no SPA-facing route existing yet). .env.local verified git-ignored (.gitignore:31 .env.*) and placeholder-only. vercel dev not creditable (CLI not installed); scripts/dev/serve-api.ts accepted as the documented equivalent, exercised indirectly via the adapter-entrypoint integration test importing api/v1/[[...segments]].js."
+    }
+  ]
+}

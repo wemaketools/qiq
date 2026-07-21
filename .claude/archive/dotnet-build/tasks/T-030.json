@@ -1,0 +1,152 @@
+{
+  "id": "T-030",
+  "title": "API intake endpoint and API credential provisioning (backend + Settings/broker UI)",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-018", "T-016"],
+  "objective": "Tenants and brokers get OAuth client-credentials for REST lead intake; POST /api/v1/intake/leads enforces credential scoping (broker unspoofable), returns structured errors and non-blocking duplicate warnings; Settings gains the API access tab and broker pages gain credential management (spec FR-25, FR-33, §12.6, §13).",
+  "scope": [
+    "api_credentials table + provisioning/regenerate/disable commands using IKeycloakAdminService",
+    "POST /api/v1/intake/leads with client-credentials auth",
+    "Settings API access tab UI + broker view API credentials section",
+    "Rate limiting on the intake endpoint"
+  ],
+  "out_of_scope": ["Other intake channels (email/WhatsApp — PRD non-goals)"],
+  "implementation_details": [
+    "Liquibase 140-api-credentials: api_credentials (tenant_id, id, broker_id bigint null, keycloak_client_id text unique, status text check in ('active','disabled'), created_by/at, last_rotated_at, disabled_at; PK (tenant_id,id))",
+    "Features/ApiAccess: ProvisionTenantCredentialCommand / ProvisionBrokerCredentialCommand -> IKeycloakAdminService.CreateConfidentialClientAsync(clientId pattern 'qiq-t{tenantId}[-b{brokerId}]', attributes tenant_id/broker_id) returning secret ONCE in response; RegenerateSecretCommand; DisableCredentialCommand; GetCredentialsQuery (id + status, secret only via permission-bound reveal action calling Keycloak); all RequirePermission(ApiAccess.Manage) and audited (provision/regenerate/disable/reveal)",
+    "Api/Intake/IntakeEndpoints.cs: POST /api/v1/intake/leads accepts client-credentials JWT (azp/client_id claim) -> resolve api_credentials row (active, tenant active) else 403; broker-scoped credential forces broker_id ignoring payload broker (spoof attempt with mismatching broker returns 422 BROKER_NOT_ALLOWED); tenant-scoped credential validates payload broker against active tenant brokers + channel rules; body = intake fields with Owner OPTIONAL (unassigned lead stays New with no accountable owner -> unassigned alert); reuses CreateLeadCommand with source='api', intake_credential_id set; 201 {leadId, leadRef} | 422 problem+json {errors:[{field,code,message}]} | 201 with warnings.duplicates payload (duplicate check never blocks API intake per FR-33)",
+    "Rate limiting: ASP.NET RateLimiter fixed-window per client_id on /intake (e.g., 60/min, config-driven)",
+    "UI: features/settings/ApiAccessTab.tsx (enable/disable tenant access, client id display, secret reveal-once dialog with copy, regenerate with danger confirm); BrokerApiSection.tsx embedded in broker view page (same controls per broker)"
+  ],
+  "files": [
+    "src/api/db/changelog/140-api-credentials/*.xml",
+    "src/api/QuoteIQ.Application/Features/ApiAccess/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/IntakeEndpoints.cs",
+    "src/api/QuoteIQ.Api/Endpoints/ApiAccessEndpoints.cs",
+    "src/ui/src/features/settings/ApiAccessTab.tsx",
+    "src/ui/src/features/settings/BrokerApiSection.tsx",
+    "src/api/tests/QuoteIQ.Api.Tests/Intake/IntakeEndpointTests.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/ApiAccess/ApiAccessEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "Intake_WithBrokerCredential_ShouldForceBrokerFromCredential",
+      "Intake_WithBrokerCredential_WhenPayloadNamesOtherBroker_ShouldReturn422",
+      "Intake_WithTenantCredential_ShouldApplyChannelBrokerRules",
+      "Intake_WithoutOwner_ShouldCreateUnassignedNewLead",
+      "Intake_WhenValidationFails_ShouldReturnStructuredErrorList",
+      "Intake_WhenDuplicate_ShouldReturn201WithWarningsPayload",
+      "Intake_WithDisabledCredential_ShouldReturn403",
+      "Regenerate_ShouldInvalidateOldSecret (old token/secret rejected)",
+      "Intake_RateLimit_ShouldReturn429WhenExceeded",
+      "CredentialLifecycle_ShouldBeAudited"
+    ],
+    "e2e": [
+      "api-access.spec.ts: enable tenant API access in Settings, reveal/copy secret once, regenerate warns and rotates; broker page provisions broker credential"
+    ]
+  },
+  "acceptance_ids": ["AC-024", "AC-032", "AC-078"],
+  "verification_ids": ["V-024", "V-032", "V-078"],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "RULING flag 1 (granular permissions vs AC-024/V-024 'ApiAccess.Manage'): ACCEPTED, non-blocking. The endpoint gates every sensitive credential op with the pre-existing catalogued codes (view->list/reveal, enable->provision, regenerate_secret->regenerate, disable->disable), which satisfies AC-024/AC-078's 'backend authz on every sensitive credential op'. Reusing the seeded+mirrored codes is preferable to adding a redundant Manage permission.",
+      "evidence": "PermissionCatalog.cs:172-177 + All list 304-307; UI mirror permissionCatalog.ts:99-102 and permissions.ts:61-64; ApiAccessEndpoints.cs:35-40 RequirePermission per route; ApiAccessEndpointsTests.Reveal_WithoutPermission_ShouldReturn403 PASS.",
+      "suggested_fix": "None required.",
+      "status": "accepted",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "RULING flag 2 (new IntakeClientCredentials auth scheme, ValidateAudience=false): ACCEPTED, non-blocking. Issuer (ValidIssuer=authority), signature (Authority metadata) and lifetime ARE validated; only audience is skipped, which is appropriate for Keycloak client-credentials service-account tokens whose aud varies by scope. The real authorization gate is azp/client_id -> active api_credentials row -> active tenant at the endpoint, not token validity. The scheme is scoped to /intake only via IntakePolicy and does not touch the default user JWT scheme (which keeps ValidateAudience=true). A user JWT presented to /intake authenticates against the scheme but its azp (SPA client) matches no credential row -> 403; no bypass.",
+      "evidence": "AuthenticationSetup.cs:79-101 (intake options + IntakePolicy AddAuthenticationSchemes(IntakeScheme)); IntakeEndpoints.cs:41-53 credential resolution; default scheme options 56-71 unchanged.",
+      "suggested_fix": "None required for POC.",
+      "status": "accepted",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-003",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "regression",
+      "description": "RULING flag 5 (cross-cutting CreateLeadCommand extension: owner->nullable, +SourceOverride, +IntakeCredentialId): ACCEPTED, regression-free. Browser path preserved: CreateLeadValidator requires OwnerUserId when SourceOverride != Api; handler still resolves the accountable-owner assignment + eligibility only when owner is set; Source defaults to Browser and IntakeCredentialId stays null. Ownerless API path yields an unassigned New lead (no assignment row). Leads suite 50/50 green.",
+      "evidence": "CreateLeadValidator.cs:39-45; CreateLeadCommandHandler.cs:161-178, 255-273; Leads suite 50/50 PASS; Intake_WithoutOwner_ShouldCreateUnassignedNewLead PASS (status 'new', 0 assignments).",
+      "suggested_fix": "None.",
+      "status": "accepted",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-004",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "security",
+      "description": "RULING flag 8 (regenerate invalidates the SECRET but already-issued access tokens live until expiry — no token revocation): ACCEPTED as non-blocking follow-up. AC-024/FR-25 require old SECRETS to die on regeneration, which is proven (old secret cannot mint a token, new one can). Immediate access-token revocation is standard-OAuth out-of-scope and mitigated by short token lifetime. Note as a follow-up if immediate revocation is later required.",
+      "evidence": "Regenerate_ShouldInvalidateOldSecret PASS (withOldSecret null, withNewSecret not null); KeycloakAdminService.RegenerateClientSecretAsync.",
+      "suggested_fix": "Future: add token revocation / short-lifetime enforcement if AC tightens.",
+      "status": "open",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-005",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "RULINGS flags 3/4/6/7: all ACCEPTED, non-blocking. (3) tenant-credential channel/broker rules reuse the exact CreateLeadCommandHandler validation (single source of truth). (4) rate limit is config-driven (Intake:RateLimitPermitPerMinute, default 60), fixed 1-min window, partitioned per azp. (6) tenant/broker provisioning unified into one ProvisionCredentialCommand(brokerId?) while the endpoint still exposes both routes. (7) API intake supports existing-party only (no inline-party creation) — reasonable scope; FR-33 does not require inline party creation.",
+      "evidence": "IntakeLeadCommandHandler.cs:42-58; AuthenticationSetup.cs:115-150; ProvisionCredentialCommandHandler.cs:45-64; ApiAccessEndpoints.cs:36-37; Intake_WithTenantCredential_ShouldApplyChannelBrokerRules + Intake_RateLimit_ShouldReturn429WhenExceeded PASS.",
+      "suggested_fix": "None.",
+      "status": "accepted",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-006",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "security",
+      "description": "Reveal is gated by api_access.view — the same permission as listing credentials — so any principal that can list credentials can also reveal a secret. Reveal IS permission-bound (satisfies AC-024 literally) and RevealSecretCommandHandler does not check credential status (a disabled credential's secret is useless since its Keycloak client is disabled). Non-blocking design note: consider a dedicated/stricter reveal permission if secret reveal should be more privileged than listing.",
+      "evidence": "ApiAccessEndpoints.cs:38 RevealAsync RequirePermission(ApiAccess.View); RevealSecretCommandHandler.cs (no status guard).",
+      "suggested_fix": "Optional: introduce api_access.reveal_secret distinct from view.",
+      "status": "open",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-007",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "observability",
+      "description": "Intake-created leads record source='api' and intake_credential_id on the lead and a lead.created audit entry, but the audit actor is null on the API path (no application user; the actor is an OAuth credential). Acceptable for NFR-02 given the credential id is recorded on the lead itself; matches the Implementor's flagged MINOR.",
+      "evidence": "CreateLeadCommandHandler.cs:294-304 audit; lead.Source/IntakeCredentialId set 255-256; Intake_WithBrokerCredential_ShouldForceBrokerFromCredential asserts Source='api' + IntakeCredentialId.",
+      "suggested_fix": "Optional: record a synthetic credential actor label on the audit entry for the API path.",
+      "status": "open",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    },
+    {
+      "id": "F-008",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "completeness",
+      "description": "e2e api-access.spec.ts (V-024 UI journey) is test.describe.fixme with real bodies, deferred until a seed persona holds api_access.* grants and the broker view page (embedding BrokerApiSection) exists. Deferral ACCEPTED: V-032 and V-078 are integration-only (playwright_triggerable=false) and are fully covered by the passing IntakeEndpointTests; V-024's provision/reveal-once/regenerate/disable are proven at integration (ApiAccessEndpointsTests) + component (ApiAccessTab) level. NOTE: the reveal-once/copy UI affordance and broker-scoped UI provisioning are unproven in live CI e2e until the seed persona is granted.",
+      "evidence": "e2e_tests/tests/api-access.spec.ts:18 describe.fixme; ApiAccessTab.test.tsx 4/4 PASS; IntakeEndpointTests 9/9 + ApiAccessEndpointsTests 6/6 PASS.",
+      "suggested_fix": "Un-skip once seed grants api_access.* and the broker view page ships.",
+      "status": "open",
+      "created_at": "2026-07-14T21:30:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-25, FR-33, §12.6, §13)" },
+    { "timestamp": "2026-07-14T16:30:00-04:00", "event": "started", "message": "Implementor started (iteration 1/10). API intake + credential provisioning (FR-25/FR-33, sec 12.6/13) on T-018 leads (CreateLeadCommand reuse) + T-016 settings/broker UI + T-004 IKeycloakAdminService. Security-sensitive: OAuth client-credentials confidential clients (secret returned ONCE), broker-scoped credential UNSPOOFABLE (mismatching payload broker -> 422 BROKER_NOT_ALLOWED), disabled/regenerated secret rejection, rate limiting (429), full credential-lifecycle audit; duplicate check NEVER blocks API intake (201 + warnings). Backend + Settings API-access tab + broker credential section. The LAST T-042 dependency - its PASS fully unblocks the demo-journey capstone. Frontend gates typecheck+build reported SEPARATELY from vitest." },
+    { "timestamp": "2026-07-14T18:00:00-04:00", "event": "tests_written", "message": "Test-first (real Testcontainers, Postgres+Keycloak). Integration: tests/QuoteIQ.Api.Tests/Intake/IntakeEndpointTests.cs (9 cases: broker force, broker-not-allowed 422 [key unspoofable test], tenant channel/broker rules, ownerless unassigned New lead, structured 422 error list, duplicate->201+warnings, disabled credential 403, regenerate-invalidates-old-secret, per-client 429 rate limit + other client unaffected) and tests/QuoteIQ.Api.Tests/ApiAccess/ApiAccessEndpointsTests.cs (6 cases: provision secret-once + client-credentials works, already-exists 409, reveal-without-permission 403, regenerate new secret, broker credential scoping, CredentialLifecycle audited provision/reveal/regenerate/disable) + shared ApiAccessTestContext.cs. Frontend component tests: src/ui/src/features/settings/__tests__/ApiAccessTab.test.tsx (4 cases: provision+reveal-once, active credential client-id+reveal, enable hidden without permission, regenerate danger-confirm rotates). E2E: e2e_tests/tests/api-access.spec.ts (describe.fixme per settings.spec convention - needs seed persona granted api_access.* + broker view page)." },
+    { "timestamp": "2026-07-14T18:30:00-04:00", "event": "implementation_written", "message": "Schema-first Liquibase src/api/db/changelog/150-api-credentials/150-api-credentials.xml (NOTE folder is 150- not 140-; 140-alerts already exists) + master + create_tenant_partitions.sql array; api_credentials LIST-partitioned (tenant_id,id) PK, broker_id nullable, keycloak_client_id, status check, NO secret column. Domain ApiCredential + ApiCredentialStatus. IApiCredentialStore + ApiCredentialStore (FindByClientIdAsync cross-partition IgnoreQueryFilters for azp resolution). DbContext DbSet+ConfigureApiCredentials. Features/ApiAccess: GetApiCredentialsQuery, ProvisionCredentialCommand (unified tenant+broker), RegenerateSecretCommand, DisableCredentialCommand, RevealSecretCommand (all audited), Intake/IntakeLeadCommand(+Handler+OutcomeDto reusing CreateLeadCommand). IKeycloakAdminService.GetClientSecretAsync added (+impl). CreateLeadCommand extended: OwnerUserId->long?, +SourceOverride/+IntakeCredentialId (owner optional for api source, source=api, credential recorded; browser path unchanged). Api: ApiAccessEndpoints.cs (/settings/api-credentials, gated by existing granular api_access.* perms), IntakeEndpoints.cs (/api/v1/intake/leads, dedicated IntakeClientCredentials JWT scheme ValidateAudience=false + per-client fixed-window RateLimiter 429). Program.cs UseRateLimiter. UI: settingsApi additions, ApiCredentialControls (shared), SecretRevealDialog (once+copy), ApiAccessTab, BrokerApiSection, SettingsLayout tab + router route + permission codes." },
+    { "timestamp": "2026-07-14T19:15:00-04:00", "event": "gates_run", "message": "BACKEND: full solution `dotnet build QuoteIQ.slnx` GREEN (0 warn/0 err). New tests: IntakeEndpointTests 9/9 + ApiAccessEndpointsTests 6/6 = 15/15 PASS (real Postgres+Keycloak Testcontainers). Regression: Domain.Tests 400/400, Application.Tests 32/32, Api.Tests/Leads 46/46 (validates CreateLeadCommand change), Infrastructure.Tests/Keycloak 3/3 all PASS. FULL backend suite (per-project): Domain.Tests 400/400, Application.Tests 32/32, Api.Tests 331/331 (incl new ApiAccess 6 + Intake 9), Infrastructure.Tests 100/100 = 863/863 ALL PASS, zero regression. Liquibase applies cleanly (fixed initial XML-comment '--' parse error). FRONTEND (reported separately): typecheck (tsc --noEmit) GREEN; build (tsc -b && vite build) GREEN; vitest 453/453 (90 files) PASS incl new ApiAccessTab 4/4; lint = pre-existing baseline only (1 pre-existing error in tenantManager/TenantFormPage.tsx, warnings pre-existing; ZERO issues in new files); V-070 no-raw-hex clean in new files. E2E: playwright --list discovers api-access.spec.ts (2 tests, describe.fixme). No live e2e run (seed stack lacks api_access grants)." },
+    { "timestamp": "2026-07-14T19:20:00-04:00", "event": "flags", "message": "FLAGGED AMBIGUITIES (per CLAUDE.md, not silently resolved): (1) Permission: brief/AC-024/V-024 reference 'ApiAccess.Manage'/'apiaccess.manage' but PermissionCatalog already ships (seeded+drift-guarded) finer-grained api_access.view/enable/disable/regenerate_secret and the UI already used api_access.view. Used the EXISTING granular codes rather than adding a redundant Manage (F-044 no-dead-catalog-surface lesson) - ZERO catalog/drift change. (2) Intake auth scheme did NOT pre-exist: added a dedicated 'IntakeClientCredentials' JWT bearer scheme validating the Keycloak realm issuer+signature+lifetime but ValidateAudience=false (service-account token audiences vary by client scope; real authz is azp->active credential->active tenant; a UI/user token's azp never matches a credential so is rejected). (3) Channel-broker-rules source for tenant credentials: reused the EXACT browser-intake validation in CreateLeadCommandHandler (broker must be active + broker-required-iff-broker-flagged-channel) rather than inventing a separate rule set. (4) Rate-limit numbers: config-driven Intake:RateLimitPermitPerMinute (default 60), fixed 1-min window, partitioned by azp/client_id. (5) 'reuse CreateLeadCommand': reused it for persistence via a thin IntakeLeadCommandHandler (broker scoping + duplicate-as-warning + owner-optional wrapper) but had to extend CreateLeadCommand (owner->nullable, +source/+credentialId) because it hard-required a browser owner+user and hardcoded source=browser. (6) ProvisionTenant/ProvisionBroker unified into one parameterized ProvisionCredentialCommand(brokerId?) to avoid duplicated Keycloak/store/audit logic; endpoint still exposes both routes. (7) API intake supports existing-party only (no inline-party creation) this task. (8) Regenerate 'old token rejected': proved old SECRET rejected by Keycloak (can't mint new tokens); already-issued access tokens remain valid until expiry per OAuth (no token revocation implemented). MINOR: intake-created lead audit actor is null (no app user; ActorLabel not settable on CurrentUser for API path) - action+credential still recorded." },
+    { "timestamp": "2026-07-14T17:20:00-04:00", "event": "task_passed", "message": "T-030 PASS (iteration 1/10). Security-focused Evaluator independently ran the security-critical suites against real Keycloak+Postgres (ApiAccess+Intake 15/15, Leads 50/50 regression guard, Application 32/32, Domain 400/400; frontend typecheck+build GREEN separately, vitest ApiAccessTab 4/4) + confirmed Liquibase 150-api-credentials applies+partitions cleanly + zero stray-line. Verified EVERY security control effective: unspoofable broker (422 BROKER_NOT_ALLOWED, 0 leads, no id/name/null bypass), secret-once (no column, reveal permission-gated, none in logs), disabled 403, regenerate invalidates old secret vs real Keycloak, per-azp 429, tenant isolation (single IgnoreQueryFilters azp->credential->tenant pin). New IntakeClientCredentials scheme sound (issuer/sig/lifetime validated, ValidateAudience=false justified, /intake-scoped, user JWT scheme untouched, no bypass). CreateLeadCommand extension regression-free (browser path preserved, Leads 50/50). All 8 flags accepted non-blocking (F-001..F-005) + 3 new non-blocking (F-006 reveal shares view perm, F-007 null API audit actor, F-008 e2e describe.fixme). No high/critical/major findings. 43 PASS, 0 FAIL. T-042 POC capstone now fully unblocked (all deps PASS)." }
+  ]
+}

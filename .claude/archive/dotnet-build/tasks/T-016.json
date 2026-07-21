@@ -1,0 +1,85 @@
+{
+  "id": "T-016",
+  "title": "Settings UI: brokers, reference data, business rules, business assignments",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-013", "T-008", "T-010", "T-011", "T-012"],
+  "objective": "Tenant-scoped Settings section with vertical tab navigation showing only permitted subsections: Brokers, Reference data, Business rules, Business assignments (API access tab added by T-030) — spec FR-18..FR-24, PRD 12.10.",
+  "scope": [
+    "Settings layout with vertical tabs, per-subsection permission gating",
+    "Brokers tab: list/add/edit/disable + contacts editor with primary flag",
+    "Reference data tab: list-type navigation, add/edit/disable/reorder per 6.2 with guarded-status affordances",
+    "Business rules tab: full FR-11 form incl. currency and attachment cap",
+    "Business assignments tab: lead/quote assignable role pickers + accountable-owner radio"
+  ],
+  "out_of_scope": ["API access tab (T-030)", "Global template editor (Internal-only; included here only as a scoped variant when global.manage_templates)"],
+  "implementation_details": [
+    "features/settings/SettingsLayout.tsx: vertical tab nav rendering only subsections whose permission the user holds (settings nav item visible if any); routes /settings/{tab}",
+    "BrokersTab: table + BrokerFormDrawer (name required, tier dropdown from reference data, branch, status) + ContactsEditor (rows with name/email/phone, primary radio); disable confirm dialog",
+    "ReferenceDataTab: left list-type selector (11 types), right table with drag or up/down reorder (POST /reorder), add/edit inline drawer; status lists show reporting-category column (read-only for canonical rows), disable button hidden for is_terminal rows, category picker restricted to open/quoted for new intermediate statuses; cover types grouped under a product-line selector; request channels show broker-channel toggle",
+    "BusinessRulesTab: sectioned form (Currency & formats / Thresholds & SLA / Workflow rules) matching FR-11 fields with inline validation mirroring backend rules; save via PUT /settings/business-rules",
+    "BusinessAssignmentsTab: two panels (Leads / Quotes) with role multi-selects from tenant roles, accountable-owner radio within lead panel; warning copy about roles in use",
+    "settingsApi RTK Query module; all forms follow UI-standards validation display"
+  ],
+  "files": [
+    "src/ui/src/features/settings/SettingsLayout.tsx",
+    "src/ui/src/features/settings/BrokersTab.tsx",
+    "src/ui/src/features/settings/ReferenceDataTab.tsx",
+    "src/ui/src/features/settings/BusinessRulesTab.tsx",
+    "src/ui/src/features/settings/BusinessAssignmentsTab.tsx",
+    "src/ui/src/features/settings/settingsApi.ts",
+    "e2e_tests/tests/settings.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [],
+    "e2e": [
+      "settings.spec.ts: user with only brokers permission sees only Brokers tab; add broker with primary contact; rename a lead status and verify chip label changes while reporting category fixed; terminal status has no disable action; reorder request channels persists; set high-value threshold + currency and verify footer/currency prefix updates; configure lead assignable roles with accountable owner"
+    ]
+  },
+  "acceptance_ids": ["AC-010", "AC-017", "AC-018", "AC-022", "AC-023", "AC-074"],
+  "verification_ids": ["V-010", "V-017", "V-018", "V-022", "V-023", "V-074"],
+  "findings": [
+    {
+      "id": "F-051",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "Reorder disabled-exclusion is not regression-locked. ReferenceDataTab.test.tsx reorder test uses an all-active fixture, and the reorder e2e reorders two freshly-added active channels, so neither would catch a regression that leaks a disabled id into the reorder payload or renders reorder controls on a disabled row (the exact bug fixed this iteration).",
+      "evidence": "ReferenceDataTab.tsx:92,197-231; ReferenceDataTab.test.tsx:19-44,124-135.",
+      "recommendation": "Add a component test with a mixed active/disabled fixture asserting (a) reorder payload contains only active ids and (b) disabled rows render no reorder-up/reorder-down controls. Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T08:15:00-04:00"
+    },
+    {
+      "id": "F-052",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "testing",
+      "description": "Brokers best-effort 403 fallback is not asserted. BrokersTab.test.tsx mocks listReferenceItems to resolve [] (never rejects), and the live brokers-only e2e doesn't assert the broker table actually loaded, so the fix (reference-data 403 must not fail the whole Brokers tab) is not locked by an assertion.",
+      "evidence": "BrokersTab.tsx:38 (listReferenceItems('broker_type').catch(()=>[])); BrokersTab.test.tsx:41-54.",
+      "recommendation": "Add a test where listReferenceItems rejects with a 403-shaped error and assert brokers-table still renders (Type dropdown degraded/empty). Non-blocking.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T08:15:00-04:00"
+    },
+    {
+      "id": "F-053",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "CROSS-CUTTING PRE-EXISTING GAP (tracked against tenant-creation/switch flow, T-006/T-014 - NOT a T-016 defect): no UI path lets an Internal user enter a tenant they are not an explicit member of. CreateTenantCommandHandler grants the creator no user_tenant membership, GetMe sources memberships from the user's real memberships only, and TenantSwitcher offers only those login-time memberships with no view-any-tenant 'enter tenant' action. Consequence: V-007's post-create reference-data-visibility-under-Settings scenario cannot run end to end (kept test.fixme in tenant-manager.spec.ts). T-009 backend seeding is proven by TenantSeedingTests; T-016 reference-data visibility (AC-017/AC-018) is fully exercised in a tenant the user IS a member of. Also relevant to the T-042 POC demo journey.",
+      "evidence": "CreateTenantCommandHandler.cs:40-88 (no membership grant); GetMeQueryHandler.cs:48-59 (memberships from user's own); tenant-manager.spec.ts:127-165 (V-007 fixme).",
+      "recommendation": "Track as a follow-up on the tenant creation/switch flow: either grant the creator a membership on CreateTenant, or add a global.view_any_tenant 'enter tenant' action; then un-fixme tenant-manager.spec.ts V-007. Resolve before/within T-042. Non-blocking for T-016.",
+      "status": "OPEN",
+      "created_at": "2026-07-13T08:15:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-18..FR-24, PRD 12.10)" },
+    { "timestamp": "2026-07-13T07:00:00-04:00", "event": "task_started", "message": "T-016 IN_PROGRESS; delegated to Implementor (iteration 1/10). Deps T-013 (shell) + T-008 (reference data) + T-010 (business rules/settings) + T-011 (business assignments) + T-012 (brokers) all PASS. UI on the T-013 shell: SettingsLayout with vertical tabs showing only permitted subsections; BrokersTab (list/add/edit/disable + contacts editor w/ primary radio); ReferenceDataTab (11 list-types, add/edit/disable/reorder, guarded-status affordances: reporting-category read-only for canonical, no disable on is_terminal, category picker restricted for new intermediate, cover-types under product-line, request-channel broker toggle); BusinessRulesTab (FR-11 sectioned form incl. currency + attachment cap, PUT /settings/business-rules); BusinessAssignmentsTab (leads/quotes role pickers + accountable-owner radio + in-use warning). settingsApi over the four backends. Lifts the previously-fixme'd settings.spec.ts blocks + the T-009 V-007 reference-data-after-tenant-create scenario into real e2e. Test surface: component tests + real Playwright settings.spec.ts. Uses oidc.ts in-flight guard from T-015 (deep-link e2e now stable). Frontend typecheck must pass." },
+    { "timestamp": "2026-07-13T08:00:00-04:00", "event": "implementation_written", "message": "T-016 IMPLEMENTED (iteration 1/10). Frontend-only. Created features/settings/{settingsApi (fetch-wrapper over all four backends: reference-data /settings/reference-data/{listType}+/reorder+/{id}/disable, business-rules GET/PUT /settings/business-rules FR-11 DTO, business-assignments GET/PUT /settings/business-assignments, brokers /brokers CRUD/disable+contacts subresources), SettingsLayout (vertical tabs filtered by held permission, /settings index redirects to first permitted tab), BrokersTab+BrokerFormDrawer+ContactsEditor (exactly-one-primary UX, diffs against the 4 discrete contact endpoints since no bulk API), ReferenceDataTab (11 list-types, add/edit/disable/reorder, guarded-status UX: reporting-category read-only for canonical, Disable hidden for isTerminal, category picker restricted to open/quoted for new intermediate, cover-type product-line linkage, broker-channel toggle), BusinessRulesTab (FR-11 sectioned form; on currency change dispatches new updateActiveTenantCurrency session reducer so footer stays correct WITHOUT reintroducing a GET /settings/business-rules footer dependency), BusinessAssignmentsTab (lead/quote role panels from rolesApi, single accountable-owner radio)} + 6 component test files (19 tests). Modified api/client.ts (+apiDelete), sessionSlice (+updateActiveTenantCurrency), router.tsx (real nested /settings/* routes each RouteGuard-gated). TWO REAL BUGS fixed via e2e [evaluator verify]: (1) ReorderItemsCommandHandler requires the ordered-id payload to be EXACTLY the active-item set - ReferenceDataTab was including disabled items and silently 422ing; fixed to reorder an active-only subsequence + hide reorder on disabled rows; (2) BrokersTab fetched broker_type reference items unconditionally (needs reference_data.manage) so a brokers.manage-only caller 403'd the whole tab; made best-effort. e2e settings.spec.ts rewritten: 6 REAL tests (V-017/V-018 x2/V-010+V-074/V-022/V-023) + 4 scoped test.fixme(title,fn) for cross-feature assertions genuinely blocked on unbuilt UI (Leads/New-Lead T-026/T-027, Assign dialog T-018/T-028, Overview/exports T-031/T-039). FLAGGED AMBIGUITY [evaluator adjudicate]: V-007 (tenant-switch to see seeded reference data) kept fixme in tenant-manager.spec.ts with a corrected precise reason discovered here (NOT a T-016 gap): no UI path lets an Internal user enter a tenant they are not an explicit member of - CreateTenantCommandHandler does not grant the creator a membership, and TenantSwitcher only lists login-time GET /me memberships; pre-existing, likely a T-006/T-013/T-014 follow-up. RESULTS: typecheck clean no any; component 104/104 (85 + 19); Playwright full regression 22 passed / 5 fixme (settings 6/6 real + tenant-manager/user-manager/shell/login/logout/smoke green), idempotent across repeated runs; backend 221/221 (Domain 10, Infrastructure 45, Api 166) unchanged. Handed to Evaluator." },
+    { "timestamp": "2026-07-13T08:15:00-04:00", "event": "evaluator_result", "message": "Evaluation (iteration 1/10): VERDICT PASS. All 6 ACs covered with real tests, permission-gating UX-only, both bug fixes genuine, currency/footer no F-046 regression, no security findings. Independent runs: typecheck clean no any, component 104/104 (24 files), backend 221/221 (Domain 10, Infrastructure 45, Api 166); live Playwright settings.spec.ts 6 passed / 4 fixme, regression shell+tenant-manager+user-manager 10 passed / 1 fixme (only V-007), and shell.spec.ts:43 (AC-074/F-046 non-BWP currency) passed confirming no F-046 regression. Per-AC: AC-010/V-010 business rules incl. attachment cap + currency (covered, downstream aging-behavior legit fixme); AC-017/V-017 per-subsection gating (SettingsLayout filter + per-route RouteGuard + brokers-only persona e2e); AC-018/V-018 reference data 11 types + guarded-status affordances + reorder-persists e2e; AC-022/V-022 business assignments single accountable-owner; AC-023/V-023 brokers exactly-one-primary; AC-074/V-074 currency footer session-sourced + e2e ZAR flip. Permission-gating UX-only (mutations hit RequirePermission endpoints, /settings/* + /brokers/* send X-Tenant-Id, no IDOR/XSS). Bug fixes genuine: reorder builds payload from active-only + hides controls on disabled (matches ReorderItemsCommandHandler.cs:30-40 SetEquals contract); brokers listReferenceItems.catch(()=>[]) best-effort degrade for brokers-only caller. Currency sync: updateActiveTenantCurrency mutates only active membership currency, footer still session-sourced, persists server-side so no reload desync. V-007 RULING: legitimately deferred pre-existing gap (verified CreateTenantCommandHandler grants creator no membership + GetMe sources own memberships + no enter-any-tenant UI) - NOT a T-016 blocker; recorded F-053 against tenant-creation/switch. 4 scoped fixme legit (test.fixme(title,fn) per-test form verified; 6 real tests run). Non-blocking findings F-051 (reorder disabled-exclusion not regression-locked), F-052 (brokers 403 fallback not asserted), F-053 (tenant-switch gap). Recommend PASS." },
+    { "timestamp": "2026-07-13T08:18:00-04:00", "event": "task_passed", "message": "T-016 PASS (iteration 1/10). Component 104/104, backend 221/221 (Domain 10, Infrastructure 45, Api 166), settings e2e 6 pass / 4 legit fixme, regression 10 pass / 1 fixme (V-007). AC-010/017/018/022/023/074 all satisfied with covering tests; V-010/017/018/022/023/074 real passing e2e. Two real backend-contract bugs fixed via e2e. Non-blocking findings F-051/F-052 (test-gap advisories) + F-053 (CROSS-CUTTING: tenant-switch/enter gap tracked against T-006/T-014, to resolve before/within T-042; blocks V-007 e2e only). T-016 was a dependency of T-030 (blocked on T-018) and T-042 (blocked); no new task unblocks. Proceeding to next eligible READY task per continuous-run directive." }
+  ]
+}

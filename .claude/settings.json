@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/tm874/.claude/agents/**)"
+    ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
+  }
+}

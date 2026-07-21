@@ -1,0 +1,140 @@
+{
+  "id": "T-044",
+  "title": "Cutover: metric parity check, legacy .NET/Hangfire/Keycloak/Vault/MinIO/Liquibase removal, Definition of Done verification",
+  "status": "PASS",
+  "iteration_count": 0,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-043",
+    "T-051",
+    "T-052"
+  ],
+  "objective": "Complete the migration: run the metric parity check (identical demo seed in old and new stacks reconciles dashboard totals exactly), remove the entire legacy stack (.NET tree, docker-compose services, Hangfire/Liquibase/Keycloak/Vault/MinIO artifacts and dependencies), and verify the Definition of Done end-to-end (spec 18, M-13 DoD).",
+  "scope": [
+    "Metric parity: seed both stacks with the identical demo dataset (or equivalent mapping), capture dashboard totals from old and new, reconcile with exact-match expectation; discrepancies are findings, not tolerances (spec 18)",
+    "Removal: src/api/* (.NET solution), docker-compose files and all legacy service references (Postgres, Keycloak, Vault, MinIO, Liquibase), Hangfire artifacts, obsolete env vars/scripts/docs references, oidc-client-ts remnants",
+    "Repository hygiene sweep: no references to retired platforms remain in code, scripts, docs, or config (historical mentions only where spec-designated)",
+    "Definition of Done checklist executed and evidenced: no .NET/Hangfire runtime required; vercel build deploy-ready with placeholders; clean-checkout local dev per docs; full adapted e2e suite green; all four jobs working via Supabase Cron/Queues with local + deployed paths; tenant isolation + RBAC validated by tests; four docs complete",
+    "Final full-gate run: typecheck, lint, unit, integration, migration-from-clean, seed idempotency, e2e",
+    "AC-095 DEVIATION LEDGER must record, at minimum, these accumulated target-only deviations and preserved-contract clarifications (added by the orchestrator on evaluator finding T-026-E2, which observed the obligation was being asserted in evaluations but written down nowhere): (1) uq_quotes_current - a DB-level unique guard absent from the .NET reference, where the invariant lived only in the handlers so two concurrent promotions could commit two current rows and double-count quoted premium in every dashboard joining is_current; (2) reference-data uq_reference_items_tenant_list_canonical_key, likewise not in the reference schema; (3) .strict() write schemas and validated reorder bodies, where the reference ignored unknown keys and NRE'd into a 500; (4) T-020's int32-ceiling hardening, which returns a typed 422 where the reference accepted the value then 500'd in Postgres; (5) T-017's orphaned-identity compensation, a deliberate divergence from CreateUserCommandHandler.cs:13-21; (6) intake rate limiting DEFERRED (Q-17/A-20) although the reference demonstrably had a 429 policy at IntakeEndpoints.cs:29 - must be revisited before cutover; (7) the intake X-API-Key header name, chosen rather than inherited (spec.md:380 says only 'a documented header'), which becomes a breaking change once an integrator onboards; (8) the availableOperations vs reference legalOperations 409 hint field name.",
+    "AC-095 LEDGER, additional entries from T-027/T-035 (evaluator finding F-027-7): (9) GET /quotes/{id}/attachments is an API-SURFACE ADDITION - the reference has no attachment list endpoint at all, QuoteDto carries no attachments field, and the SPA tracked them in component state and lost them on reload (QuotesCard.tsx:128-131 documents this against itself). It was added because AC-057/V-073's 'disappears from the quote's list' is otherwise unverifiable, and the evaluator ruled adding it correct because amending AC-057 would have PRESERVED a documented defect. (10) The attachment CONFIRM endpoint, likewise not in the reference, required by the signed-URL flow. (11) MAGIC-NUMBER TIMING RESIDUAL (R-8): validation is implemented but its timing changed - the reference inspected bytes mid-stream so a bad file never reached storage, whereas direct-to-storage means a hostile object EXISTS between transfer and confirm. Verified unreachable in that window (bucket public=false with ZERO storage RLS policies, no signed URL issued for confirmed_at IS NULL rows, list excludes pending rows) and deleted on rejection, but 'never written' has become 'written, then deleted'. (12) Upload-URL TTL is FIXED AT 2h by Supabase and cannot be shortened via the client API (storage-js 2.110.7 createSignedUploadUrl takes no expiresIn); download expiry IS ours and is set to 300s.",
+    "AC-095 LEDGER, entry (13) - THE FIRST DELIBERATE BEHAVIOURAL DIVERGENCE FROM THE .NET REFERENCE ruled in this migration (human decision 2026-07-20, findings F-036-01/F-036-02/F-037-5). Dashboard aggregates now narrow by leads.view_all breadth (the reference applied it only to drills), and drill-through applies the date filter PER WIDGET - only where that widget's aggregate is itself date-scoped (the reference applied dates to every drill regardless). Rationale: an aggregate the user cannot reconcile by drilling into it is worse than a smaller aggregate. USER-VISIBLE CONSEQUENCE at cutover: users WITHOUT leads.view_all will see SMALLER dashboard totals than the legacy system showed them, and that is intended - the legacy totals covered leads those users could never enumerate. This must be called out in cutover comms, and it is a metric-parity EXCEPTION: the T-044 side-by-side parity check must compare using a view_all-holding caller, or it will report a false regression.",
+    "AC-095 LEDGER, entry (14) - SECOND deliberate change to shipped numbers, from T-050 finding F-050-07. Pipeline's `sla_breaches` and five Immediate Actions previously read `countOpenAlertsByType`, which is TENANT-WIDE and honours neither the dashboard filter nor breadth, while their drill honours both - structurally unreconcilable under the superset invariant. They now count over the snapshot's own alert rows. USER-VISIBLE CONSEQUENCE: those six numbers NARROW under a filter where they previously did not. The Alerts Centre's use of the same counter is untouched. Entry (15) - T-050 found THREE reference drill scopes that EXCLUDE leads their own aggregate counts (openPipelineOf sums open-category QUOTES but the reference scope filters on LEAD category, so an open quote on a lost lead is dropped; won_premium likewise; leads_at_risk has no category test but the reference scope requires an open category). Porting those verbatim would have shipped superset violations, so each scope is now the UNION over every aggregate emitting its key. This is a divergence from the reference drill populations and each widening carries a test naming the lead the reference would have dropped."
+  ],
+  "out_of_scope": [
+    "Production/hosted provisioning and real cutover execution (human-owned, documented placeholders per A-18)",
+    "Any new features or refactors beyond removal"
+  ],
+  "implementation_details": [
+    "Metric parity procedure: run the old stack one last time from the git branch (it remains the rollback anchor until DoD); export dashboard payloads/totals for a fixed filter set from both stacks; write the comparison as a checked-in parity report script + results (scripts/db/metric-parity.ts or docs evidence).",
+    "Removal order: verify nothing in the new stack imports/references legacy paths (grep sweep), then delete; update .gitignore/workspaces if they referenced removed trees.",
+    "Rollback note: the old stack remains available in git history/branch per spec 18 — removal happens on the migration branch after the suite is green.",
+    "DoD evidence recorded in the task history/findings for the Evaluator (each DoD bullet -> command + result)."
+  ],
+  "files": [
+    "src/api/ (DELETED)",
+    "docker-compose*.yml (DELETED)",
+    "scripts/db/metric-parity.ts",
+    "package.json (remove legacy scripts)",
+    "docs/* (remove legacy references)",
+    ".gitignore / workspace config cleanup"
+  ],
+  "test_plan": {
+    "unit": [
+      "None new"
+    ],
+    "integration": [
+      "Full gate re-run after removal: typecheck, lint, unit, integration, migration-from-clean, seed idempotency all green",
+      "Metric parity report shows exact reconciliation (or documented, human-accepted discrepancies)",
+      "Reference sweep: zero active references to Hangfire/EF Core/Liquibase/Keycloak/HashiCorp Vault/MinIO in the live codebase"
+    ],
+    "e2e": [
+      "Full adapted Playwright suite green one final time on the post-removal tree"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-093",
+    "AC-094",
+    "AC-095"
+  ],
+  "verification_ids": [
+    "V-119",
+    "V-120",
+    "V-121",
+    "V-122",
+    "V-123"
+  ],
+  "findings": [],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to spec 18 cutover/DoD, M-13, section 8 removal note, N-07."
+    },
+    {
+      "timestamp": "2026-07-20T01:00:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator recorded evaluator finding T-026-E2. The evaluator ratified the uq_quotes_current DB guard (verifying the cited T-005 precedent verbatim rather than taking the index COMMENT's word for it) but noticed the AC-095 ledger obligation existed only in evaluation prose and was written into no task file - so it would have been lost at cutover. The known deviations accumulated so far are now enumerated in scope here rather than left to be reconstructed from the event log."
+    },
+    {
+      "timestamp": "2026-07-20T03:10:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator recorded evaluator finding F-027-7. Four further ledger items from T-027, written here rather than left in evaluation prose - the same loss mode E2 caught last round, where a ledger obligation existed only in a report and would have vanished at cutover."
+    },
+    {
+      "timestamp": "2026-07-20T09:00:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator recorded the human's AC-076 ruling. This is the first DELIBERATE divergence from reference BEHAVIOUR in this migration - every prior amendment restated the criteria to match measured reference behaviour, whereas this one changes it. Flagged for cutover comms and, importantly, as a metric-parity exception: a naive side-by-side comparison run as a restricted user WILL report a false regression."
+    },
+    {
+      "timestamp": "2026-07-20T14:00:00-04:00",
+      "event": "scope_amended",
+      "message": "Orchestrator recorded T-050 findings F-050-06 and F-050-07 as ledger entries 14 and 15. Both change numbers users see today. Entry 15 is notable: the human's reconciliation ruling did not merely expose a missing port, it exposed three genuine defects in the REFERENCE's own drill scopes, where a drill excluded leads its own headline counted."
+    },
+    {
+      "timestamp": "2026-07-21T05:30:00-04:00",
+      "event": "dependency_added",
+      "message": "T-051 added as a dependency: it wires the V-003 built-bundle scan and the V-114 repo-wide secret scan that this cutover task signs off. Both must be green before cutover."
+    },
+    {
+      "timestamp": "2026-07-21T10:00:00-04:00",
+      "event": "dependency_added",
+      "message": "T-052 (shell nav pointer-interception fix, F-043-4) added as a dependency - it blocks AC-090/AC-092 e2e nav journeys that cutover must claim."
+    },
+    {
+      "timestamp": "2026-07-21T14:30:00-04:00",
+      "event": "task_started",
+      "message": "Human ruled cutover sequencing: SKIP the automated metric-parity run (V-119/V-120 documented as a human cutover-time manual prerequisite, run as a view_all holder per ledger entry 13); PROCEED with legacy removal now since src/api (761 files) and docker-compose.yml are tracked and thus git-recoverable. Real hosted cutover remains human-owned (A-18). F-051-1 (commit the untracked migration tree, then re-run ci:security) remains a human prerequisite before V-003/V-114 can be signed off."
+    },
+    {
+      "timestamp": "2026-07-21T15:30:00-04:00",
+      "event": "legacy_removed",
+      "message": "Filesystem-removed (never git; tracked deletions are the human's recoverable rollback anchor): src/api/ (the entire .NET solution + Liquibase changelogs + .NET tests; 1864 on-disk files, 761 tracked per the task); docker-compose.yml; the whole infra/ tree (keycloak realm/theme + vault seed script); README.dev.md and run.ps1 (legacy .NET/docker dev guide + bring-up); e2e_tests/seed/{seed-shell-e2e.sh,seed-authz-e2e.sh} (Keycloak+dotnet e2e seeds, superseded by e2e_tests/helpers/seed.ts driven by global-setup.ts). No legacy runtime dependency remained in any package.json; the approved backend set (zod, kysely, pg, hono, @supabase/supabase-js, tsx, exceljs) was already exact."
+    },
+    {
+      "timestamp": "2026-07-21T15:35:00-04:00",
+      "event": "dotnet_parity_tests_resolved",
+      "message": "Removed the three schema-*-dotnet-parity.test.ts suites (15 tests: foundation 4, business 6, reference 5) — they compared the migrated schema against the retired .NET/Liquibase DB over docker-compose, could only pass with that reference DB up, and would otherwise describe.skip (which assert-test-run treats as a hard failure). Their guarantee survives as db:validate (migrations-from-empty x2 + supabase/schema.expected.sql snapshot). Deliberately lowered the ci:test --min-tests floor from 3746 to 3731 (the exact 15 removed) — the one authorized lowering. SEPARATELY: the removed src/api C# sources were also the live source for baseline-seed.test.ts's seed-content guard (via helpers/dotnet-seed-reference.ts, read at module load), which db:validate does NOT cover. Rather than lose that guard, captured the exact .NET-derived inventory (81 permissions, 93 reference rows) verbatim into src/server/tests/fixtures/baseline-seed-reference.json and reworked the helper into helpers/baseline-seed-reference.ts (frozen-snapshot reader, same export shape). baseline-seed.test.ts still compares fixture vs seed.sql vs live DB key-for-key. A raw NUL in the new helper's sort-key separator was caught by the no-nul-bytes guard and rewritten as the runtime-identical \\u0000 escape."
+    },
+    {
+      "timestamp": "2026-07-21T15:40:00-04:00",
+      "event": "hygiene_and_fixups",
+      "message": "Cleaned stale build-config references to the removed tree (eslint.config.js ignores, tsconfig.server.json exclude); rewrote README.md to the TypeScript/React/Supabase stack pointing at docs/; inverted repo-layout.test.ts's preservedDotNetPaths guard into removedLegacyPaths (now asserts src/api, docker-compose.yml, infra are ABSENT) and added e2e_tests to required dirs (net test count unchanged); updated two SQL migration comments that cited the deleted parity tests to cite db:validate instead (comment-only, no schema impact). Fixed F-043-9: corrected internal-cross-tenant.spec.ts (the AC-083 boundary is proven by rm.tebogo in tenant-manager.spec.ts, not pilot.admin) and role-403-sweep.spec.ts (F-043-2 over-grant is RESOLVED - the demo admin role now holds tenant_all excluding tenants.*/global.*). Repo-wide platform sweep: ZERO runtime references to Hangfire/EF Core/Liquibase/Keycloak/Vault/MinIO/oidc-client remain (no legacy imports, no legacy service ports 8080/8200/9000/5432, no dotnet/liquibase/docker-compose invocation); all remaining textual hits are migration-context comments, removal-guard tests, frozen reference snapshots, docs/spec historical mentions, or CLAUDE.md prohibitions - each accounted for in docs/cutover.md."
+    },
+    {
+      "timestamp": "2026-07-21T15:45:00-04:00",
+      "event": "final_gate_run",
+      "message": "Post-removal, DB reset to baseline. GREEN: npm run typecheck (0); npm run lint (0); npm run typecheck:ui (0); npm run lint:ui (0 errors, 6 pre-existing warnings); npm test / ci:test = 3731 passed, 0 failed, 0 skipped (110 files) at the new floor 3731; npm run ci:test:ui = 565/565, 0 skipped; npm run db:validate = all 28 migrations apply from empty twice, identical, snapshot match; npm run db:types:check = up to date; npm run ci:security = 427 tracked files 0 secrets + SPA bundle 0 leaks (NOTE F-051-1: scans TRACKED files, so it scanned the OLD tracked set - the human must commit the deletions + new tree then re-run to sign off V-003/V-114); npm run test:e2e:smoke = 6/6, with the app auto-started via npm run dev (API :3001 + SPA :5173) proving the whole app builds and runs on Node + Supabase with NO .NET/Hangfire/Keycloak/Vault/MinIO runtime."
+    },
+    {
+      "timestamp": "2026-07-21T15:50:00-04:00",
+      "event": "deliverables_and_dod",
+      "message": "Wrote docs/cutover.md as the durable cutover record so the AC-095 obligation survives past cutover: (1) legacy-removal record (V-121); (2) hygiene before/after with every remaining hit categorised (V-121); (3) the API-contract deviation ledger - the two headline deviations (A-7 attachment signed-URL envelope, Q-19 intake API-key) plus all 15 accumulated target-only deviations/clarifications verified complete and coherent against the task scope, confirming /api/v1 preserved 1:1 except those documented deviations (V-123, corroborated by the green contract integration tests + e2e); (4) the DoD checklist with per-item evidence (V-122). DoD items SATISFIED-NOW: no .NET/Hangfire runtime; Vercel build (build:ui) succeeds; Supabase source-of-truth (db:validate); clean-checkout local dev per docs; adapted e2e (active green + 60 documented seed-data fixme; smoke re-run green); all four jobs via pg_cron/pgmq local path; tenant isolation + RBAC by tests; four docs complete. HUMAN cutover-time (documented, not claimed done): the V-119/V-120 metric-parity side-by-side (skipped per human ruling, must run as a view_all holder per ledger entry 13 to avoid a false regression); F-051-1 tree commit + ci:security re-run; hosted Vercel/Supabase provisioning and real cutover (A-18); deployed pg_cron firing + smoke (V-082/V-085); intake rate-limiting revisit (ledger entry 6). Status -> IMPLEMENTED for Evaluator."
+    },
+    {
+      "timestamp": "2026-07-21T16:30:00-04:00",
+      "event": "evaluated",
+      "message": "EVALUATOR VERDICT: PASS. Confirmed first-hand (not just read): (1) src/api, docker-compose.yml, infra/, README.dev.md, run.ps1, e2e_tests/seed/* absent from disk. (2) SNAPSHOT-TEETH CRUX: reset+reseeded local Supabase (npm run supabase:reset) and ran baseline-seed.test.ts directly -> 22/22 pass against the live seeded DB (not vacuous). Hashed baseline-seed-reference.json (sha256 404277...aed6b50), mutated permissions[0].code to a garbage value, reran the suite -> 3 tests went RED with a correct diff (mismatched permission list + seed.sql cross-check), proving the frozen-snapshot rework did not sever the guard. Restored the fixture and reverified byte-identical sha256 match; confirmed 0 NUL bytes in both the fixture and the helper. Cross-checked the fixture's declared counts (81 permissions, 93 items) against the JSON itself - matches the task's claim exactly. (3) Reran the full gate independently: npm run ci:test -> 3731 passed, 0 failed, 0 skipped, 110 files (floor 3731, matches 3746-15); npm run typecheck -> clean; npm run lint -> clean; npm run db:validate -> 28 migrations from empty x2, identical, snapshot match; scan-secrets -> 427 tracked files, 0 secrets (confirms the F-051-1 caveat that this is the OLD tracked set, honestly disclosed in docs/cutover.md); npm run test:e2e:smoke -> 6/6 green, app auto-started on Node+Supabase only, no .NET/docker-compose in the path. (4) repo-layout.test.ts read: removedLegacyPaths=['src/api','docker-compose.yml','infra'] asserted absent via it.each - genuine teeth (would fail if any path reappeared), and it ran as part of the 3731 (53 tests in that file). (5) Grep swept the live tree for keycloak|hangfire|liquibase|minio|hashicorp|oidc-client|dotnet across source, migrations, docs, README, e2e specs; every hit inspected is either a migration-context comment, a removal-guard assertion (schema-foundation.test.ts asserting keycloak_id column is gone; schema-reference-constraints.test.ts asserting keycloak_client_id constraint retired), a frozen-snapshot provenance comment, or a docs/CLAUDE.md historical/prohibition mention - zero runtime imports, zero legacy ports, zero dotnet/liquibase/docker-compose invocations found. (6) package.json dependencies are exactly {@supabase/supabase-js, exceljs, hono, kysely, pg, zod}; tsx confirmed in devDependencies, not dependencies. (7) docs/cutover.md read in full: contains the removal record, the categorised hygiene sweep, the complete 15-entry AC-095 ledger plus the two headline A-7/Q-19 deviations, and a DoD table that correctly marks V-119/V-120 metric parity, F-051-1 tree-commit-then-rescan, hosted provisioning, deployed pg_cron firing, and intake rate-limiting as HUMAN/cutover-time items rather than claiming them done - no overclaiming found. TAKEN ON TRUST (not independently re-derived): that the frozen fixture's 81 permission rows and 93 reference rows are a byte-faithful capture of the now-deleted C# PermissionCatalog.cs/DefaultReferenceData.cs at the moment of capture - the C# source is gone and cannot be re-read from disk to cross-check field-by-field; mitigated by the mutation-teeth proof (item 2) showing the guard is live and would catch any FUTURE drift, and by the fact db:seed idempotency + seed.sql-vs-fixture cross-checks (also in the 22 tests) independently corroborate internal consistency. V-119/V-120 (metric parity) is correctly SKIPPED per the human's explicit sequencing ruling recorded in this task's own history (2026-07-21T14:30 entry) and is not treated as a defect. DB left coherent: reset + baseline-seeded after all checks. VERDICT: AC-093 honestly deferred (not silently dropped) with a correct human-owned procedure recorded (view_all-holder caveat included); AC-094 satisfied and independently reproduced; AC-095 ledger complete and the frozen-snapshot risk - the one thing most worth scrutinizing - checks out with genuine teeth. No findings. PASS."
+    }
+  ]
+}

@@ -1,0 +1,609 @@
+{
+  "generated_at": "2026-07-18T17:00:00-04:00",
+  "spec_path": "spec.md",
+  "tasks": [
+    {
+      "id": "T-001",
+      "title": "Repo restructure: npm workspaces, TypeScript strict scaffold, root scripts, Vercel project skeleton",
+      "status": "PASS",
+      "depends_on": [],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-001.json"
+    },
+    {
+      "id": "T-002",
+      "title": "Supabase local stack: config.toml, pg_cron/pgmq/pg_net extensions, asymmetric JWT signing keys, lifecycle scripts",
+      "status": "PASS",
+      "depends_on": [
+        "T-001"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-002.json"
+    },
+    {
+      "id": "T-003",
+      "title": "SQL migrations I: extensions, identity/tenancy, RBAC tables, partitioning function, audit_log, reference_sequences",
+      "status": "PASS",
+      "depends_on": [
+        "T-002"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-003.json"
+    },
+    {
+      "id": "T-004",
+      "title": "SQL migrations II: reference data, tenant settings, business-assignment slots, api_credentials",
+      "status": "PASS",
+      "depends_on": [
+        "T-003"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-004.json"
+    },
+    {
+      "id": "T-005",
+      "title": "SQL migrations III: core business tables, alerts, status history, indexes; migration-from-clean validation",
+      "status": "PASS",
+      "depends_on": [
+        "T-004"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-005.json"
+    },
+    {
+      "id": "T-006",
+      "title": "Baseline seed: permission catalog and global default reference template (idempotent, reset- and deploy-safe)",
+      "status": "PASS",
+      "depends_on": [
+        "T-005"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-006.json"
+    },
+    {
+      "id": "T-007",
+      "title": "Typed server config module and structured JSON logging",
+      "status": "PASS",
+      "depends_on": [
+        "T-001"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-007.json"
+    },
+    {
+      "id": "T-008",
+      "title": "Kysely data layer: pooler-safe pg driver, transactions, tenant-scoped query helpers, generated DB types",
+      "status": "PASS",
+      "depends_on": [
+        "T-005",
+        "T-007"
+      ],
+      "iteration_count": 5,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-008.json"
+    },
+    {
+      "id": "T-009",
+      "title": "Hono app skeleton in the Vercel catch-all function: routing, RFC 7807 errors, zod validation plumbing, request logging, health",
+      "status": "PASS",
+      "depends_on": [
+        "T-007"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-009.json"
+    },
+    {
+      "id": "T-010",
+      "title": "CI pipeline: typecheck, lint, unit + integration (local Supabase in CI), migration-from-clean validation, frontend build",
+      "status": "PASS",
+      "depends_on": [
+        "T-006",
+        "T-008",
+        "T-009"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-010.json"
+    },
+    {
+      "id": "T-011",
+      "title": "Supabase Auth server library: getClaims() token verification middleware and Auth Admin API client",
+      "status": "PASS",
+      "depends_on": [
+        "T-009",
+        "T-002"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-011.json"
+    },
+    {
+      "id": "T-012",
+      "title": "RBAC core: effective-permission resolution engine and declarative route permission guard",
+      "status": "PASS",
+      "depends_on": [
+        "T-008",
+        "T-011",
+        "T-006"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-012.json"
+    },
+    {
+      "id": "T-013",
+      "title": "Tenant-context middleware (X-Tenant-Id enforcement) and audit writer service",
+      "status": "PASS",
+      "depends_on": [
+        "T-012"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-013.json"
+    },
+    {
+      "id": "T-014",
+      "title": "Data API lockdown: pin that anon/authenticated cannot reach tenant data (RLS NOT adopted)",
+      "status": "PASS",
+      "depends_on": [
+        "T-013"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-014.json"
+    },
+    {
+      "id": "T-015",
+      "title": "Session endpoints: GET /me and PUT /me/preferences",
+      "status": "PASS",
+      "depends_on": [
+        "T-013"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-015.json"
+    },
+    {
+      "id": "T-016",
+      "title": "Tenant Manager backend: CRUD, soft remove/restore, transactional template seeding + partition creation",
+      "status": "PASS",
+      "depends_on": [
+        "T-013",
+        "T-006"
+      ],
+      "iteration_count": 2,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-016.json"
+    },
+    {
+      "id": "T-017",
+      "title": "User Manager backend: users, roles, groups, permissions, effective access, Supabase Auth Admin provisioning",
+      "status": "PASS",
+      "depends_on": [
+        "T-016"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-017.json"
+    },
+    {
+      "id": "T-018",
+      "title": "SPA auth swap: @supabase/supabase-js sign-in/session, /sign-in page, password reset, bearer wiring, dev proxy",
+      "status": "PASS",
+      "depends_on": [
+        "T-015",
+        "T-002"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-018.json"
+    },
+    {
+      "id": "T-019",
+      "title": "Reference data backend: tenant list CRUD/disable/reorder per list type with guarded statuses",
+      "status": "PASS",
+      "depends_on": [
+        "T-016"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-019.json"
+    },
+    {
+      "id": "T-020",
+      "title": "Business rules (tenant settings) and business-assignment slots backend",
+      "status": "PASS",
+      "depends_on": [
+        "T-017",
+        "T-019"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-020.json"
+    },
+    {
+      "id": "T-021",
+      "title": "Brokers and broker contacts backend",
+      "status": "PASS",
+      "depends_on": [
+        "T-019"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-021.json"
+    },
+    {
+      "id": "T-022",
+      "title": "API-access credential administration: first-party hashed API keys (Q-19) with reveal-once/regenerate/disable",
+      "status": "PASS",
+      "depends_on": [
+        "T-021"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-022.json"
+    },
+    {
+      "id": "T-023",
+      "title": "Parties backend: list, detail with leads card, create/update with duplicate warning",
+      "status": "PASS",
+      "depends_on": [
+        "T-019"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-023.json"
+    },
+    {
+      "id": "T-024",
+      "title": "Leads backend core: create/list/get/update, tenant-formatted refs, duplicate checks, bulk reassign, breadth permissions",
+      "status": "PASS",
+      "depends_on": [
+        "T-023",
+        "T-020",
+        "T-021"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-024.json"
+    },
+    {
+      "id": "T-025",
+      "title": "Lead workflow engine: legality matrix, all lead operations, status history, pricing approvals, follow-ups, availableOperations",
+      "status": "PASS",
+      "depends_on": [
+        "T-024"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-025.json"
+    },
+    {
+      "id": "T-026",
+      "title": "Quotes backend: lead-subordinate creation, versioning, quote operations with cascades, closed-record corrections",
+      "status": "PASS",
+      "depends_on": [
+        "T-025"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-026.json"
+    },
+    {
+      "id": "T-027",
+      "title": "StorageAdapter port + Supabase Storage attachments backend with signed-URL upload/download",
+      "status": "PASS",
+      "depends_on": [
+        "T-026",
+        "T-002"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-027.json"
+    },
+    {
+      "id": "T-028",
+      "title": "Frontend attachment flow: signed-URL upload/download components",
+      "status": "PASS",
+      "depends_on": [
+        "T-027",
+        "T-018"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-028.json"
+    },
+    {
+      "id": "T-029",
+      "title": "Lead timeline endpoint: activity aggregation across history, notes, follow-ups, quotes, attachments",
+      "status": "PASS",
+      "depends_on": [
+        "T-026"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-029.json"
+    },
+    {
+      "id": "T-030",
+      "title": "Lead intake endpoint: POST /intake/leads with first-party API-key authentication",
+      "status": "PASS",
+      "depends_on": [
+        "T-022",
+        "T-024"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-030.json"
+    },
+    {
+      "id": "T-031",
+      "title": "Job infrastructure: job_run history, pgmq queue, queue interfaces + adapters, drain/cron endpoints, job scripts",
+      "status": "PASS",
+      "depends_on": [
+        "T-008",
+        "T-009"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-031.json"
+    },
+    {
+      "id": "T-032",
+      "title": "Expiry sweep jobs: quote-expiry and lead-inactivity-expiry handlers with pg_cron schedules",
+      "status": "PASS",
+      "depends_on": [
+        "T-031",
+        "T-026"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-032.json"
+    },
+    {
+      "id": "T-033",
+      "title": "Alerts backend: rule predicates, reconciliation evaluation handler, alerts center endpoints and badge",
+      "status": "PASS",
+      "depends_on": [
+        "T-031",
+        "T-026"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-033.json"
+    },
+    {
+      "id": "T-034",
+      "title": "Alert job wiring: pg_cron evaluation + drain schedules, targeted re-evaluation enqueue from workflow executors",
+      "status": "PASS",
+      "depends_on": [
+        "T-032",
+        "T-033"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-034.json"
+    },
+    {
+      "id": "T-035",
+      "title": "Metric definitions module and dashboard framework: shared filters, drill endpoint, currency formatting data",
+      "status": "PASS",
+      "depends_on": [
+        "T-026"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-035.json"
+    },
+    {
+      "id": "T-036",
+      "title": "Executive Overview and Pipeline & Conversion dashboard endpoints",
+      "status": "PASS",
+      "depends_on": [
+        "T-035",
+        "T-033"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-036.json"
+    },
+    {
+      "id": "T-037",
+      "title": "Broker Performance, RM Performance, and Loss Analysis dashboard endpoints",
+      "status": "PASS",
+      "depends_on": [
+        "T-035"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-037.json"
+    },
+    {
+      "id": "T-038",
+      "title": "Global search: tenant-scoped grouped type-ahead endpoint",
+      "status": "PASS",
+      "depends_on": [
+        "T-026",
+        "T-023",
+        "T-021"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-038.json"
+    },
+    {
+      "id": "T-039",
+      "title": "Exports: CSV writer with formula-injection guard, exceljs Excel writer, list and dashboard exports",
+      "status": "PASS",
+      "depends_on": [
+        "T-036",
+        "T-037"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-039.json"
+    },
+    {
+      "id": "T-040",
+      "title": "Reports: catalog, print-ready report data, report CSVs",
+      "status": "PASS",
+      "depends_on": [
+        "T-039"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-040.json"
+    },
+    {
+      "id": "T-041",
+      "title": "Demo seed parity: full demo dataset regenerated for the new stack (idempotent, local + deployed runnable)",
+      "status": "PASS",
+      "depends_on": [
+        "T-034",
+        "T-036",
+        "T-037"
+      ],
+      "iteration_count": 2,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-041.json"
+    },
+    {
+      "id": "T-042",
+      "title": "Deployment readiness and documentation: vercel.json final, env catalog, local-dev/deployment/background-jobs docs",
+      "status": "PASS",
+      "depends_on": [
+        "T-034",
+        "T-041"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-042.json"
+    },
+    {
+      "id": "T-043",
+      "title": "E2E suite adaptation: Supabase Auth login strategy, seed/job hooks, full existing Playwright coverage green",
+      "status": "PASS",
+      "depends_on": [
+        "T-028",
+        "T-029",
+        "T-030",
+        "T-038",
+        "T-040",
+        "T-042"
+      ],
+      "iteration_count": 1,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-043.json"
+    },
+    {
+      "id": "T-044",
+      "title": "Cutover: metric parity check, legacy .NET/Hangfire/Keycloak/Vault/MinIO/Liquibase removal, Definition of Done verification",
+      "status": "PASS",
+      "depends_on": [
+        "T-043",
+        "T-051",
+        "T-052"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-044.json"
+    },
+    {
+      "id": "T-045",
+      "title": "Fix pre-existing SPA TypeScript build errors blocking npm run build -w src/ui",
+      "status": "PASS",
+      "depends_on": [
+        "T-001"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-045.json"
+    },
+    {
+      "id": "T-046",
+      "title": "Validation rule-code prefix defect: mixed-case prefixes bypass the explicit-code parser and leak into user-visible messages",
+      "status": "PASS",
+      "depends_on": [
+        "T-024"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-046.json"
+    },
+    {
+      "id": "T-047",
+      "title": "Replace the raw NUL byte in global-template.schemas.ts with a \u0000 escape",
+      "status": "PASS",
+      "depends_on": [
+        "T-046"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-047.json"
+    },
+    {
+      "id": "T-048",
+      "title": "Investigate non-deterministic ordering in lead status-history reads (append-only audit invariant)",
+      "status": "PASS",
+      "depends_on": [
+        "T-025"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-048.json"
+    },
+    {
+      "id": "T-049",
+      "title": "Orphaned-upload reaper: cron sweep for attachment rows never confirmed",
+      "status": "PASS",
+      "depends_on": [
+        "T-027",
+        "T-031"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-049.json"
+    },
+    {
+      "id": "T-050",
+      "title": "Dashboard drill row-query layer: port the five per-dashboard drill queries and register all 31 widget keys",
+      "status": "PASS",
+      "depends_on": [
+        "T-035",
+        "T-036",
+        "T-037"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-050.json"
+    },
+    {
+      "id": "T-051",
+      "title": "Wire the built-bundle secret/module scan (V-003) and the repo-wide secret scan (V-114) into ci:test",
+      "status": "PASS",
+      "depends_on": [
+        "T-042"
+      ],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-051.json"
+    },
+    {
+      "id": "T-052",
+      "title": "Fix shell nav pointer-interception regression: TenantSwitcher overlaps and blocks Tenant/User Manager nav clicks",
+      "status": "PASS",
+      "depends_on": [],
+      "iteration_count": 0,
+      "max_iterations": 10,
+      "task_file": ".claude/tasks/T-052.json"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "id": "T-029",
+  "title": "Quote panel UI: new quote, detail, quote dialogs, attachments",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": ["T-028", "T-020", "T-021"],
+  "objective": "Quotes are fully workable inside Lead Detail per PRD 12.7: Quotes card, New Quote modal, expanding quote detail panel with versions/history/attachments, and the six quote workflow dialogs (spec FR-45..FR-50, FR-41).",
+  "scope": [
+    "Quotes card in Lead Detail: columns per FR-44, + New Quote (hidden when lead closed), row expansion, empty state",
+    "New Quote modal per FR-46",
+    "Quote detail panel: fields, version history, status history, attachments (upload/download/remove), legal workflow buttons",
+    "Quote dialogs: Assign/Reassign, Send, Revise, Mark won, Mark lost, Withdraw"
+  ],
+  "out_of_scope": ["Quote backend (T-020/T-021)"],
+  "implementation_details": [
+    "features/quotes/QuotesCard.tsx: table columns Quote ref (monospace), Version, Status chip, Quoted premium, Prepared/Sent dates, Valid-until (amber within tenant expiry-alert window, red past), Current marker (radio-like indicator; set-current action permitted per PRD 7.3), row actions menu from quote availableOperations; + New Quote button on card header hidden when lead closed; empty state 'No quotes yet — create one when formal terms are ready.'",
+    "NewQuoteModal.tsx: read-only auto ref placeholder ('assigned on save') and version 1; product line/cover type dropdowns defaulted from lead, editable; quoted premium CurrencyInput required; prepared date default today, min lead date received; valid-until optional; notes; primary 'Save as draft' -> toast + new Draft row",
+    "QuoteDetailPanel.tsx (expanded row): field grid, VersionHistory list (version, premium, note, created by/at, current badge), status history list, AttachmentsSection (file input restricted to png/jpg/pdf/doc/docx, per-tenant size hint, upload progress, list with download links and remove buttons per closed-quote rules), workflow buttons for current status only",
+    "Dialogs reusing WorkflowDialog: QuoteAssignDialog (per configured quote assignable roles); SendQuoteDialog (sent date default today, valid-until required, next follow-up date for the lead required, quoted premium shown read-only for confirmation); ReviseQuoteDialog (new premium and/or terms, revision note); MarkWonDialog (bound premium default quoted, decision date default today, warning 'other open quotes on this lead will be withdrawn'); MarkQuoteLostDialog (reason required, competitor fields, comments; checkbox 'Also close the lead as Lost' default checked when no other open quote); WithdrawQuoteDialog (note, emphasizes lead unchanged)",
+    "After any quote op: refetch lead (status may cascade), quotes list, timeline; primary header action on Lead Detail becomes 'Send quote' when a draft exists (completes T-028 PrimaryActionResolver)",
+    "quotesApi RTK Query module incl. multipart upload"
+  ],
+  "files": [
+    "src/ui/src/features/quotes/QuotesCard.tsx",
+    "src/ui/src/features/quotes/NewQuoteModal.tsx",
+    "src/ui/src/features/quotes/QuoteDetailPanel.tsx",
+    "src/ui/src/features/quotes/AttachmentsSection.tsx",
+    "src/ui/src/features/quotes/dialogs/*.tsx",
+    "src/ui/src/features/quotes/quotesApi.ts",
+    "e2e_tests/tests/quote-workflow.spec.ts"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [],
+    "e2e": [
+      "quote-workflow.spec.ts: create draft quote from Quotes card (lead pre-Pricing moves to Pricing); send quote requires valid-until and next follow-up, lead chip becomes Quote Sent; revise creates version 2 marked current with history visible; upload PDF attachment and download it, disallowed type rejected inline; mark won defaults bound premium, closes lead Won, sibling quote shows Withdrawn; mark lost on last open quote offers close-lead checkbox; + New Quote hidden on closed lead; expanded panel shows only legal buttons"
+    ]
+  },
+  "acceptance_ids": ["AC-037", "AC-040", "AC-044", "AC-045", "AC-046", "AC-047"],
+  "verification_ids": ["V-037", "V-040", "V-044", "V-045", "V-046", "V-047"],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "completeness",
+      "description": "No GET /quotes/{id}/attachments endpoint or QuoteAttachmentDto[] projection exists (T-021 scope), so AttachmentsSection can only display attachments uploaded/removed during the current page session (tracked client-side in QuotesCard's attachmentsByQuoteId map). A fresh page load / lead reload / seeded attachment will not appear in the list. The upload -> download -> remove round-trip works fully within a session, which is what AC-047's server-authoritative rules (type/magic-number/size/audit/round-trip) and V-047's e2e scenario actually exercise; AC-047 text does not require cross-reload UI persistence. A frontend task cannot render a projection the API does not expose (same class as T-028 F-001). Ruled accept-with-backend-follow-up, NOT a blocking T-029 frontend defect; quotes backend is explicitly out_of_scope for T-029.",
+      "evidence": "src/ui/src/features/quotes/QuotesCard.tsx lines 125-129 (client-side attachmentsByQuoteId state with inline gap comment); src/ui/src/features/quotes/quotesApi.ts lines 223-232 (QuoteAttachmentDto has no list endpoint); src/api/QuoteIQ.Api/Endpoints/AttachmentEndpoints.cs exposes only POST /quotes/{id}/attachments, GET/DELETE /attachments/{id} — no list route.",
+      "suggested_fix": "Backend follow-up (owning task T-021): add GET /quotes/{id}/attachments returning QuoteAttachmentDto[]; then QuotesCard seeds attachmentsByQuoteId from the quote fetch on expand. Carry to T-042 integration for reload-persistence coverage. UI is already typed forward-compatible.",
+      "status": "deferred",
+      "owning_task": "T-021",
+      "created_at": "2026-07-14T08:05:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "QuoteListItemDto (Quotes-card list projection) carries no version number/count, so the FR-44 'Version' column renders '—' while a row is collapsed and shows the real value only once the row is expanded (GET /quotes/{id}). Forward-compatible; accept-with-backend-follow-up per the T-028 F-001 precedent.",
+      "evidence": "src/ui/src/features/quotes/quotesApi.ts lines 85-106 (QuoteListItemDto has no versionNo); QuotesCard.tsx line 382 renders currentVersionNo only when isExpanded, else '—'.",
+      "suggested_fix": "Backend follow-up (owning task T-020): project currentVersionNo (or versionCount) on QuoteListItemDto.",
+      "status": "deferred",
+      "owning_task": "T-020",
+      "created_at": "2026-07-14T08:05:00-04:00"
+    },
+    {
+      "id": "F-003",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "QuoteVersionDto projects only createdAt, no CreatedBy, so the version-history 'created by' column renders '—' rather than a fabricated value. Forward-compatible; accept-with-backend-follow-up.",
+      "evidence": "src/ui/src/features/quotes/quotesApi.ts lines 26-35 (QuoteVersionDto, no createdBy); QuoteDetailPanel.tsx line 120 renders literal '—' for version-created-by.",
+      "suggested_fix": "Backend follow-up (owning task T-020): add createdBy to quote_versions/QuoteVersionDto.",
+      "status": "deferred",
+      "owning_task": "T-020",
+      "created_at": "2026-07-14T08:05:00-04:00"
+    },
+    {
+      "id": "F-004",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "completeness",
+      "description": "QuoteDto/QuoteHistoryEntryDto project no per-role assignment list and no resolved status/actor names (ids only). Consequently QuoteAssignDialog cannot pre-fill a role's current holder on reassign (every role starts empty) and the status-history actor renders 'User #{id}'. This mirrors T-028's LeadDto gap F-001 exactly. Forward-compatible; accept-with-backend-follow-up.",
+      "evidence": "src/ui/src/features/quotes/quotesApi.ts lines 37-83 (QuoteHistoryEntryDto/QuoteDetailDto — numeric ids only, no assignment list); QuoteAssignDialog.tsx lines 29-33 doc comment; QuoteDetailPanel.tsx line 141 'User #{id}' fallback.",
+      "suggested_fix": "Backend follow-up (owning task T-020): project a QuoteAssignmentDto[] (role + current user) and resolved status/actor names on QuoteDto/QuoteHistoryEntryDto.",
+      "status": "deferred",
+      "owning_task": "T-020",
+      "created_at": "2026-07-14T08:05:00-04:00"
+    },
+    {
+      "id": "F-005",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "The valid-until amber-within-window / red-past coloring logic (validUntilTone in QuotesCard.tsx) has no unit/component test asserting the data-tone attribute for near-expiry (amber) and past-due (red) cases. The FR-44 coloring behavior is a documented card requirement; it is currently only covered indirectly by the deferred (test.fixme) e2e. Non-blocking (evaluator-side test gap, not a product defect — the logic is correct on inspection).",
+      "evidence": "src/ui/src/features/quotes/QuotesCard.tsx lines 67-80 (validUntilTone) and line 389 (data-tone render); no assertion on data-tone anywhere under src/ui/src/features/quotes/__tests__.",
+      "suggested_fix": "Add QuotesCard cases asserting quote-valid-until-cell data-tone='red' for a past validUntil and data-tone='amber' for a validUntil within quoteExpiryAlertDays.",
+      "status": "open",
+      "created_at": "2026-07-14T08:05:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-45..FR-50, PRD 12.7)" },
+    { "timestamp": "2026-07-14T05:35:00-04:00", "event": "task_started", "message": "T-029 IN_PROGRESS (iteration 1/10). Deps T-020 (quotes backend) + T-021 (attachments) + T-028 (lead detail) all PASS. PURE FRONTEND, critical-path (T-042 depends on it), dispatched in parallel with the just-finished-and-now-EVALUATING backend T-041 (frontend impl vs backend eval - no conflict). Implementor launched test-first (component + Playwright quote-workflow.spec.ts per V-037/040/044/045/046/047): QuotesCard inside Lead Detail (replaces T-028's QuotesCardShell; columns FR-44, valid-until amber/red, current marker, row-actions from quote availableOperations, +New Quote hidden when lead closed, empty state), NewQuoteModal (FR-46), QuoteDetailPanel (fields + VersionHistory + status history + AttachmentsSection png/jpg/pdf/doc/docx upload/download/remove per closed-quote rules), 6 quote dialogs REUSING the T-028 WorkflowDialog base (QuoteAssign, Send [valid-until + lead next-follow-up required], Revise [new version/current], MarkWon [bound premium default quoted + sibling-withdraw warning], MarkQuoteLost [reason + close-lead checkbox], WithdrawQuote), post-op refetch of lead+quotes+timeline, and completing T-028's PrimaryActionResolver 'Send quote' when a draft exists. NOTE to Implementor: task says 'quotesApi RTK Query' but the codebase uses the fetch-wrapper convention (per T-027) - use the established fetch-wrapper + multipart upload, not RTK Query, and flag; reuse T-026 CurrencyInput + T-027 StatusChip. AC-037/040/044/045/046/047." },
+    { "timestamp": "2026-07-13T19:15:00-04:00", "event": "implementation_note", "message": "T-029 IMPLEMENTED (iteration 1/10), test-first. Files: src/ui/src/features/quotes/{QuotesCard,NewQuoteModal,QuoteDetailPanel,AttachmentsSection,quoteOperations,quoteStatusCategory,quotesApi}.tsx(.ts); src/ui/src/features/quotes/dialogs/{QuoteAssignDialog,SendQuoteDialog,ReviseQuoteDialog,MarkWonDialog,MarkQuoteLostDialog,WithdrawQuoteDialog}.tsx; src/ui/src/api/client.ts extended with apiPostMultipart/apiGetBlob/triggerBrowserDownload (multipart upload + blob download, same bearer-token/X-Tenant-Id/401 handling as every other call); src/ui/src/auth/permissions.ts extended with QuotesCreate/QuotesView/QuotesUpdate/QuotesSetCurrent/QuotesCorrectClosed; src/ui/src/features/leads/LeadDetailPage.tsx rewired to replace QuotesCardShell (deleted) with the real QuotesCard, fetch product_line/cover_type/quote_status reference lists + quoteRoles + quoteExpiryAlertDays/maxAttachmentMb, add a reloadLeadInPlace() (no full-page-loading-flag reload) passed as QuotesCard's onQuoteMutated, and complete the T-028 PrimaryActionResolver: header primary action becomes 'Send quote' (SEND_QUOTE_PSEUDO_OP, routed via a QuotesCardHandle ref's openSendDialogForDraft(), not a LeadOperationCode) whenever a draft quote exists, with the lead-level op that would otherwise be primary moving into More actions instead of disappearing. Operation keys/payloads verified against T-020's QuoteEndpoints.cs private request records and QuoteOperationCodes.ToCodeValue (assign/send/revise/mark-won/mark-lost/withdraw/set-current) and T-021's AttachmentEndpoints.cs (multipart POST /quotes/{id}/attachments with an IFormFile-bound 'file' field, GET/DELETE /attachments/{id}) -- not invented. Reused WorkflowDialog (all 6 quote dialogs) and ConfirmDialog (NewQuoteModal) as-is, not forked; reused T-026 CurrencyInput and T-027 StatusChip. Tests: 12 new component/unit test files (61 new Vitest+RTL tests: quoteStatusCategory, quoteOperations, QuoteAssignDialog, SendQuoteDialog, ReviseQuoteDialog, MarkWonDialog, MarkQuoteLostDialog, WithdrawQuoteDialog, NewQuoteModal, AttachmentsSection, QuoteDetailPanel, QuotesCard, plus 2 new LeadDetailPage.test.tsx cases for the Send-quote primary-action override) plus e2e_tests/tests/quote-workflow.spec.ts rewritten with 5 fully-authored test.fixme scenarios (V-037/V-044/V-045/V-046/V-047) against real selectors, following the established fixme-until-T-041-seed-data convention (V-044's search-lands-on-lead half is additionally blocked on T-038 global search, not yet built). Results: npm run typecheck clean; npm run test 291/291 passed (230 baseline + 61 new, zero regressions); npm run build succeeds; npm run lint 0 new errors/warnings (identical baseline: 1 pre-existing error in TenantFormPage.tsx + 3 pre-existing warnings, none in this task's files). e2e_tests tsc --noEmit also clean. FRAMEWORK DEVIATION (flagged per instructions): task brief said 'quotesApi RTK Query module' but this codebase has no RTK Query store configured anywhere (app/store.ts is a plain configureStore) -- every existing feature (leadsApi, settingsApi) uses the fetch-wrapper convention instead, so quotesApi.ts matches that convention (CLAUDE.md: no new frameworks without approval); the multipart upload/blob download pieces were added to the shared api/client.ts layer (apiPostMultipart/apiGetBlob) rather than a one-off fetch call, keeping bearer-token/tenant-header/401 handling centralized. FLAGGED BACKEND GAPS (documented inline, not silently resolved): (1) MAJOR -- there is no GET /quotes/{id}/attachments endpoint or QuoteAttachmentDto[] projection anywhere (T-021 scope): AttachmentsSection can only show attachments uploaded/removed during the current page session (QuotesCard tracks them client-side per quote id), not attachments from an earlier session or seed data, until a fresh page load/expand re-fetches the quote. Recommended follow-up: add GET /quotes/{id}/attachments (T-021 owning scope). (2) QuoteListItemDto (the Quotes-card list projection) carries no version number/count, only the current version's premium, so the FR-44 'Version' column shows the real value only once a row is expanded (GET /quotes/{id}) and '--' while collapsed -- recommended follow-up: project currentVersionNo on QuoteListItemDto. (3) QuoteVersionDto has no CreatedBy field (only CreatedAt) though the task brief lists 'created by' among the version-history columns; QuoteDetailPanel renders '--' rather than fabricating a value. (4) QuoteHistoryEntryDto/QuoteDto project no per-role quote assignment list and no resolved status/actor names (only ids) -- QuoteAssignDialog cannot pre-fill any role (same class of gap as T-028's AssignDialog finding F-001), and the status-history list resolves status ids against the already-fetched quote_status reference list and falls back to 'User #{id}' for the actor. All four gaps are UI-forward-compatible (typed to render the real value the moment the projection exists) and none block this task's own scope, mirroring the F-001-style rulings from T-028's evaluation. Did not touch backend or run the backend suite per instructions." },
+    { "timestamp": "2026-07-14T07:35:00-04:00", "event": "evaluation_started", "message": "T-029 EVALUATING (iteration 1/10). Sole active agent (frontend Evaluator runs npm over src/ui; no other agent may touch src/ui on the shared tree). Evaluator to verify AC-037/040/044/045/046/047 vs FR-45..FR-50/PRD 12.7: QuotesCard columns + valid-until amber/red + current marker + availableOperations row actions + New-Quote-hidden-when-closed + empty state; NewQuoteModal (FR-46); QuoteDetailPanel version/status history + AttachmentsSection (png/jpg/pdf/doc/docx, upload/download/remove, closed-quote rules); all 6 dialogs REUSING WorkflowDialog (Send valid-until+lead-next-follow-up required, Revise new-current-version, MarkWon bound-premium-default+sibling-withdraw warning, MarkQuoteLost reason+close-lead-checkbox, Withdraw); post-op refetch of lead+quotes+timeline; completed T-028 'Send quote' primary action. Confirm op keys/payloads + multipart contract vs QuoteEndpoints.cs/AttachmentEndpoints.cs; WorkflowDialog/CurrencyInput/StatusChip reused not forked; the shared api/client.ts additions (apiPostMultipart/apiGetBlob/triggerBrowserDownload) are backward-compatible. Run frontend typecheck/test(291)/build/lint - no regression/new lint. 5 quote-workflow.spec.ts test.fixme (V-037/044/045/046/047) authored+discovered, deferral accepted (T-041 seed now PASS but harness e2e not yet live; V-044 also needs T-038). KEY RULINGS on 4 flagged backend-projection gaps (all UI forward-compatible, none frontend defects): (1) MAJOR - no GET /quotes/{id}/attachments endpoint (T-021 scope) so attachments list doesn't survive reload; (2) QuoteListItemDto lacks version number (column '--' until expand); (3) QuoteVersionDto lacks CreatedBy; (4) QuoteDto/QuoteHistoryEntryDto lack per-role assignment list + resolved names (QuoteAssignDialog can't pre-fill, mirrors T-028 F-001). Decide accept-with-backend-follow-up (assign owning task + carry to T-042) vs blocking, per the T-028 F-001 precedent. Security: availableOperations gating UX-only, multipart upload via central client, no secrets/XSS." },
+    { "timestamp": "2026-07-14T07:55:00-04:00", "event": "evaluator_pass", "message": "Evaluator returned PASS (iteration 1/10). Frontend re-run: typecheck clean, test 291/291 (58 files; +61), build clean, lint only pre-existing/out-of-scope (zero in T-029 files). All 5 criteria PASS: full PRD 12.7 (QuotesCard FR-44 columns + valid-until amber/red + current marker/set-current + availableOperations actions + hidden-on-closed + empty state; NewQuoteModal FR-46 defaults+validation; QuoteDetailPanel version/status history + AttachmentsSection type-reject/upload/download/remove + closed-quote correction gating; all 6 dialogs exact behaviors reusing WorkflowDialog; post-op refetch; T-028 Send-quote primary action completed). Op keys/payloads + multipart POST /quotes/{id}/attachments (IFormFile file) + GET/DELETE /attachments/{id} verified vs backend; WorkflowDialog/CurrencyInput/StatusChip/ConfirmDialog/SearchSelect reused not forked; QuotesCardShell deleted + LeadDetailPage rewired with NO T-028 regression. Security clean (apiPostMultipart/apiGetBlob preserve bearer+X-Tenant-Id+401, omit JSON content-type for boundary; server double-gates ops + FileSignatureValidator authoritative). 5 quote-workflow.spec.ts test.fixme discovered+mapped, deferral accepted. 4 backend-projection gaps ACCEPT-WITH-FOLLOW-UP (frontend forward-compatible, quotes backend out_of_scope): F-001 (MAJOR, T-021) no GET /quotes/{id}/attachments -> list not reload-persistent (AC-047 needs only server-authoritative + within-session round-trip, met); F-002/F-003/F-004 (minor, T-020) QuoteListItemDto version / QuoteVersionDto CreatedBy / QuoteDto+history assignment-list+resolved-names. F-005 (minor, evaluator test-gap) valid-until tone logic lacks a unit assertion. No blocking findings." },
+    { "timestamp": "2026-07-14T07:56:00-04:00", "event": "task_passed", "message": "T-029 PASS (iteration 1/10, frontend 291/291, no blocking findings). Quote panel UI complete per FR-45..FR-50/PRD 12.7. Backend-projection follow-ups carried to T-042: F-001 (T-021: GET /quotes/{id}/attachments list endpoint) + F-002/003/004 (T-020: quote version/createdBy/assignment projections) - join the T-028 F-001 + GetMe/MembershipDto debt. T-029 is a T-042 dependency; T-042 still gated on T-014/015/016 (done) + T-030/T-037/T-040. 30 tasks now PASS, 0 FAIL." }
+  ]
+}

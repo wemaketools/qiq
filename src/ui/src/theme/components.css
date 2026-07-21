@@ -1,0 +1,1362 @@
+/*
+ * QuoteIQ component design system (T-043, AC-082, docs/ui-remediation/plan.md).
+ *
+ * The shared class library every screen draws from (UI Standards §4–§9, §14–§16), porting the
+ * component patterns of docs/prototype/app/assets/css/styles.css onto the --qiq-* tokens.
+ * Rules here reference tokens only — raw color values belong in tokens.css (V-070 grep check).
+ */
+
+/* ============================================================
+   Base element layer
+   ============================================================ */
+
+a {
+  color: var(--qiq-accent-strong);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--qiq-text-primary);
+}
+
+::selection {
+  background: var(--qiq-accent);
+  color: var(--qiq-accent-contrast);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qiq-border-strong) transparent;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--qiq-focus-ring);
+  border-radius: 6px;
+}
+
+/* Native controls inherit the design system by default so untouched screens stay consistent
+   (UI Standards §8): every input/select/textarea/button in the product is a design-system
+   control — screens opt into variants with the .qiq-* classes below. */
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input:not([type='checkbox']):not([type='radio']),
+select,
+textarea {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--qiq-text-primary);
+  background: var(--qiq-surface-card);
+  border: 1px solid var(--qiq-border-subtle);
+  border-radius: 10px;
+  padding: 8px 12px;
+  transition: border-color 0.15s;
+}
+input:not([type='checkbox']):not([type='radio']):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--qiq-accent);
+  box-shadow: none;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background: var(--qiq-surface-inset);
+  color: var(--qiq-text-secondary);
+  cursor: not-allowed;
+}
+input[aria-invalid='true'],
+select[aria-invalid='true'],
+textarea[aria-invalid='true'] {
+  border-color: var(--qiq-danger);
+}
+
+select {
+  appearance: none;
+  padding-right: 30px;
+  cursor: pointer;
+  background-image: var(--qiq-select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+}
+
+select[multiple] {
+  background-image: none;
+  padding-right: 12px;
+  min-height: 38px;
+  max-height: 96px;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+
+/* Any button that has not opted into a .qiq-btn variant renders as a secondary button. */
+button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 8px 14px;
+  border: 1px solid var(--qiq-border-subtle);
+  background: var(--qiq-surface-card);
+  color: var(--qiq-text-primary);
+  transition: background 0.14s, border-color 0.14s;
+}
+button:not([class]):hover:not(:disabled) {
+  background: var(--qiq-surface-hover);
+  border-color: var(--qiq-border-strong);
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ============================================================
+   Buttons (§9)
+   ============================================================ */
+
+.qiq-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 10px;
+  padding: 9px 15px;
+  border: 1px solid var(--qiq-border-subtle);
+  background: var(--qiq-surface-card);
+  color: var(--qiq-text-primary);
+  transition: background 0.14s, border-color 0.14s, transform 0.05s;
+}
+.qiq-btn:hover:not(:disabled) {
+  background: var(--qiq-surface-hover);
+  border-color: var(--qiq-border-strong);
+}
+.qiq-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.qiq-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.qiq-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.qiq-btn--primary {
+  background: var(--qiq-accent);
+  border-color: var(--qiq-accent);
+  color: var(--qiq-accent-contrast);
+}
+.qiq-btn--primary:hover:not(:disabled) {
+  background: var(--qiq-accent-strong);
+  border-color: var(--qiq-accent-strong);
+}
+
+.qiq-btn--danger {
+  background: var(--qiq-danger);
+  border-color: var(--qiq-danger);
+  color: var(--qiq-accent-contrast);
+}
+.qiq-btn--danger:hover:not(:disabled) {
+  background: var(--qiq-danger);
+  border-color: var(--qiq-danger);
+  filter: brightness(0.92);
+}
+
+/* Subtle destructive variant for repeated row-level actions (Deactivate/Disable/Remove in table
+   rows), where a solid danger button per row would be visually overwhelming. */
+.qiq-btn--danger-soft {
+  background: var(--qiq-danger-soft);
+  border-color: transparent;
+  color: var(--qiq-danger);
+}
+.qiq-btn--danger-soft:hover:not(:disabled) {
+  background: var(--qiq-danger-soft);
+  border-color: var(--qiq-danger);
+  color: var(--qiq-danger);
+}
+
+.qiq-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--qiq-text-secondary);
+}
+.qiq-btn--ghost:hover:not(:disabled) {
+  background: var(--qiq-surface-inset);
+  border-color: transparent;
+  color: var(--qiq-text-primary);
+}
+
+.qiq-btn--sm {
+  padding: 5px 11px;
+  font-size: 12px;
+}
+
+.qiq-icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid var(--qiq-border-subtle);
+  background: var(--qiq-surface-card);
+  color: var(--qiq-text-secondary);
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.qiq-icon-btn:hover {
+  color: var(--qiq-text-primary);
+  border-color: var(--qiq-border-strong);
+  background: var(--qiq-surface-hover);
+}
+.qiq-icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+.qiq-icon-btn .qiq-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background: var(--qiq-danger);
+  color: var(--qiq-accent-contrast);
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: var(--qiq-radius-chip);
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--qiq-surface-card);
+}
+
+/* ============================================================
+   Shell: sidebar, top bar, footer (§3.1–3.2, PRD 12.2)
+   ============================================================ */
+
+.qiq-sidebar {
+  background: var(--qiq-surface-sidebar);
+  color: var(--qiq-text-on-sidebar);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.qiq-brand {
+  padding: var(--qiq-space-5) var(--qiq-space-4) var(--qiq-space-4);
+}
+.qiq-brand-name {
+  font-size: 19px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  color: var(--qiq-accent-contrast);
+  line-height: 1.1;
+}
+.qiq-brand-name .qiq-brand-iq {
+  color: var(--qiq-accent);
+}
+.qiq-brand-sub {
+  font-size: 11px;
+  color: var(--qiq-text-on-sidebar);
+  opacity: 0.65;
+  margin-top: 2px;
+}
+.qiq-brand-tenant {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--qiq-text-on-sidebar);
+  opacity: 0.65;
+  margin-bottom: var(--qiq-space-2);
+}
+
+.qiq-nav {
+  list-style: none;
+  margin: 0;
+  padding: var(--qiq-space-2) var(--qiq-space-3);
+}
+
+.qiq-nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-3);
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 2px;
+  color: var(--qiq-text-on-sidebar);
+  font-weight: 550;
+  font-size: 13.5px;
+  text-decoration: none;
+  transition: background 0.14s, color 0.14s;
+}
+.qiq-nav-item:hover {
+  background: var(--qiq-sidebar-hover);
+  color: var(--qiq-accent-contrast);
+  text-decoration: none;
+}
+.qiq-nav-item svg {
+  width: 19px;
+  height: 19px;
+  flex: none;
+  opacity: 0.9;
+}
+.qiq-nav-item--active,
+.qiq-nav-item--active:hover {
+  background: var(--qiq-accent);
+  color: var(--qiq-accent-contrast);
+}
+
+.qiq-nav-badge {
+  margin-left: auto;
+  background: var(--qiq-danger);
+  color: var(--qiq-accent-contrast);
+  font-size: 11px;
+  font-weight: 750;
+  min-width: 20px;
+  height: 20px;
+  border-radius: var(--qiq-radius-chip);
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+}
+.qiq-nav-item--active .qiq-nav-badge {
+  background: var(--qiq-accent-contrast);
+  color: var(--qiq-accent);
+}
+
+.qiq-sidebar-sep {
+  border: none;
+  border-top: 1px solid var(--qiq-sidebar-hover);
+  margin: var(--qiq-space-3) var(--qiq-space-4);
+}
+
+.qiq-user-card {
+  margin: auto var(--qiq-space-2) var(--qiq-space-2);
+  position: relative;
+}
+.qiq-user-card-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px;
+  border-radius: 12px;
+  border: none;
+  background: none;
+  color: var(--qiq-text-on-sidebar);
+  transition: background 0.14s;
+}
+.qiq-user-card-btn:hover {
+  background: var(--qiq-sidebar-hover);
+}
+.qiq-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--qiq-accent-contrast);
+  background: var(--qiq-accent);
+}
+.qiq-user-card-who {
+  min-width: 0;
+  flex: 1;
+  line-height: 1.25;
+}
+.qiq-user-card-name {
+  display: block;
+  color: var(--qiq-accent-contrast);
+  font-weight: 650;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qiq-user-card-sub {
+  display: block;
+  font-size: 11.5px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.qiq-menu {
+  list-style: none;
+  margin: 0;
+  padding: var(--qiq-space-1);
+  min-width: 200px;
+  background: var(--qiq-surface-raised);
+  border: 1px solid var(--qiq-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--qiq-shadow-raised);
+  z-index: 60;
+}
+.qiq-user-card .qiq-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: var(--qiq-space-2);
+  right: var(--qiq-space-2);
+}
+.qiq-menu li {
+  margin: 0;
+}
+.qiq-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+}
+.qiq-menu button:hover {
+  background: var(--qiq-surface-hover);
+}
+
+.qiq-topbar {
+  height: 64px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: var(--qiq-surface-card);
+  border-bottom: 1px solid var(--qiq-border-subtle);
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-3);
+  padding: 0 var(--qiq-space-5);
+}
+.qiq-topbar h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qiq-topbar-spacer {
+  flex: 1;
+}
+
+.qiq-searchbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.qiq-searchbox svg {
+  position: absolute;
+  left: 11px;
+  width: 16px;
+  height: 16px;
+  color: var(--qiq-text-secondary);
+  pointer-events: none;
+}
+/* Doubled class matches the base `input:not(...):not(...)` rule's specificity so the inset
+   padding for the leading icon wins by order. */
+.qiq-searchbox.qiq-searchbox input {
+  background: var(--qiq-surface-inset);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 9px 12px 9px 34px;
+  width: 250px;
+  font-size: 13px;
+}
+.qiq-searchbox.qiq-searchbox input:focus {
+  border-color: var(--qiq-accent);
+  background: var(--qiq-surface-card);
+}
+
+/* Global search (T-038): grouped type-ahead dropdown anchored under the top-bar search input. */
+.qiq-global-search {
+  position: relative;
+}
+.qiq-search-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 340px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: var(--qiq-space-1);
+  background: var(--qiq-surface-raised);
+  border: 1px solid var(--qiq-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--qiq-shadow-raised);
+  z-index: 60;
+}
+.qiq-search-group + .qiq-search-group {
+  margin-top: var(--qiq-space-1);
+  border-top: 1px solid var(--qiq-border-subtle);
+  padding-top: var(--qiq-space-1);
+}
+.qiq-search-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--qiq-text-secondary);
+}
+.qiq-search-group-header svg {
+  color: var(--qiq-text-secondary);
+}
+.qiq-search-group-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.qiq-search-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.qiq-search-result:hover,
+.qiq-search-result.is-active {
+  background: var(--qiq-surface-hover);
+}
+.qiq-search-result-primary {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+}
+.qiq-search-result-secondary {
+  font-size: 12px;
+  color: var(--qiq-text-secondary);
+}
+.qiq-search-empty {
+  margin: 0;
+  padding: 12px 10px;
+  font-size: 13px;
+  color: var(--qiq-text-secondary);
+}
+
+/* Search-select type-ahead field (lead form's party picker — the one type-ahead kept, since
+   parties are an unbounded set per FR-26; user pickers are plain selects via AssigneeSelect):
+   trailing search icon inside the input, results in an anchored overlay panel floating above
+   the surrounding content — same anatomy as the global-search dropdown above. */
+.qiq-searchselect-control {
+  position: relative;
+}
+.qiq-searchselect-control > svg {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--qiq-text-secondary);
+  pointer-events: none;
+}
+/* Doubled class matches the base `input:not(...):not(...)` rule's specificity so the inset
+   padding for the trailing icon wins by order (same trick as .qiq-searchbox). */
+.qiq-searchselect-control.qiq-searchselect-control input {
+  width: 100%;
+  padding-right: 36px;
+}
+.qiq-searchselect-results {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: var(--qiq-space-1);
+  background: var(--qiq-surface-raised);
+  border: 1px solid var(--qiq-border-subtle);
+  border-radius: 12px;
+  box-shadow: var(--qiq-shadow-raised);
+  z-index: 60;
+}
+.qiq-searchselect-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.qiq-searchselect-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+  cursor: pointer;
+}
+.qiq-searchselect-option:hover {
+  background: var(--qiq-surface-hover);
+}
+.qiq-searchselect-hint {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--qiq-text-secondary);
+}
+
+.qiq-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qiq-space-4);
+  padding: var(--qiq-space-3) var(--qiq-space-5);
+  border-top: 1px solid var(--qiq-border-subtle);
+  font-size: 12px;
+  color: var(--qiq-text-secondary);
+}
+
+/* ============================================================
+   Cards (§6, §16)
+   ============================================================ */
+
+.qiq-card {
+  background: var(--qiq-surface-card);
+  border: 1px solid var(--qiq-border-subtle);
+  border-radius: var(--qiq-radius-card);
+  box-shadow: var(--qiq-shadow-card);
+  padding: var(--qiq-space-4);
+  min-width: 0;
+}
+
+.qiq-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--qiq-space-3);
+  margin-bottom: var(--qiq-space-4);
+}
+.qiq-card-title {
+  font-size: 15px;
+  font-weight: 650;
+}
+.qiq-card-sub {
+  font-size: 12px;
+  color: var(--qiq-text-secondary);
+  font-weight: 500;
+}
+.qiq-card-link {
+  color: var(--qiq-accent-strong);
+  font-weight: 600;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: var(--qiq-space-3);
+}
+.qiq-card-link svg {
+  width: 14px;
+  height: 14px;
+}
+
+.qiq-menu-dots {
+  color: var(--qiq-text-secondary);
+  background: none;
+  border: none;
+  padding: 4px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.qiq-menu-dots:hover {
+  background: var(--qiq-surface-inset);
+  color: var(--qiq-text-primary);
+}
+
+/* KPI cards (§16) */
+.qiq-kpi-halo {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--qiq-accent-soft);
+  color: var(--qiq-accent-strong);
+  flex: none;
+}
+.qiq-kpi-halo svg {
+  width: 18px;
+  height: 18px;
+}
+.qiq-kpi-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qiq-text-secondary);
+}
+.qiq-kpi-value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--qiq-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.qiq-kpi-delta {
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ============================================================
+   Chips (§4)
+   ============================================================ */
+
+.qiq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 2px 10px;
+  border-radius: var(--qiq-radius-chip);
+  white-space: nowrap;
+  line-height: 1.5;
+  border: 1px solid transparent;
+}
+.qiq-chip--open {
+  background: var(--qiq-info-soft);
+  color: var(--qiq-info);
+}
+.qiq-chip--quoted {
+  background: var(--qiq-accent-soft);
+  color: var(--qiq-accent);
+}
+.qiq-chip--won,
+.qiq-chip--success {
+  background: var(--qiq-success-soft);
+  color: var(--qiq-success);
+}
+.qiq-chip--lost,
+.qiq-chip--danger {
+  background: var(--qiq-danger-soft);
+  color: var(--qiq-danger);
+}
+.qiq-chip--expired,
+.qiq-chip--neutral {
+  background: var(--qiq-neutral-soft);
+  color: var(--qiq-neutral);
+}
+.qiq-chip--withdrawn {
+  background: var(--qiq-neutral-soft);
+  color: var(--qiq-neutral);
+  border-color: var(--qiq-neutral);
+}
+.qiq-chip--warning {
+  background: var(--qiq-warning-soft);
+  color: var(--qiq-warning);
+}
+.qiq-chip--accent {
+  background: var(--qiq-accent-soft);
+  color: var(--qiq-accent);
+}
+
+/* ============================================================
+   Tables (§15)
+   ============================================================ */
+
+.qiq-table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--qiq-text-secondary);
+  font-weight: 650;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--qiq-border-subtle);
+  white-space: nowrap;
+}
+td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--qiq-border-subtle);
+  vertical-align: middle;
+}
+tbody tr {
+  transition: background 0.12s;
+}
+tbody tr:hover {
+  background: var(--qiq-surface-hover);
+}
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.qiq-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Sortable column header: the button must render exactly like a plain <th> label (same size,
+   weight, uppercase, letterspacing, muted color) — sortability is signalled by the hover state
+   and the direction arrow, not by a different type style. */
+.qiq-th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.qiq-th-sort:hover {
+  color: var(--qiq-text-primary);
+}
+th[aria-sort='ascending'] .qiq-th-sort,
+th[aria-sort='descending'] .qiq-th-sort {
+  color: var(--qiq-text-primary);
+}
+/* Sort affordance: every sortable header carries an arrow slot, so the label never shifts as the
+   active column moves. Unsorted columns show a greyed up/down pair (the "you can sort me" hint);
+   the active column shows one arrow in the header's own (darkened) colour. */
+.qiq-sort-arrow-slot {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+.qiq-sort-arrow {
+  fill: var(--qiq-border-strong);
+}
+.qiq-th-sort:hover .qiq-sort-arrow {
+  fill: var(--qiq-text-secondary);
+}
+th[aria-sort='ascending'] .qiq-sort-arrow,
+th[aria-sort='descending'] .qiq-sort-arrow {
+  fill: currentColor;
+}
+/* Action-button run inside a table row's last cell: consistent gaps, never wraps. */
+.qiq-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-2);
+  white-space: nowrap;
+}
+.qiq-mono {
+  font-family: var(--qiq-font-mono);
+  font-size: 12.5px;
+}
+.qiq-row-clickable {
+  cursor: pointer;
+}
+
+/* ============================================================
+   Detail definition lists (read-only label/value panels)
+   ============================================================ */
+
+.qiq-dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--qiq-space-4) var(--qiq-space-5);
+  margin: 0;
+}
+.qiq-dl > div {
+  min-width: 0;
+}
+.qiq-dl dt {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--qiq-text-secondary);
+  margin: 0 0 4px;
+}
+.qiq-dl dd {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* ============================================================
+   Forms (§8, §10, §6 two-column grid)
+   ============================================================ */
+
+.qiq-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.qiq-field > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qiq-text-secondary);
+}
+.qiq-required {
+  color: var(--qiq-danger);
+}
+.qiq-field-error {
+  font-size: 12px;
+  color: var(--qiq-danger);
+}
+.qiq-field-hint {
+  font-size: 12px;
+  color: var(--qiq-text-secondary);
+}
+
+.qiq-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--qiq-space-4);
+}
+.qiq-form-grid .qiq-form-full {
+  grid-column: 1 / -1;
+}
+@media (max-width: 1199px) {
+  .qiq-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.qiq-form-section-title {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-2);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--qiq-text-secondary);
+  font-weight: 700;
+  margin: var(--qiq-space-2) 0 0;
+}
+.qiq-form-section-title::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--qiq-border-subtle);
+}
+
+/* Sectioned settings forms: native fieldset keeps its disabled-cascade behavior, restyled from the
+   browser-default bordered box to the standard section-title look. */
+.qiq-fieldset {
+  border: none;
+  margin: 0 0 var(--qiq-space-5);
+  padding: 0;
+  min-width: 0;
+}
+.qiq-fieldset > legend {
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-2);
+  width: 100%;
+  padding: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--qiq-text-secondary);
+  font-weight: 700;
+  margin-bottom: var(--qiq-space-4);
+}
+.qiq-fieldset > legend::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--qiq-border-subtle);
+}
+
+/* Responsive grid of checkbox/radio rows (tenant/role/group assignment lists, the permission
+   picker) — replaces bare stacked <label><input type=checkbox>> runs. */
+.qiq-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--qiq-space-1) var(--qiq-space-4);
+}
+.qiq-check-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+  cursor: pointer;
+}
+.qiq-check-list label input {
+  margin-top: 2px;
+  flex: none;
+}
+.qiq-check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.qiq-check-code {
+  font-family: var(--qiq-font-mono);
+  font-size: 11px;
+  color: var(--qiq-text-secondary);
+}
+
+.qiq-sticky-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--qiq-space-3);
+  justify-content: flex-end;
+  padding: var(--qiq-space-3) var(--qiq-space-4);
+  background: var(--qiq-surface-card);
+  border-top: 1px solid var(--qiq-border-subtle);
+  border-radius: 0 0 var(--qiq-radius-card) var(--qiq-radius-card);
+}
+
+/* Filter bar (dashboards + list screens) */
+.qiq-filterbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--qiq-space-3);
+  align-items: flex-end;
+}
+
+/* ============================================================
+   Dialogs, banners, toasts, loading, empty states (§14)
+   ============================================================ */
+
+.qiq-scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--qiq-scrim);
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: var(--qiq-space-5);
+  overflow-y: auto;
+}
+
+.qiq-dialog {
+  background: var(--qiq-surface-raised);
+  border-radius: 16px;
+  box-shadow: var(--qiq-shadow-raised);
+  width: 560px;
+  max-width: 100%;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+}
+.qiq-dialog--lg {
+  width: 760px;
+}
+.qiq-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--qiq-space-3);
+  padding: var(--qiq-space-4) var(--qiq-space-5);
+  border-bottom: 1px solid var(--qiq-border-subtle);
+}
+.qiq-dialog-header h2,
+.qiq-dialog-header h3 {
+  font-size: 17px;
+}
+.qiq-dialog-body {
+  padding: var(--qiq-space-5);
+  overflow-y: auto;
+}
+.qiq-dialog-footer {
+  display: flex;
+  gap: var(--qiq-space-3);
+  justify-content: flex-end;
+  padding: var(--qiq-space-4) var(--qiq-space-5);
+  border-top: 1px solid var(--qiq-border-subtle);
+}
+
+/* Field flow inside workflow dialogs (spec FR-41's shared dialog anatomy): the feature dialogs
+   render flat label/control/error runs as dialog children — styled here once, not per-dialog.
+   `:where()` keeps specificity at the bare-element level so `.qiq-field` internals still win. */
+:where(.qiq-dialog-body) label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qiq-text-secondary);
+  margin: var(--qiq-space-4) 0 5px;
+}
+:where(.qiq-dialog-body) label:has(input[type='checkbox']),
+:where(.qiq-dialog-body) label:has(input[type='radio']) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--qiq-text-primary);
+  cursor: pointer;
+}
+:where(.qiq-dialog-body) input:not([type='checkbox']):not([type='radio']),
+:where(.qiq-dialog-body) select,
+:where(.qiq-dialog-body) textarea {
+  width: 100%;
+}
+:where(.qiq-dialog-body) p[role='alert'] {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--qiq-danger);
+}
+
+.qiq-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--qiq-space-3);
+  padding: var(--qiq-space-3) var(--qiq-space-4);
+  border-radius: var(--qiq-radius-card);
+  font-size: 13px;
+  border: 1px solid transparent;
+}
+.qiq-banner--error {
+  background: var(--qiq-danger-soft);
+  color: var(--qiq-danger);
+}
+.qiq-banner--warning {
+  background: var(--qiq-warning-soft);
+  color: var(--qiq-warning);
+}
+.qiq-banner--info {
+  background: var(--qiq-info-soft);
+  color: var(--qiq-info);
+}
+.qiq-banner--success {
+  background: var(--qiq-success-soft);
+  color: var(--qiq-success);
+}
+
+.qiq-toasts {
+  position: fixed;
+  top: var(--qiq-space-5);
+  right: var(--qiq-space-5);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: var(--qiq-space-2);
+  align-items: flex-end;
+}
+.qiq-toast {
+  background: var(--qiq-surface-raised);
+  color: var(--qiq-text-primary);
+  border: 1px solid var(--qiq-border-subtle);
+  border-left: 3px solid var(--qiq-accent);
+  padding: var(--qiq-space-3) var(--qiq-space-4);
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 550;
+  box-shadow: var(--qiq-shadow-raised);
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-3);
+}
+.qiq-toast--success {
+  border-left-color: var(--qiq-success);
+}
+.qiq-toast--error {
+  border-left-color: var(--qiq-danger);
+}
+
+.qiq-skeleton {
+  background: var(--qiq-surface-inset);
+  border-radius: 6px;
+  animation: qiq-pulse 1.4s ease-in-out infinite;
+}
+@keyframes qiq-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.qiq-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--qiq-space-3);
+  padding: var(--qiq-space-7) var(--qiq-space-5);
+  text-align: center;
+  color: var(--qiq-text-secondary);
+  font-size: 13px;
+}
+.qiq-empty svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.5;
+}
+
+/* ============================================================
+   Tabs (Settings vertical nav, User Manager sections)
+   ============================================================ */
+
+.qiq-vtabs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.qiq-vtabs a,
+.qiq-vtabs button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--qiq-text-secondary);
+  text-decoration: none;
+}
+.qiq-vtabs a:hover,
+.qiq-vtabs button:hover {
+  background: var(--qiq-surface-hover);
+  color: var(--qiq-text-primary);
+  text-decoration: none;
+}
+.qiq-vtabs .qiq-vtab--active,
+.qiq-vtabs .qiq-vtab--active:hover {
+  background: var(--qiq-accent-soft);
+  color: var(--qiq-accent-strong);
+}
+
+.qiq-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--qiq-surface-inset);
+  padding: 4px;
+  border-radius: 12px;
+  width: max-content;
+  max-width: 100%;
+}
+.qiq-tab {
+  padding: 8px 18px;
+  border-radius: 9px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--qiq-text-secondary);
+  border: none;
+  background: none;
+  text-decoration: none;
+}
+.qiq-tab:hover {
+  color: var(--qiq-text-primary);
+  text-decoration: none;
+}
+.qiq-tab--active {
+  background: var(--qiq-surface-card);
+  color: var(--qiq-text-primary);
+  box-shadow: var(--qiq-shadow-card);
+}
+
+/* ============================================================
+   Page scaffolding
+   ============================================================ */
+
+.qiq-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--qiq-space-4);
+}
+/* Page-local title/actions row (below the shell top bar). */
+.qiq-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--qiq-space-3);
+  margin-bottom: var(--qiq-space-4);
+}
+.qiq-page-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+}
+.qiq-page-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--qiq-space-3);
+  justify-content: flex-end;
+}
+.qiq-grid {
+  display: grid;
+  gap: var(--qiq-space-4);
+}
+
+/* Anonymous auth surfaces (T-018): /sign-in, /forgot-password, /reset-password. These render
+   outside the AppShell, so they own their own centering; everything inside the card reuses the
+   existing .qiq-card / .qiq-field / .qiq-btn primitives — no new visual language. */
+.qiq-auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--qiq-space-4);
+  background: var(--qiq-surface-app);
+}
+.qiq-auth-card {
+  width: 100%;
+  max-width: 380px;
+}
+.qiq-auth-card form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--qiq-space-3);
+  margin-top: var(--qiq-space-4);
+}
+.qiq-auth-card .qiq-btn {
+  /* Bare-button styles do not apply here (the button opts into .qiq-btn), but the full-width
+     stretch has to be stated explicitly inside a flex column. */
+  justify-content: center;
+  width: 100%;
+}
+.qiq-auth-card .qiq-card-sub {
+  margin-top: var(--qiq-space-4);
+  text-align: center;
+}

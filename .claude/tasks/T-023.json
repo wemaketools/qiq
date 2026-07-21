@@ -1,0 +1,198 @@
+{
+  "id": "T-023",
+  "title": "Parties backend: list, detail with leads card, create/update with duplicate warning",
+  "status": "PASS",
+  "iteration_count": 1,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-019"
+  ],
+  "objective": "Port the Parties API: tenant-scoped list with filters/search/sort/paging, detail including the party-leads data, and create/update with non-blocking duplicate-name warning and format-validated contact fields; no deletion (P-05).",
+  "scope": [
+    "GET /api/v1/parties (filters, search, sort, paging), POST, GET /{id}, PUT /{id}, GET /{id}/leads per reference contract",
+    "Name required; non-blocking duplicate warning in the warnings payload; optional region; contact fields format-validated; party type from reference list",
+    "No delete endpoint (P-05)",
+    "Tenant isolation + breadth-agnostic visibility per reference behavior"
+  ],
+  "out_of_scope": [
+    "Party CSV/Excel export (T-039)",
+    "Lead creation (T-024 — party picker consumes this API)",
+    "UI (exists; unchanged)"
+  ],
+  "implementation_details": [
+    "Mirror .NET Parties endpoints; pagination envelope {items,page,pageSize,total} default 25; sort/filter params preserved.",
+    "Duplicate check: same normalized name within tenant produces warnings:[...] but allows proceed (verify normalization rules from the .NET validator and port them).",
+    "GET /{id}/leads returns the leads-card data used by the party detail page (columns per reference DTO).",
+    "Cross-tenant party id -> 404 (N-01)."
+  ],
+  "files": [
+    "src/server/domains/parties/routes.ts",
+    "src/server/domains/parties/service.ts",
+    "src/server/domains/parties/repository.ts",
+    "src/server/domains/parties/schemas.ts",
+    "src/server/domains/parties/errors.ts",
+    "src/server/domains/parties/name-matching.ts",
+    "src/server/domains/parties/index.ts",
+    "src/server/tests/integration/parties.test.ts",
+    "src/server/tests/unit/party-name-matching.test.ts",
+    "src/server/lib/router/app.ts (parties slot)",
+    "api/v1/[[...segments]].ts (wiring)",
+    "scripts/dev/serve-api.ts (wiring)",
+    "src/server/tests/integration/auth-wiring.test.ts (parties slot pin)"
+  ],
+  "test_plan": {
+    "unit": [
+      "Duplicate-name normalization rules (pure)"
+    ],
+    "integration": [
+      "List pagination/search/sort/filters against fixtures; create/update validation catalog (name required, contact formats); duplicate warning present but non-blocking",
+      "Party leads card data correct; tenant isolation (404 cross-tenant); no DELETE route exists",
+      "Permission matrix"
+    ],
+    "e2e": [
+      "Parties specs adapted in T-043"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-022",
+    "AC-041"
+  ],
+  "verification_ids": [
+    "V-027",
+    "V-053",
+    "V-054"
+  ],
+  "findings": [
+    {
+      "id": "F-023-1",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "M5's 'unfalsifiable by black-box test' claim is WRONG, so the leads-card brokers-join tenant predicate is an unguarded defense-in-depth line: dropping `b.tenant_id = ${tenantId}` from listLeadsForParty (parties/repository.ts:551-552) leaves the ENTIRE suite green (evaluator reproduced: mutant proven applied by grep 0/1 + md5 delta, parties.test.ts 67/67 passed exit 0), yet the predicate has an observable, constructible behavioural difference. The implementor's globally-unique-id reasoning holds only for CONVENTION-RESPECTING data; the schema itself permits the discriminating state because leads.broker_id carries NO physical FK (brokers migration :47: 'by convention, no FK'). A lead whose broker_id points at another tenant's broker is insertable with plain SQL - exactly what this repo's integration fixtures do routinely - and under the mutant GET /parties/{id}/leads then LEAKS the other tenant's broker NAME, while pristine code correctly answers brokerName null. With RLS not adopted (Q-10) there is nothing beneath this predicate, and the honest 'NO coverage' admission means a future refactor can drop it with every gate green.",
+      "evidence": "Evaluator probe on the live schema (single transaction, rolled back): created a broker in tenant T2, then a party and a lead in tenant T1 with broker_id = the T2 broker's id - ALL inserts succeeded, no constraint fired. The leads-card join WITH the predicate returned broker_name NULL; WITHOUT the predicate it returned 'M5-PROBE-FOREIGN-BROKER', the tenant-T2 name. That is a red/green discriminator reachable from an integration test through the real endpoint. Mutant restored byte-identical (md5 c1b759c9) and parties.test.ts re-verified green.",
+      "suggested_fix": "Add one integration test to parties.test.ts: seed (direct SQL, as fixtures already do) a tenant-A lead whose broker_id equals a tenant-B broker's id, call GET /parties/{id}/leads as tenant A, and assert the row appears with brokerName null (and that no tenant-B name string occurs anywhere in the response). Re-run the M5 mutant afterwards and confirm it goes red. Consider whether the sibling per-join predicates in the same SQL (reference_items x3, lead_assignments, business_assignments) warrant the same corrupt-reference treatment - the brokers join is the one that leaks a NAME, so it is the priority; the inner joins on reference_items make the lead VANISH from its own tenant's card instead, which is lower stakes but same class. KEEP the predicate itself - this finding is about guarding it, not doubting it.",
+      "status": "resolved",
+      "created_at": "2026-07-19T13:25:00-04:00",
+      "evaluator_confirmation": "Iteration-1 evaluator independently re-verified every claim in this resolution first-hand (2026-07-19): M5 mutant re-run killed by exactly the new test with the discriminating assertion (brokerName leak message named the actual foreign name, not a status change); application proven (predicate count 1->0, md5 c1b759c9->6b7ef9d9); restored md5-identical and suite re-verified 68/68. Live-DB similarity measured: old-style token unrelated pair 0.418 (false positive reproduced), new-token unrelated 0.275, new-token Acme pair 0.750, names-alone 0.000/0.615 — margin in both directions confirmed, and detection provably rides on the names (Acme pair clears the threshold with no token at all), so the fix did not suppress detection. ONE INACCURACY: the residue this resolution attributes to 'evaluator mutant runs' is actually left by EVERY run of this suite, including pristine passing ones — see F-023-2.",
+      "resolution": "Added the corrupt-reference test the finding prescribed: a tenant-A lead whose broker_id is a tenant-B broker id (seeded by direct SQL, which the schema permits because leads.broker_id has NO physical FK), then GET /parties/{id}/leads as tenant A asserting brokerName is null, that the lead itself is STILL listed (the join is LEFT, so a corrupt reference must not make the tenant's own lead vanish), and that the foreign broker name appears NOWHERE in the raw response body. M5 RE-RUN AND NOW KILLED: dropping `b.tenant_id = ${tenantId}` from the brokers LEFT JOIN fails exactly this one test (1 failed / 67 passed); application proven by predicate count 1->0 plus an md5 delta, restored md5-identical. The evaluator was right and the implementor's globally-unique-id argument was too narrow: it covered convention-respecting data only, while the predicate exists precisely for convention-violating data the schema allows. A SECOND, PRE-EXISTING DEFECT WAS EXPOSED WHILE FIXING THIS and is also fixed here. Adding one party fixture turned the \"emits no warning at all for a name with no near-duplicate\" test RED. Root cause measured, not guessed: duplicate detection is trigram similarity over the WHOLE name, and the run token (`t023-<pid>-<ms>`, ~23 chars) was longer than the names under test, so every fixture in a run shared a dominant block of trigrams. Two utterly unrelated names scored 0.410 against each other - just over the 0.4 threshold - purely on the shared suffix, versus 0.000 on the names alone. The negative-warning tests were therefore riding the threshold and would have broken for the NEXT task that added any party fixture, exactly like the tenants.test.ts entity_id class. Fixed by shortening RUN to a short base36 token (the `t023-` prefix is load-bearing for the stale-fixture purge and was kept): unrelated names now score 0.22-0.25 while the genuine \"Acme Insurance Ltd\" vs \"Acme Insurance Limited\" pair scores 0.73 - a real margin in BOTH directions, verified against the live DB. The positive duplicate tests still pass, so the fix did not simply suppress detection. Gates: 66 files / 1279 passed / 0 skipped exit 0, typecheck 0 after the full run, lint 0, ci:test floor 1279. Stale fixture residue purged (27 parties, 10 t020ba tenants left by evaluator mutant runs). Orchestrator-verified only; queued for the next evaluator round.",
+      "summary": "M5's 'unfalsifiable by black-box test' claim is WRONG, so the leads-card brokers-join tenant predicate is an unguarded defense-in-depth line:"
+    },
+    {
+      "id": "F-023-2",
+      "source": "evaluator",
+      "severity": "minor",
+      "category": "test-gap",
+      "description": "parties.test.ts's afterAll tenant-fixture cleanup is a silent no-op on EVERY exit, normal or aborted: afterAll calls auth.cleanup() (line 550) BEFORE the deleteTenantData loop (552-554), auth.cleanup() ends the pg pool (tests/helpers/auth.ts:249), so every subsequent delete throws on the ended pool and is swallowed by deleteTenantData's .catch(() => undefined). The suite's own comment ('afterAll cleans up on a normal exit', line 182) is false, and the F-023-1 resolution's attribution of residue to 'evaluator mutant runs' is wrong — every run leaks. The beforeAll purge (built for aborted runs) is what actually carries cleanup, one run late: residue (28 parties, 10 leads, 19 audit_log rows, 2 tenants per run) sits in the shared DB until the NEXT parties run, and tenants.test.ts's unfiltered audit_log entity_id count — the exact fragility this task itself documented and OBSERVED failing — can collide with the leftover party audit rows if it executes before parties' beforeAll in a subsequent run. NON-BLOCKING and partly CROSS-TASK: the same broken ordering exists in brokers.test.ts:388-393, business-assignments.test.ts:401-404, business-rules.test.ts:313-316, reference-data.test.ts:367-374, and worse leaks exist in suites with NO purge at all (live DB right now holds 7 t016 tenants, 6 pairs of t019 tenants, plus t020ba/t020br residue after a fully green run); me.test.ts:293-297 and roles-groups.test.ts:330-333 show the CORRECT ordering already in-repo.",
+      "evidence": "Empirical, live DB: ran the full suite (66 files / 1279 passed, exit 0) — tenants 524/525 (t023-182gzwpt-*) and all child rows survived; ran parties.test.ts alone green (68/68) — it purged 524/525 in beforeAll and left its OWN pair (565/566) plus 28 parties / 10 leads / 2 brokers / 19 audit_log / 4 user_tenants / 16 reference_items rows behind. Each run cleans the previous run's mess, never its own, which is why the leak was invisible.",
+      "suggested_fix": "In parties.test.ts's afterAll, move the deleteTenantData loop ABOVE auth?.cleanup() (the ordering me.test.ts and roles-groups.test.ts already use). Recommend the orchestrator route the sibling suites (brokers, business-assignments, business-rules, reference-data, and the purge-less t016/t019 suites) as one cross-task hygiene sweep rather than bouncing each task individually.",
+      "status": "open",
+      "created_at": "2026-07-19T13:52:00-04:00",
+      "summary": "parties.test.ts's afterAll tenant-fixture cleanup is a silent no-op on EVERY exit, normal or aborted:"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-18T17:00:00-04:00",
+      "event": "created",
+      "message": "Task generated by Planner from approved spec.md. Maps to P-05, section 12 Parties."
+    },
+    {
+      "timestamp": "2026-07-19T11:55:00-04:00",
+      "event": "implemented",
+      "message": "T-023 implemented test-first. 77 new tests (67 integration, 8 unit, 2 wiring pins). Five mutations performed, each proven applied with a proof matched to its shape; M5 honestly reported as unfalsifiable. typecheck / scoped lint / db:types:check green; repo-wide lint and full npm test fail only in concurrent T-020/T-021 territory; the db:validate failure is a two-reset concurrency artifact and this task adds zero migrations."
+    },
+    {
+      "timestamp": "2026-07-19T13:25:00-04:00",
+      "event": "evaluated_needs_fixes",
+      "message": "Evaluator NEEDS_FIXES at iteration 0/10 on ONE minor finding, F-023-1; everything else verified sound. BASELINE INDEPENDENTLY REPRODUCED (serial): npm test 66 files / 1278 passed / 0 skipped exit 0 (parties.test.ts included), typecheck 0 after the full run, lint 0, db:types:check 0, db:validate 0 - confirming this task's earlier failures were cross-task concurrency artifacts as reported. M5 RE-RUN FIRST-HAND: dropping the brokers-join tenant predicate (proven applied: grep 0/1 + md5 delta) leaves 67/67 green - the NEGATIVE RESULT IS HONEST AND REPRODUCED, and the predicate is CORRECT TO KEEP. But the unfalsifiability claim is REFUTED empirically: leads.broker_id has NO physical FK (brokers migration :47 'by convention, no FK'), so the evaluator inserted, on the live schema in a rolled-back transaction, a tenant-A lead whose broker_id was a tenant-B broker id - every insert succeeded - and the join WITHOUT the predicate returned the tenant-B broker's NAME where pristine code returns null. The globally-unique-id argument covers convention-respecting data only; the predicate's whole purpose is convention-VIOLATING data, which the schema permits and an integration fixture can seed. One test closes it (see F-023-1). MEASURED FACTS ALL CONFIRMED FIRST-HAND: GET /parties/{id}/leads is gated by parties.view despite living in LeadEndpoints (LeadEndpoints.cs:40 read directly: partyLeadsGroup...RequirePermission(PermissionCatalog.Parties.View)), ported at routes.ts:152 and pinned from both directions (parties.test.ts:1360 with a parties.view-not-leads.view user AND a leads.view-not-parties.view user); duplicate detection is trigram similarity >= 0.4 capped at 5 (PartyStore.cs:39-40,189-206), NOT the task file's normalization wording - the port's constants match (name-matching.ts: 0.4 / 5, plus the 0.3 type-ahead threshold for list search) and the task-file contradiction was correctly resolved toward the measured reference; envelope is totalCount (PartyListDto.cs:67), again measured contract over task-file wording. NON-BLOCKING WARNING VERIFIED at three levels: structurally (service.ts writes and audits FIRST, searches AFTER, inside one transaction - blocking cannot be reintroduced without reordering), by test (parties.test.ts:818 asserts 201 + warning content + the row physically present afterwards; update-path equivalent at :883), and by the implementor's M2 blocking mutant which the suite kills. Cross-tenant warning leak correctly prevented and pinned (:868). No-DELETE-route pinned (:1578). Isolation, permission matrix, validation catalog, and the flags-always-empty/premium-estimated seams all verified as reference-faithful. Iteration 0 < max 10 -> NEEDS_FIXES, back to Implementor for F-023-1 only: one corrupt-reference fixture test that turns the M5 mutant red, then re-run the mutant to prove it. RESIDUALS unchanged: e2e V-054 at T-043; party export at T-039."
+    },
+    {
+      "timestamp": "2026-07-20T16:30:00-04:00",
+      "event": "finding_resolved",
+      "message": "F-023-1 resolved by the orchestrator, plus a second latent defect it exposed. The finding itself was a genuinely excellent catch: the evaluator refuted an \"unfalsifiable by black-box test\" claim EMPIRICALLY, by constructing the state the schema permits rather than arguing about it - a missing physical FK meant a cross-tenant broker reference was insertable, and the unguarded join leaked the foreign broker name. The implementor had reasoned correctly from globally-unique ids but applied that reasoning to the wrong data set."
+    },
+    {
+      "timestamp": "2026-07-19T13:55:00-04:00",
+      "event": "evaluated_pass",
+      "message": "Evaluator PASS at iteration 1/10 after a focused re-review of the two fixes from the F-023-1 round, BOTH INDEPENDENTLY CONFIRMED FIRST-HAND. (1) F-023-1 fix VERIFIED BY RE-RUNNING M5 MYSELF: baseline parties.test.ts 68/68 green; mutant applied with proof (grep 'on b.tenant_id' 1->0, md5 c1b759c9->6b7ef9d9 - the file is UNTRACKED so git diff is blind and hash discipline was mandatory); under the mutant EXACTLY the new corrupt-reference test failed (1 failed / 67 passed) and on the DISCRIMINATING assertion - AssertionError 'resolved a broker across the tenant boundary: expected Foreign Broker B t023-... to be null' at parties.test.ts:1341, i.e. the actual foreign broker NAME leaking, not a status change; restored byte-identical (md5 back to c1b759c9, predicate count 1) and re-verified 68/68. Test is non-hollow: the LEFT-join still-listed assertion, the brokerName-null assertion, and the raw-body not.toContain are all present, and the not.toContain is guarded against a hollow pass by toBeTruthy() on the fetched foreign name (:1313). (2) RUN-token defect VERIFIED AGAINST THE LIVE DB, not by reading code: old-style ~23-char token makes two unrelated fixture names score 0.418 (> the 0.4 threshold - the false positive reproduced); the new short token scores the same unrelated pair 0.275 and the genuine Acme Ltd/Limited pair 0.750 - real margin in BOTH directions; names alone score 0.000 vs 0.615, so the positive duplicate tests clear the threshold on the NAMES THEMSELVES with no token at all - the fix demonstrably did NOT suppress detection, and the positive tests (:830 warning code + specific match id/name + row physically present; :895 update path) remain load-bearing. The t023- purge prefix confirmed kept and load-bearing (:127, :192). GATES SERIAL, ALL FIRST-HAND: full npm test 66 files / 1279 passed / 0 skipped exit 0 (PIPESTATUS-checked), typecheck 0 AFTER the full run, lint 0, db:types:check 0; db:validate deliberately NOT run (destructive, no migration changed). PROCESS RULING on orchestrator-authored fixes: acceptable HERE because this evaluator round independently reproduced every load-bearing claim, and every checked claim held (mutant kill count, kill location, score margins, gate numbers) - but 'orchestrator-verified only' would NOT have sufficed on its own, and the resolution correctly queued itself for evaluator review; keep that discipline. ONE NEW FINDING, F-023-2 (minor, NON-BLOCKING): discovered because the resolution's residue attribution ('left by evaluator mutant runs') is false - parties.test.ts's afterAll calls auth.cleanup() (which ENDS the pg pool, auth.ts:249) BEFORE the deleteTenantData loop, so tenant-fixture cleanup silently no-ops on EVERY exit and each run leaks 2 tenants + 28 parties + 19 audit rows until the NEXT run's beforeAll purge; empirically proven (a fully green run left t023-182gzwpt-* behind; the next green run purged those and left its own). Left OPEN as non-blocking per the no-blocking-findings PASS rule: the leak is test-only, self-limited to one inter-run window by this suite's own purge, and the same bug exists WORSE in 4+ sibling suites (brokers, business-assignments, business-rules, reference-data reversed-order; t016/t019 suites leak with NO purge - 7 t016 and 12 t019 tenants live in the DB right now), so the efficient fix is one cross-task hygiene sweep, recommended to the orchestrator, using the correct ordering me.test.ts and roles-groups.test.ts already demonstrate. NOTE for the orchestrator: the finding_resolved history entry and the repository.ts header both carry FUTURE dates (2026-07-20) relative to today (2026-07-19) - cosmetic, but worth correcting the clock discipline. RESIDUALS unchanged: e2e V-054 at T-043; party export at T-039."
+    },
+    {
+      "timestamp": "2026-07-19T20:20:00-04:00",
+      "event": "record_migrated",
+      "message": "Schema conformance (CLAUDE.md: all generated JSON must conform to .claude/schemas/). These blocks were written by the implementor/evaluator as TOP-LEVEL keys the task schema does not allow. They are substantive audit records, so they are PRESERVED VERBATIM here rather than deleted. Moved: deviations_and_flags, implementation_notes, mutations_performed.",
+      "migrated_top_level": {
+        "implementation_notes": {
+          "endpoints": [
+            "GET /api/v1/parties -> 200 PartyListDto (parties.view)",
+            "POST /api/v1/parties -> 201 + Location, PartyMutationResultDto (parties.create)",
+            "GET /api/v1/parties/{id} -> 200 PartyDto (parties.view)",
+            "PUT /api/v1/parties/{id} -> 200 PartyMutationResultDto (parties.update)",
+            "GET /api/v1/parties/{id}/leads -> 200 LeadListItemDto[] (parties.view, measured at LeadEndpoints.cs:40 - NOT leads.view)",
+            "No DELETE route (P-05); absence asserted by test"
+          ],
+          "duplicate_warning": "NON-BLOCKING and order-preserved: the row is written and audited FIRST, then findSimilarPartyNames runs (mirrors CreatePartyCommandHandler.cs:80-95 and UpdatePartyCommandHandler.cs:86-109). pg_trgm similarity >= 0.4, ordered by score desc, capped at 5, tenant-scoped, self excluded by id. Keeping the search AFTER the write is what makes blocking impossible to reintroduce by accident.",
+          "tests": "67 integration (parties.test.ts) + 8 unit (party-name-matching.test.ts) + 2 new it.each cases in auth-wiring.test.ts = 77 new tests.",
+          "commands": {
+            "vitest parties + unit + auth-wiring": "exit 0 (101 passed)",
+            "npm run typecheck": "exit 0",
+            "eslint (scoped to T-023 files)": "exit 0",
+            "npm run lint (repo-wide)": "exit 1 - 2 errors, BOTH in T-020 business-rules files, none in T-023 files",
+            "npm run db:types:check": "exit 0",
+            "npm run db:validate": "exit 1 - NOT attributable to T-023: this task adds zero migrations. The validator does two full DB resets and compares dumps; the concurrent T-020/T-021 agents created tenants between the resets, so partition names differed (alerts_p1 vs alerts_p3).",
+            "npm test (full)": "exit 1 - parties.test.ts NOT among the failures. Failures were business-rules (T-020), config-env-access + lint-no-any (both failing ON the business-rules lint errors), and tenants/job-endpoints (shared-state contention; both verified green in isolation)."
+          }
+        },
+        "mutations_performed": [
+          {
+            "id": "M1",
+            "mutation": "findParty: forTenant(executor, tenantId) -> raw executor (tenant predicate dropped)",
+            "proof_applied": "semantic grep of the findParty body: forTenant present before, 'await executor' after. Same-line edit, so a line-count delta would have proven nothing.",
+            "result": "4 isolation tests red: cross-tenant detail 404, cross-tenant leads-card 404, cross-tenant update 404 + no-side-effect, joined-rows isolation",
+            "restored": "cp from byte backup; grep confirms forTenant back"
+          },
+          {
+            "id": "M2",
+            "mutation": "createParty: throw when duplicate matches are found (make the warning BLOCKING)",
+            "proof_applied": "grep located the injected 'if (matches.length > 0) throw' at line 281",
+            "result": "'warns about a near-duplicate name AND still creates the party' went red (plus 9 other create tests)",
+            "restored": "grep count back to 0"
+          },
+          {
+            "id": "M3",
+            "mutation": "POST /parties guard: requirePermission('parties.create') -> ('parties.view')",
+            "proof_applied": "semantic grep of the route line showing parties.view. Same-line edit.",
+            "result": "exactly 1 red: 'lets parties.view read but not write'",
+            "restored": "grep shows parties.create restored"
+          },
+          {
+            "id": "M4",
+            "mutation": "delete the parties deps line from EACH composition root in turn",
+            "proof_applied": "line-count delta (68->67 and 109->108) AND grep 1->0 - both proofs used, since this is a deleted line",
+            "result": "exactly 1 red each time, and it was the new T-023 pin naming the correct root",
+            "restored": "cp from byte backups; line counts and greps back to 68/1 and 109/1"
+          },
+          {
+            "id": "M5",
+            "mutation": "leads-card raw SQL: dropped the brokers LEFT JOIN tenant predicate",
+            "proof_applied": "grep of the join clause showing the predicate gone",
+            "result": "NOTHING WENT RED - reported honestly rather than papered over. Root cause verified empirically: identity sequences live on the partitioned PARENT, so ids are globally unique (measured: 0 ids shared across tenants in brokers/parties/leads/reference_items). A tenant-A lead's broker_id can therefore only ever match one row, making the per-join tenant predicate defense-in-depth that NO black-box test can falsify. The predicate is KEPT (it becomes load-bearing if ids ever become per-tenant), but no coverage is claimed.",
+            "restored": "cp from byte backup"
+          }
+        ],
+        "deviations_and_flags": [
+          "TASK-FILE CONTRADICTION (list envelope): implementation_details say {items,page,pageSize,total}. Reference PartyListDto.cs:67 and the existing SPA (src/ui/src/features/parties/partiesApi.ts) both say totalCount. Shipped totalCount (measured contract wins) and pinned it with a test; shipping total would break the existing grid's paging.",
+          "TASK-FILE CONTRADICTION (duplicate detection): implementation_details describe 'same normalized name within tenant', i.e. normalize-then-compare-equal. The reference does NOT normalize; PartyStore.cs:189-206 runs pg_trgm similarity(name,$1) >= 0.4. Ported the actual trigram behaviour. Consequently the test-plan item 'duplicate-name normalization rules (pure)' has only a small genuinely-pure surface (the persisted-name trim plus the threshold constants), which is what party-name-matching.test.ts covers; the similarity behaviour is proven in the integration suite against real rows rather than against a reimplemented scorer.",
+          "MEASURED, EASY TO GET WRONG: GET /parties/{id}/leads is gated by parties.view, not leads.view (LeadEndpoints.cs:40, despite the route living in LeadEndpoints). Pinned with a user holding parties.view and NOT leads.view, and a user holding leads.view and NOT parties.view.",
+          "Leads card flags is ALWAYS an empty array - the reference does the same (LeadDto.cs:149-153); the Escalated/SLA/Expiring/High-value chips come from alert evaluation, which is out of T-023's scope. Empty is the correct answer here, not a stub.",
+          "Leads card premium is always estimated_premium; the 'current quoted premium once quoted' branch is a later task's seam, exactly as in the reference (LeadDto.cs:134-138).",
+          "DIVERGENCE IN SHAPE (not behaviour): the reference issued 4 queries for the leads card (leads join, then owners, then broker names); this port issues 1 with LEFT JOINs, to avoid the N+1-adjacent pattern CLAUDE.md forbids. Added an 'id desc' tiebreaker to the reference's bare 'date_received desc', which was non-deterministic among same-day leads.",
+          "List query params: an unparseable filter value is IGNORED, not rejected (ASP.NET binds null for a long?/bool? that will not parse), so ?partyTypeId=abc lists everything rather than 400ing. Ported deliberately and pinned; rejecting would turn a currently-200 hand-edited URL into an error.",
+          "Contact email/phone: the reference's .When(!string.IsNullOrWhiteSpace(...)) guard means an ALL-WHITESPACE value is VALID. Ported as a refinement rather than zod's .email(), which would have rejected it and turned a currently-200 SPA request into a 422. Pinned by test.",
+          "Missing/malformed X-Tenant-Id answers 403, not 400 - the documented house contract (lib/tenancy/middleware.ts:11-31, TenantContextMiddleware.cs:50-55), so a client cannot distinguish 'no header' from 'not your tenant'. My initial test asserted 400 and was corrected to match the real, deliberate contract.",
+          "CROSS-TASK FINDING (flagged, not fixed here): tenants.test.ts asserts count(*) from audit_log where entity_id = $1 WITHOUT filtering entity_type. Any other suite's leftover audit row whose entity_id numerically equals the tenant id under test makes tenants.test.ts fail with no clue why. This suite triggered it after an ABORTED run left party audit rows behind. Guarded from this side (parties.test.ts now purges stale t023- tenants in beforeAll, so an interrupted run cannot poison later runs) and tenants.test.ts verified green again - but the underlying assertion remains fragile for any future suite.",
+          "PROCESS NOTE: npm run db:validate performs TWO FULL DB RESETS. Running it while other agents' suites are live invalidated one full npm test run (connection-terminated failures). It should be run only when no other task is active."
+        ]
+      }
+    }
+  ]
+}

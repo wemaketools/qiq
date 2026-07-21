@@ -1,0 +1,127 @@
+{
+  "id": "T-044",
+  "title": "Role-aware post-login landing and membership-only lookup reads (403 sweep)",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": [
+    "T-027",
+    "T-031",
+    "T-041"
+  ],
+  "objective": "Fix the two classes of authorization failures found by logging in as every PRD 20.4 seeded role and crawling the app: (1) every role without dashboards.view_executive landed on a Forbidden page because the index route hardcoded /overview; (2) dozens of XHR 403s on every non-admin role because lookup READS (reference-data lists, business-assignments config, business-rules, broker list) were gated behind Settings-admin permissions that lead/party workflows and filter bars need for every tenant member (PRD 21.2, UI Standards §8). Evidence: scratchpad crawl reports (pre-fix: 100+ distinct 403s across roles; post-fix: 0).",
+  "scope": [
+    "SPA: app/DefaultLanding.tsx replaces the hardcoded index Navigate — lands on the first sidebar entry (standard then admin order) the active tenant's effective permissions allow, /overview fallback",
+    "API: GET /settings/reference-data/{listType} -> membership-only (mutations keep reference_data.manage)",
+    "API: GET /settings/business-assignments -> membership-only (the fix T-027's report recommended; PUT keeps business_assignments.manage)",
+    "API: GET /settings/business-rules -> membership-only (PUT keeps business_rules.manage); Leads list now fetches real tenant aging thresholds with A-12 defaults as fallback",
+    "API: GET /brokers list -> membership-only (BrokerSummaryDto is the picker-safe, contact-free projection); GET /brokers/{id} detail keeps brokers.view, mutations keep brokers.manage",
+    "Stale flagged-gap comments in leadsApi.ts / agingThresholds.ts / LeadsListPage.tsx updated to record the resolution"
+  ],
+  "out_of_scope": [
+    "Zero-membership Internal users (e.g. seeded internal1): originally flagged here as a session-model gap; RESOLVED by T-045 (GetMe globalPermissions + global-union selectors + cross-tenant switcher/rehydration).",
+    "Granting additional permissions to seeded roles (PRD 20.4 bundles unchanged; RM intentionally keeps pipeline-only dashboard access per PRD 20.5)"
+  ],
+  "implementation_details": [
+    "Every relaxed GET remains behind JWT auth + TenantContextMiddleware (active user + validated X-Tenant-Id membership or Internal cross-tenant grant) — 'membership-only' is the codebase's existing picker-read pattern (BusinessAssignmentEndpoints eligible-users/eligible-approvers)",
+    "business_rules.view / business_assignments.view / brokers.view keep their meaning as Settings-tab UI gates (SettingsLayout/RouteGuard) and, for brokers.view, the contact-bearing detail read",
+    "DefaultLanding reuses navConfig's STANDARD_NAV_ITEMS/ADMIN_NAV_ITEMS so landing order always matches what the sidebar actually renders"
+  ],
+  "files": [
+    "src/ui/src/app/DefaultLanding.tsx (+ app/__tests__/DefaultLanding.test.tsx)",
+    "src/ui/src/app/router.tsx",
+    "src/ui/src/features/leads/LeadsListPage.tsx, leadsApi.ts, agingThresholds.ts",
+    "src/ui/src/features/leads/__tests__/LeadsListPage.test.tsx",
+    "src/api/QuoteIQ.Api/Endpoints/ReferenceDataEndpoints.cs, BusinessAssignmentEndpoints.cs, BusinessRuleEndpoints.cs, BrokerEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/{ReferenceData,BusinessRules,BusinessAssignments,Brokers}/*EndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [
+      "DefaultLanding: exec-dashboard holder -> /overview; leads-only RM -> /leads; alerts-only -> /alerts; admin-only -> first admin section; no permissions -> /overview fallback (5 new tests)",
+      "LeadsListPage suite updated for the fetchFullBusinessRules mock (thresholds resolve to the A-12 defaults, keeping color assertions deterministic)"
+    ],
+    "integration": [
+      "ListItems_WhenCallerIsPlainTenantMember_ShouldReturn200 + CreateItem_..._ShouldReturn403 (reference data)",
+      "GetBusinessRules_WhenCallerIsPlainTenantMember_ShouldReturn200 (write-403 already pinned by UpdateBusinessRules_WhenCallerLacksManagePermission_ShouldReturn403)",
+      "GetBusinessAssignments_WhenCallerIsPlainTenantMember_ShouldReturn200 (write-403 already pinned)",
+      "ListBrokers_WhenCallerIsPlainTenantMember_ShouldReturn200 + GetBroker_..._ShouldReturn403 (detail stays gated)",
+      "Full dotnet test QuoteIQ.slnx regression gate"
+    ],
+    "e2e": [
+      "Role crawl (all 7 PRD 20.4 personas x 10 routes + lead detail): 0 distinct API failures post-fix (was 100+), no Forbidden landing for any tenant-member role",
+      "Existing Playwright suite (login/shell/logout/settings/tenant-manager/user-manager/visual-shell) stays green"
+    ]
+  },
+  "acceptance_ids": [
+    "AC-083"
+  ],
+  "verification_ids": [
+    "V-083"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "verification",
+      "description": "V-083 designates a scripted Playwright per-role crawl (one persona per seeded role visiting every routed screen + a lead detail, asserting a permitted landing and zero >=400 API responses) as the e2e verification for AC-083, and the gate report claims '7-role crawl 0 failures'. No such crawl exists as a committed, repeatable Playwright spec in e2e_tests/tests/ (only login/shell/settings/tenant-manager/user-manager/visual-shell etc.); the crawl was run ad-hoc from the scratchpad. AC-083's central assertion ('no API call issued by those screens returns 403') is inherently an end-to-end claim that the backend integration tests (which pin individual endpoints) and the DefaultLanding unit tests do not fully prove, so it is currently unverifiable in CI and not reproducible by the evaluator.",
+      "evidence": "ls e2e_tests/tests/ shows no role-crawl/403-sweep spec; grep for crawl|per-role across e2e_tests (excluding node_modules) returns nothing. AC-083 test_levels include e2e; V-083 api.approach explicitly describes the scripted crawl.",
+      "suggested_fix": "Commit a Playwright spec (e.g. e2e_tests/tests/role-403-sweep.spec.ts) that logs in as each PRD 20.4 persona, asserts a non-Forbidden landing, and fails on any >=400 API response captured during a routed-screen crawl, so V-083 e2e is reproducible.",
+      "status": "resolved",
+      "resolution_confirmed": "Evaluator re-audit (iteration 2, 2026-07-14): CONFIRMED. role-403-sweep.spec.ts faithfully implements V-083's scripted per-role crawl - the >=400 /api/v1 response listener is attached BEFORE loginAs (so no early call is missed), all 6 tenant-member personas are parameterized, and the crawl only visits navConfig entries the persona's sidebar renders plus a guarded lead detail, asserting forbidden-page count 0 and an empty apiFailures array (meaningful, can-fail assertions). Splitting internal1 out to V-084 matches V-083.expected_results ('forbidden landing only for the flagged zero-membership Internal case'), so 6 personas here is complete, not a persona gap. All selectors reuse existing production data-testids (sidebar-nav, forbidden-page, nav-* from navConfig.ts, lead-ref-link in LeadsTable.tsx, lead-header in LeadDetailPage.tsx) - verified present in src/ui; no new testid introduced; no fragile text selectors. seed-authz-e2e.sh only resets Keycloak passwords, clears UPDATE_PASSWORD required actions, sets enabled/emailVerified, and clears brute-force lockout - it creates NO users/tenants/memberships/permissions, so it does not alter the authorization surface under test and the sweep stays meaningful. tsc --noEmit exit 0; playwright test --list discovers all 6 tests. Live-stack execution not possible in this environment (accepted limitation, same as visual-shell.spec.ts for T-043).",
+      "resolution": "Committed e2e_tests/tests/role-403-sweep.spec.ts: for each of the 6 PRD 20.4 seeded tenant-member personas (tenant-admin1/sales-head1/relationship-manager1/underwriter1/sales-operations1/executive-viewer1@thebrittany.test) it logs in via the shared Keycloak login helper, asserts sidebar-nav visible and forbidden-page count 0 (role-aware DefaultLanding), then crawls every navConfig entry that persona's sidebar exposes (STANDARD then ADMIN order) plus a lead detail where a lead row is present, with a page-level response listener that fails the test on any /api/v1 response status >= 400. Added e2e_tests/seed/seed-authz-e2e.sh (companion to seed-shell-e2e.sh) that sets the shared E2E_PASSWORD and clears the initial UPDATE_PASSWORD required action on the T-041 personas so the login helper can drive them (the T-041 demo seed itself never sets a password). tsc --noEmit over e2e_tests passes (exit 0); playwright --list discovers all 6 role tests. NOT executed against the live stack in this environment (global-setup fails fast because API/Keycloak/SPA + T-041 seed are not running here) — reproducible via: dotnet run --project QuoteIQ.Api -- seed, then bash e2e_tests/seed/seed-authz-e2e.sh, then npx playwright test role-403-sweep.spec.ts against the running stack.",
+      "created_at": "2026-07-14T03:40:00-04:00"
+    },
+    {
+      "id": "F-002",
+      "source": "evaluator",
+      "severity": "info",
+      "category": "security",
+      "description": "Security review of the read-gate relaxations passed. The four relaxed GET reads (reference-data, business-assignments, business-rules, brokers list) remain behind TenantContextMiddleware, which enforces an authenticated principal, an active resolved app user, and a validated X-Tenant-Id membership (or Internal cross-tenant grant) before the handler runs; all mutations keep their manage permission and the contact-bearing GET /brokers/{id} detail keeps brokers.view. BrokerSummaryDto (list projection) is contact-free, so no over-exposure/IDOR. Backend integration tests pin the split (member read 200, write 403, detail 403, foreign-tenant 403).",
+      "evidence": "src/api/QuoteIQ.Api/Tenancy/TenantContextMiddleware.cs; BrokerEndpoints.cs/ReferenceDataEndpoints.cs/BusinessRuleEndpoints.cs/BusinessAssignmentEndpoints.cs route maps; BrokerDto.cs BrokerSummaryDto; BrokerEndpointsTests ListBrokers_...ShouldReturn200 / GetBroker_...ShouldReturn403.",
+      "suggested_fix": "None — informational; no security issue found.",
+      "status": "open",
+      "created_at": "2026-07-14T03:40:00-04:00"
+    }
+  ],
+  "history": [
+    {
+      "timestamp": "2026-07-14T04:20:00-04:00",
+      "event": "task_passed",
+      "message": "T-044 PASS (fix iteration 2/10). Evaluator re-audit CONFIRMED F-001 resolved: committed role-403-sweep.spec.ts faithfully implements V-083 (>=400 /api/v1 listener attached before login, 6 tenant-member personas, sidebar-scoped crawl + guarded lead detail, forbidden-page 0 + empty apiFailures assertions); internal1 correctly split to V-084; existing testids only; seed-authz-e2e.sh grants no permissions so the sweep is non-vacuous; tsc exit 0, playwright --list discovers all 6. Security clean (F-002). Live-stack run deferred to CI (accepted env limitation). 34 tasks PASS, 0 FAIL.",
+      "iteration_count": 2
+    },
+    {
+      "timestamp": "2026-07-13T23:30:00-04:00",
+      "event": "created",
+      "message": "Created from the user's report: RM saw 'You don't have permission' after login, and clicking around as other roles produced many XHR 403s."
+    },
+    {
+      "timestamp": "2026-07-14T03:50:00-04:00",
+      "event": "fix_iteration_started",
+      "message": "T-044 NEEDS_FIXES -> fix iteration 2/10 (iteration_count 1->2). Evaluator confirmed implementation + security are sound (relaxed GET reads stay behind TenantContextMiddleware, mutations keep manage, BrokerSummaryDto contact-free, integration tests pin 200/403/403/foreign-403) and re-ran all runnable suites green. Sole blocker F-001 (major, verification): the V-083 7-role 403-sweep crawl is not committed as a repeatable Playwright spec (only ad-hoc scratchpad). Routed to Implementor to commit e2e_tests/tests/role-403-sweep.spec.ts so AC-083's end-to-end 'no screen 403' claim is reproducible in CI. F-002 info (security clean).",
+      "iteration_count": 2
+    },
+    {
+      "timestamp": "2026-07-13T23:59:00-04:00",
+      "event": "implementation_written",
+      "message": "Tests written first (5 UI + 6 API), then DefaultLanding + four endpoint read-gate changes. Pre/post crawl reports captured."
+    },
+    {
+      "timestamp": "2026-07-14T00:20:00-04:00",
+      "event": "gates_run",
+      "message": "All gates green: frontend typecheck 0, vitest 344/344 (+5 DefaultLanding, LeadsListPage mock updated), lint = pre-existing baseline, build clean; backend full suite passed (Api 275 incl. 6 new authorization tests, Application 32, Infrastructure 91, exit 0); Playwright full suite 27 passed / 24 pre-existing fixme; post-fix role crawl: 0 distinct failing API calls across all 7 personas (pre-fix: 100+), every tenant-member role lands on a permitted page (RM/UW/SalesOps/TenantAdmin -> /leads, SalesHead/ExecViewer -> /overview). RM intake form verified visually: all reference dropdowns populate."
+    },
+    {
+      "timestamp": "2026-07-14T02:40:00-04:00",
+      "event": "note",
+      "message": "The zero-membership Internal gap flagged in out_of_scope was implemented as T-045."
+    },
+    {
+      "timestamp": "2026-07-14T09:30:00-04:00",
+      "event": "implementation_written",
+      "message": "Fix iteration 2/10, F-001 (verification) resolved. Committed e2e_tests/tests/role-403-sweep.spec.ts (V-083/AC-083): 6 parameterized tests, one per PRD 20.4 seeded tenant-member role, each logging in via the existing Keycloak login helper, asserting a non-Forbidden role-aware landing (sidebar-nav visible, forbidden-page count 0), crawling every sidebar-exposed navConfig route plus a lead detail, and failing on any /api/v1 response >= 400 via a page-level response listener. No production/backend/session/test changes; the only new selector reuse is existing data-testids (sidebar-nav, forbidden-page, nav-*, lead-ref-link, lead-header) — no testids added. Added supporting e2e_tests/seed/seed-authz-e2e.sh to set the shared E2E password + clear the UPDATE_PASSWORD required action on the T-041 personas (they otherwise have no fixed password). Gates run in this environment: `npx tsc --noEmit -p tsconfig.json` over e2e_tests = exit 0; `npx playwright test --list` discovers all 6 tests. Could NOT run against the live stack (global-setup fails fast: API not reachable at http://localhost:5080/health; Keycloak/SPA + T-041 seed not provisioned here). Remaining to run against a live seeded stack: `dotnet run --project QuoteIQ.Api -- seed`, then `bash e2e_tests/seed/seed-authz-e2e.sh`, then `npx playwright test role-403-sweep.spec.ts`.",
+      "iteration_count": 2
+    }
+  ]
+}

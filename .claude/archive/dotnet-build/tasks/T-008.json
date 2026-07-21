@@ -1,0 +1,108 @@
+{
+  "id": "T-008",
+  "title": "Reference data backend: tenant lists, guarded statuses, global default template",
+  "status": "PASS",
+  "iteration_count": 2,
+  "max_iterations": 10,
+  "depends_on": ["T-006"],
+  "objective": "All eleven tenant-configurable reference lists are manageable (add/edit/disable/reorder) with guarded-status rules, disabled values stay resolvable historically, and Internal users manage the global default template (spec FR-19..FR-22, §11.2, PRD 6).",
+  "scope": [
+    "reference_items (partitioned) and default_reference_items (global) tables",
+    "CRUD/reorder/disable endpoints per list type with per-type validation",
+    "Guarded status rules: reporting_category mapping, terminal statuses cannot be disabled, canonical_key immutable",
+    "Global template GET/PUT endpoints (Internal)"
+  ],
+  "out_of_scope": ["Copying template into new tenants (T-009)", "Settings UI (T-016)"],
+  "implementation_details": [
+    "Liquibase 040-reference: reference_items (tenant_id bigint, id bigint identity, list_type text check enum, name text, display_order int, is_active bool, is_broker_channel bool null, product_line_id bigint null, reporting_category text null check in ('open','quoted','won','lost','expired','withdrawn'), canonical_key text null, is_terminal bool default false, PK (tenant_id,id), unique (tenant_id, list_type, name), LIST partition on tenant_id, registered in create_tenant_partitions); default_reference_items mirrors columns minus tenant_id (product_line linkage via default_product_line_key text since global ids differ)",
+    "Domain/ReferenceData/ReferenceListType.cs enum: RequestChannel, ProductLine, CoverType, PartySegment, Industry, Region, PartyType, LeadStatus, QuoteStatus, LostReason, BrokerType",
+    "Features/ReferenceData: ListItemsQuery{listType, includeDisabled}; CreateItemCommand; UpdateItemCommand; DisableItemCommand; ReorderItemsCommand{orderedIds[]} — per-type validators: CoverType requires product_line_id of an active ProductLine; RequestChannel accepts isBrokerChannel; Lead/QuoteStatus require reporting_category, forbid disabling is_terminal rows (error TERMINAL_STATUS_CANNOT_BE_DISABLED), forbid changing canonical_key or reporting_category of canonical rows, allow adding intermediate statuses only with category open or quoted",
+    "Endpoints: GET/POST /api/v1/settings/reference-data/{listType}; PUT /api/v1/settings/reference-data/{listType}/{id}; POST .../{id}/disable; POST .../reorder — RequirePermission(ReferenceData.Manage), tenant-scoped",
+    "Global template: GET/PUT /api/v1/global/default-reference-items — RequirePermission(Global.ManageTemplates), global group; PUT replaces the template set transactionally with same guard rules; audited",
+    "Historical resolvability: reads join reference_items without is_active filter; only pickers use active-only (ListItemsQuery default)"
+  ],
+  "files": [
+    "src/api/db/changelog/040-reference/*.xml",
+    "src/api/QuoteIQ.Domain/ReferenceData/ReferenceListType.cs",
+    "src/api/QuoteIQ.Domain/Entities/ReferenceItem.cs",
+    "src/api/QuoteIQ.Application/Features/ReferenceData/**/*.cs",
+    "src/api/QuoteIQ.Api/Endpoints/ReferenceDataEndpoints.cs",
+    "src/api/QuoteIQ.Api/Endpoints/GlobalTemplateEndpoints.cs",
+    "src/api/tests/QuoteIQ.Api.Tests/ReferenceData/ReferenceDataEndpointsTests.cs"
+  ],
+  "test_plan": {
+    "unit": [],
+    "integration": [
+      "CreateCoverType_WithoutProductLine_ShouldReturnValidationError",
+      "DisableTerminalStatus_ShouldReturn422",
+      "RenameStatus_ShouldKeepReportingCategoryAndCanonicalKey",
+      "Reorder_ShouldPersistDisplayOrder",
+      "DisabledValue_ShouldStayResolvableOnHistoricalReadButAbsentFromPicker",
+      "TenantA_Items_ShouldBeInvisibleToTenantB",
+      "GlobalTemplatePut_WhenNotInternal_ShouldReturn403"
+    ],
+    "e2e": []
+  },
+  "acceptance_ids": ["AC-018", "AC-019", "AC-020", "AC-021"],
+  "verification_ids": ["V-018", "V-019", "V-020", "V-021"],
+  "findings": [
+    {
+      "id": "F-019",
+      "source": "evaluator",
+      "severity": "major",
+      "category": "validation",
+      "description": "Guarded-status rules are bypassable on the update path (FR-20, AC-019). UpdateItemValidator validates only Name; UpdateItemCommandHandler assigns item.ReportingCategory = command.ReportingCategory unconditionally for non-canonical lead/quote statuses. Consequences: (1) PUT /settings/reference-data/lead_status/{id} with reportingCategory=null succeeds and persists a status mapped to no reporting category, violating AC-019 'every status maps to a reporting category'; (2) a tenant-added intermediate status can be updated to a terminal category ('won','lost','expired','withdrawn'), bypassing the create-time IntermediateAllowed guard; (3) an unrecognized string (e.g. 'banana') passes application validation and dies on the DB check constraint ck_reference_items_reporting_category as an unhandled 500 instead of a structured 422. The error codes REFERENCE_DATA_REPORTING_CATEGORY_REQUIRED and REFERENCE_DATA_INVALID_INTERMEDIATE_CATEGORY are defined and endpoint-mapped but never produced by any handler (dead code, symptom of the missing guard).",
+      "evidence": "src/api/QuoteIQ.Application/Features/ReferenceData/UpdateItem/UpdateItemCommandHandler.cs (unconditional 'item.ReportingCategory = command.ReportingCategory' for non-canonical statuses); UpdateItem/UpdateItemValidator.cs (Name rule only); grep shows ReportingCategoryRequired()/InvalidIntermediateCategory() referenced only from CreateItemCommandHandler and the endpoint error map.",
+      "recommendation": "In UpdateItemCommandHandler (or UpdateItemValidator), when the target row is a lead/quote status: require a non-null reportingCategory in ReportingCategory.All, and for non-canonical rows restrict changes to ReportingCategory.IntermediateAllowed. Add integration tests such as UpdateStatus_WhenReportingCategoryNull_ShouldReturn422 and UpdateIntermediateStatus_WhenCategoryTerminal_ShouldReturn422.",
+      "status": "RESOLVED",
+      "resolution": "UpdateItemCommandHandler now enforces the same guard for non-canonical lead/quote statuses as CreateItemCommandHandler: reportingCategory must be non-null and a member of ReportingCategory.IntermediateAllowed (open/quoted), else returns REFERENCE_DATA_REPORTING_CATEGORY_REQUIRED or REFERENCE_DATA_INVALID_INTERMEDIATE_CATEGORY as 422s before the DB write. Covered by 3 new integration tests (null category, terminal category, unrecognized string), each proven red against the pre-fix handler then green after the fix.",
+      "created_at": "2026-07-12T10:15:00-04:00"
+    },
+    {
+      "id": "F-020",
+      "source": "security",
+      "severity": "major",
+      "category": "security",
+      "description": "Tenant scoping of the reference-data feature collapses for cross-tenant (Internal) callers. ReferenceDataStore relies exclusively on QuoteIqDbContext's ambient tenant query filter, and that filter is fully disabled when ITenantContext.IsCrossTenant is true (Internal user holding global.view_any_tenant operating in a tenant they are not a member of - reachable path per TenantAccessValidator line 58). In that mode: GET /settings/reference-data/{listType} returns every tenant's rows mixed together (cross-tenant data disclosure in a tenant-scoped view); NameExistsAsync false-positives duplicates against other tenants' names; ReorderItems' set-equality check is computed over the all-tenant superset and can mutate other tenants' display_order; FindAsync(id) resolves any tenant's row, so PUT/POST-disable executed 'in' tenant A can silently mutate tenant B's row (the SaveChanges write guard is also bypassed by IsCrossTenant), while AuditWriter stamps the audit row with tenant A's tenant_id - a misattributed audit trail.",
+      "evidence": "src/api/QuoteIQ.Infrastructure/ReferenceData/ReferenceDataStore.cs (no explicit TenantId predicate on any query); QuoteIqDbContext.SetTenantQueryFilter ('IsCrossTenant || e.TenantId == _tenantContext.TenantId'); TenantContextMiddleware sets IsCrossTenant from TenantAccessValidator; GuardTenantScopedEntities returns early when IsCrossTenant.",
+      "recommendation": "Scope every ReferenceDataStore query explicitly to _tenantContext.TenantId (the middleware always sets TenantId for these routes, so 'r.TenantId == _tenantContext.TenantId!.Value' is safe), mirroring how UserTenantMembershipReader pairs IgnoreQueryFilters with explicit predicates. Add an integration test where a non-member Internal user with global.view_any_tenant plus reference_data.manage calls GET/PUT with X-Tenant-Id of tenant A and asserts results/mutations are confined to tenant A.",
+      "status": "RESOLVED",
+      "resolution": "Every ReferenceDataStore query (ListAsync, ListTrackedAsync, FindAsync, NameExistsAsync, IsActiveProductLineAsync) now carries an explicit TenantId == _tenantContext.TenantId predicate, which TenantContextMiddleware guarantees is populated from the validated X-Tenant-Id header even in cross-tenant mode. Covered by CrossTenantInternalUser_ShouldOnlySeeAndMutateRequestedTenantsRows, seeding a globally-granted (TenantId null) Internal user with global.view_any_tenant + reference_data.manage who is a member of neither tenant; proven red against the pre-fix store (list leaked tenant B, PUT/disable of tenant B's id under tenant A's header succeeded and mutated it) then green after the fix (list confined to tenant A, PUT/disable of tenant B's id returns 404, tenant B row verified unmutated in DB).",
+      "created_at": "2026-07-12T10:15:00-04:00"
+    },
+    {
+      "id": "F-021",
+      "source": "tests-code-review",
+      "severity": "minor",
+      "category": "correctness",
+      "description": "ReorderItemsCommandHandler's completeness check accepts duplicate ids: with items {1,2,3} and orderedIds [1,1,2], Count matches (3) and every id is present in the dictionary, so validation passes; item 3 silently keeps its stale display_order and id 1 is assigned twice (last write wins). Additionally the required id set actually includes disabled items (ListTrackedAsync applies no is_active filter), while the handler doc comment and the REFERENCE_DATA_REORDER_SET_MISMATCH error message both claim the request 'must include exactly the active item ids' - a contract the T-016 UI (which will render active rows) could reasonably code against and then receive unexplained 422s.",
+      "evidence": "src/api/QuoteIQ.Application/Features/ReferenceData/ReorderItems/ReorderItemsCommandHandler.cs (Count + ContainsKey check, no distinct/set equality); src/api/QuoteIQ.Infrastructure/ReferenceData/ReferenceDataStore.cs ListTrackedAsync (no IsActive filter); ReferenceDataErrors.ReorderSetMismatch message.",
+      "recommendation": "Replace the check with strict set equality rejecting duplicates (e.g. orderedIds.ToHashSet() with Count comparison against orderedIds.Count and itemsById.Keys), and either reorder only active items or correct the error message/doc to say the full item set (active and disabled) is required.",
+      "status": "RESOLVED",
+      "resolution": "Chosen contract: reorder governs the active-item set only (matches the pre-existing error message/doc, which already claimed 'active item ids' - the bug was the implementation silently including disabled rows, not the contract text). ReorderItemsCommandHandler now filters ListTrackedAsync's result to IsActive items before building the required id set, and replaced the Count/ContainsKey check with strict set equality (HashSet dedup count vs orderedIds count, plus SetEquals against the active id set), rejecting duplicates, omissions, and disabled ids alike. Rationale: there is no re-enable/activate command in this task's scope, so a disabled row's display_order is permanently inert once disabled - requiring it in every reorder payload would burden the future T-016 UI (which only renders active rows) for no behavioral benefit. Covered by Reorder_WhenOrderedIdsContainDuplicate_ShouldReturn422 (proven red against the pre-fix handler, then green) and Reorder_WhenDisabledItemOmitted_ShouldSucceed_ActiveOnlyContract (pins the chosen contract).",
+      "created_at": "2026-07-12T10:15:00-04:00"
+    },
+    {
+      "id": "F-022",
+      "source": "security",
+      "severity": "info",
+      "category": "security",
+      "description": "PUT /api/v1/global/default-reference-items validates cover-type/product-line linkage and duplicate names only within the submitted set (implementor-flagged deviation). Nothing prevents an Internal user from replacing the template with a set missing the canonical/terminal lead and quote statuses entirely, which would make T-009 tenant seeding produce tenants without the guarded-status taxonomy the workflow engine (T-019/T-020) keys off canonical_key. Non-blocking for T-008 since T-009 owns seeding, but the integrity guard must land somewhere before T-009 completes.",
+      "evidence": "src/api/QuoteIQ.Application/Features/ReferenceData/GlobalTemplate/ReplaceDefaultReferenceItemsCommandHandler.cs and ReplaceDefaultReferenceItemsValidator.cs (no canonical-set completeness rule).",
+      "recommendation": "When T-009 defines the required canonical status set, add a completeness validation to ReplaceDefaultReferenceItemsCommand (template must contain every required canonical_key with correct reporting_category/is_terminal) or enforce it at seed time with a hard failure.",
+      "status": "OPEN",
+      "created_at": "2026-07-12T10:15:00-04:00"
+    }
+  ],
+  "history": [
+    { "timestamp": "2026-07-11T10:59:32-04:00", "event": "created", "message": "Task generated from approved spec.md (FR-19..FR-22, §11.2)" },
+    { "timestamp": "2026-07-12T09:00:00-04:00", "event": "task_started", "message": "T-008 IN_PROGRESS; delegated to Implementor (iteration 1/10)" },
+    { "timestamp": "2026-07-12T10:00:00-04:00", "event": "implementor_resumed", "message": "Prior Implementor run interrupted with zero artifacts on disk; iteration 1/10 relaunched from scratch" },
+    { "timestamp": "2026-07-12T10:20:00-04:00", "event": "implementation_written", "message": "T-008 IMPLEMENTED (iteration 1/10): 040-reference liquibase live-verified idempotent; domain enum/entities; CQRS features with guarded-status validators; tenant + global endpoints; 12 integration tests (all 7 required + 5 extra); full suite 38/38 Infrastructure + 47/47 Api twice. Playwright settings.spec.ts created as test.fixme pending T-016 UI. Notes: AC-020 proxied (no lead entity until T-018); DefaultReferenceItem.cs added beyond files list; reorder-tracking and error-code-visibility bugs caught red and fixed. Handed to Evaluator." },
+    { "timestamp": "2026-07-12T10:20:00-04:00", "event": "evaluator_findings_added", "message": "Evaluator (iteration 1/10) audit: full suite re-run independently 38/38 Infrastructure + 47/47 Api (0 failed/skipped); liquibase re-run against compose postgres idempotent (0 changesets, 19 previously run); live schema/partition function verified; all 7 required integration tests present and real (WebApplicationFactory + Keycloak + Postgres Testcontainers, no mocks); Playwright fixme justification legitimate (Settings UI = T-016). Verdict NEEDS_FIXES: F-019 (major, update path bypasses guarded-status reporting-category rules), F-020 (major, ReferenceDataStore unscoped for cross-tenant Internal callers), F-021 (minor, reorder duplicate-id/set-contract gaps), F-022 (info, template canonical-set integrity deferred to T-009). Actual new integration test count is 11 (8 + 3), not 12 as reported." },
+    { "timestamp": "2026-07-12T10:35:00-04:00", "event": "fix_iteration_started", "message": "T-008 NEEDS_FIXES; fix iteration 2/10 delegated to Implementor for F-019 (major), F-020 (major), F-021 (minor); F-022 (info) deferred to T-009 per evaluator" },
+    { "timestamp": "2026-07-12T11:20:00-04:00", "event": "implementation_written", "message": "T-008 fix iteration 2/10: F-019, F-020, F-021 resolved (F-022 untouched, deferred to T-009). UpdateItemCommandHandler now enforces the create-time guarded-status rule on every update (non-canonical lead/quote statuses must keep a non-null ReportingCategory.IntermediateAllowed value). ReferenceDataStore's five queries now carry an explicit TenantId predicate so cross-tenant (Internal, view_any_tenant, non-member) callers are confined to the X-Tenant-Id-named tenant. ReorderItemsCommandHandler now filters to active items and uses strict set equality (rejects duplicates/omissions); chosen contract is active-items-only, matching the pre-existing error message/doc. Added 6 new integration tests to ReferenceDataEndpointsTests.cs, each proven red against a temporarily-reverted pre-fix handler/store and then green after restoring the fix. Full suite run twice: 38/38 Infrastructure + 53/53 Api (0 failed/skipped) both times. No schema changes. Handed back to Evaluator." },
+    { "timestamp": "2026-07-12T12:10:00-04:00", "event": "evaluator_reaudit_pass", "message": "Evaluator re-audit (fix iteration 2/10), verdict PASS. F-019 CONFIRMED RESOLVED: UpdateItemCommandHandler enforces non-null ReportingCategory in IntermediateAllowed for non-canonical lead/quote statuses before any DB write, producing REFERENCE_DATA_REPORTING_CATEGORY_REQUIRED / REFERENCE_DATA_INVALID_INTERMEDIATE_CATEGORY as 422s; canonical-row category changes still rejected via CanonicalFieldsImmutable; the previously-dead error codes are now live. F-020 CONFIRMED RESOLVED: all five ReferenceDataStore queries carry explicit TenantId predicates; TenantContextMiddleware verified to always populate TenantId (incl. cross-tenant per TenantAccessValidator's view_any_tenant path) for /api/v1/settings routes, and no /api/v1/global handler uses IReferenceDataStore, so no legitimate cross-tenant read path is broken. CrossTenantInternalUser test genuinely exercises the IsCrossTenant filter-bypass persona (globally-granted non-member) and verifies tenant B's row unmutated at DB level. F-021 CONFIRMED RESOLVED: strict set equality rejects duplicates/omissions/disabled ids; active-only contract pinned by test; all-items-disabled edge degrades sanely (empty payload = no-op 200, non-empty = 422). All 6 new integration tests are real (WebApplicationFactory + Keycloak + Postgres, no mocks) and would fail on regression. Full suite re-run independently: 38/38 Infrastructure + 53/53 Api, 0 failed/skipped. F-022 remains open info-severity, correctly deferred to T-009 (template canonical-set completeness; non-blocking for T-008). Security sanity pass on changed files clean: no sensitive data in audit payloads, validation precedes persistence, tenant boundary explicit. No new findings. All five PASS gates met." },
+    { "timestamp": "2026-07-12T12:15:00-04:00", "event": "task_passed", "message": "T-008 marked PASS (iteration 2/10) by orchestrator per evaluator verdict. Open items carried forward: F-022 (info) to T-009; AC-020 full historical-resolvability re-verification at T-018+; settings.spec.ts fixme to be unskipped at T-016." }
+  ]
+}
