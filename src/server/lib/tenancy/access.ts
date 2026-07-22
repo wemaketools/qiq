@@ -18,6 +18,13 @@
  * Step 4 resolves in the GLOBAL scope (`tenantId: null`, matching :55): `global.view_any_tenant`
  * is meaningful only as a global grant. A grant scoped to tenant A must not let its holder into
  * tenant B — which is exactly what resolving it in the requested tenant's scope would allow.
+ *
+ * BECAUSE STEP 3 SHORT-CIRCUITS, `isCrossTenant` IS ENTRY MODE, NOT CAPABILITY: a caller who is a
+ * member AND holds the global grant reports `isCrossTenant: false`. That is correct for this flag's
+ * consumers (the cross-tenant audit row and the export gate — a member reading their own tenant is
+ * not a cross-tenant act), but it means capability checks must NOT be built on it. The admin
+ * surface resolves the grant separately (`adminActorFrom`, rbac/admin-routes-support.ts); checking
+ * the grant here for members instead would cost a grant-graph load on every tenant-scoped request.
  */
 import { createEffectiveAccess } from '../../domains/rbac/effective-permissions.js';
 import type { GrantGraphLoader } from '../../domains/rbac/repository.js';

@@ -61,31 +61,110 @@ function isCartesianViewBox(box: NonNullable<LabelProps['viewBox']>): box is Ext
   return 'x' in box;
 }
 
+interface LabelRect {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+function intersects(a: LabelRect, b: LabelRect): boolean {
+  return a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+}
+
+const LABEL_FONT_SIZE = 11;
+/** One rendered line of LABEL_FONT_SIZE text, ascent to descent. */
+const LABEL_HEIGHT = 12;
+/** Estimated advance per character at LABEL_FONT_SIZE — labels are measured, not wrapped. */
+const AVG_CHAR_WIDTH = 6.2;
+/** Keep-out band above the bottom edge where the x-axis ticks live. */
+const X_AXIS_BAND = 35;
+const EDGE_PAD = 2;
+
 /**
- * Single-line broker-name label renderer for the scatter's `LabelList`. The default label wraps each
- * word onto its own line (Recharts feeds the bubble's width to its text layout) and clips at the plot
- * top for 100%-conversion points, so this draws one line above the bubble, flips below it when the
- * bubble hugs the top edge, staggers neighbors by index parity, and end/start-anchors near the sides.
+ * Collision-aware, SELECTIVE broker-name labels for the scatter's `LabelList`.
+ *
+ * The previous renderer labeled every point independently (stagger by index parity, flip below at
+ * the top edge) — with clustered brokers the labels overwrote each other and clipped at the plot
+ * top. This one lays labels out greedily with shared state: each label tries above, below, right,
+ * then left of its bubble, takes the first spot that stays on the canvas (clear of the x-axis
+ * band) and does not intersect an already-placed label, and is DROPPED entirely when no spot is
+ * free. A dropped label loses nothing: the hover tooltip and the Broker Performance table below
+ * the chart name every broker.
+ *
+ * Placement accumulates in the closure for one render pass (the factory runs per component
+ * render, so the map starts empty each pass); rects are keyed by point index so a re-invocation
+ * for the same label replaces its own entry instead of colliding with it.
  */
-function makeBrokerLabelRenderer(canvasWidth: number) {
+function makeBrokerLabelRenderer(canvasWidth: number, canvasHeight: number) {
+  const placedByIndex = new Map<number, LabelRect>();
+
   return function renderBrokerLabel(props: LabelProps) {
     const box = props.viewBox;
     if (!box || !isCartesianViewBox(box) || box.x == null || box.y == null) {
       return null;
     }
+    const index = props.index ?? -1;
+    const label = String(props.value ?? '');
+    if (label.length === 0) {
+      return null;
+    }
+
     const boxWidth = box.width ?? 0;
     const boxHeight = box.height ?? 0;
     const cx = box.x + boxWidth / 2;
-    const stagger = ((props.index ?? 0) % 2) * 13;
-    const aboveBaseline = box.y - 7 - stagger;
-    const clipsTop = aboveBaseline - 11 < 0;
-    const y = clipsTop ? box.y + boxHeight + 14 + stagger : aboveBaseline;
-    const anchor = cx > canvasWidth - 70 ? 'end' : cx < 70 ? 'start' : 'middle';
-    return (
-      <text x={cx} y={y} textAnchor={anchor} fill="var(--qiq-text-secondary)" fontSize={11}>
-        {props.value}
-      </text>
-    );
+    const cy = box.y + boxHeight / 2;
+    const textWidth = label.length * AVG_CHAR_WIDTH;
+    const half = textWidth / 2;
+    // Middle-anchored candidates slide inward so the text itself never leaves the canvas.
+    const clampedCx = Math.min(Math.max(cx, half + EDGE_PAD), canvasWidth - half - EDGE_PAD);
+
+    const candidates: ReadonlyArray<{ x: number; y: number; anchor: 'middle' | 'start' | 'end' }> = [
+      { x: clampedCx, y: box.y - 6, anchor: 'middle' },
+      { x: clampedCx, y: box.y + boxHeight + LABEL_HEIGHT, anchor: 'middle' },
+      { x: box.x + boxWidth + 5, y: cy + 4, anchor: 'start' },
+      { x: box.x - 5, y: cy + 4, anchor: 'end' },
+    ];
+
+    for (const candidate of candidates) {
+      const x1 =
+        candidate.anchor === 'middle'
+          ? candidate.x - half
+          : candidate.anchor === 'start'
+            ? candidate.x
+            : candidate.x - textWidth;
+      const rect: LabelRect = { x1, x2: x1 + textWidth, y1: candidate.y - LABEL_HEIGHT, y2: candidate.y };
+
+      const onCanvas =
+        rect.x1 >= EDGE_PAD &&
+        rect.x2 <= canvasWidth - EDGE_PAD &&
+        rect.y1 >= EDGE_PAD &&
+        rect.y2 <= canvasHeight - X_AXIS_BAND;
+      if (!onCanvas) {
+        continue;
+      }
+
+      let collides = false;
+      for (const [otherIndex, other] of placedByIndex) {
+        if (otherIndex !== index && intersects(rect, other)) {
+          collides = true;
+          break;
+        }
+      }
+      if (collides) {
+        continue;
+      }
+
+      placedByIndex.set(index, rect);
+      return (
+        <text x={candidate.x} y={candidate.y} textAnchor={candidate.anchor} fill="var(--qiq-text-secondary)" fontSize={LABEL_FONT_SIZE}>
+          {label}
+        </text>
+      );
+    }
+
+    placedByIndex.delete(index);
+    return null;
   };
 }
 
@@ -102,8 +181,10 @@ interface BrokerMatrixScatterProps {
 /**
  * Broker Performance Matrix (spec FR-57, PRD 15.1/15.3, T-034): a Recharts scatter with x = quote
  * volume, y = conversion rate, bubble size = won premium, and each point colored by the SERVER-classified
- * quadrant (no client re-derivation). Every bubble is direct-labeled with its broker name (identity is
- * never color-alone), and hovering names the broker plus its quadrant via `MatrixTooltipContent`. The
+ * quadrant (no client re-derivation). Bubbles are SELECTIVELY direct-labeled with their broker names —
+ * `makeBrokerLabelRenderer` drops any label it cannot place without a collision, and hovering names
+ * every broker plus its quadrant via `MatrixTooltipContent` (the table below the chart is the complete
+ * textual view). The
  * four-quadrant background shading AND the legend both consume the single shared `quadrantPalette`
  * constant (`QUADRANTS`/`quadrantColor`) — the one source of truth imported unchanged by the RM
  * Performance matrix (T-035). Uses Recharts directly (the approved chart lib) rather than the generic
@@ -141,8 +222,8 @@ function BrokerMatrixScatter({ matrix, currencyCode, onDrillBroker, width = 460,
               onDrillBroker(point.brokerId, point.drillWidgetKey);
             }}
           >
-            {/* Direct broker-name labels in text ink (identity comes from the label, color from the quadrant). */}
-            <LabelList dataKey="brokerName" content={makeBrokerLabelRenderer(width)} />
+            {/* Selective broker-name labels in text ink; colliding labels drop (tooltip + table name everyone). */}
+            <LabelList dataKey="brokerName" content={makeBrokerLabelRenderer(width, height)} />
             {points.map((point) => (
               <Cell key={point.brokerId} fill={quadrantColor(point.quadrant)} />
             ))}

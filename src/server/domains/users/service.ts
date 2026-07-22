@@ -467,6 +467,9 @@ export async function updateUser(
 ): Promise<UserDto> {
   const user = await requireVisibleUser(deps.db, userId, actor);
   const existingTenantIds = await userTenantIds(deps.db, userId);
+  const existingRoleAssignments = await userRoleAssignments(deps.db, userId);
+  const existingPermissionAssignments = await userPermissionAssignments(deps.db, userId);
+  const existingGroupIds = await userGroupIds(deps.db, userId);
 
   /*
    * F-027: a non-cross-tenant caller's `tenantIds` is restricted (below) to the ambient tenant, so
@@ -484,28 +487,60 @@ export async function updateUser(
         ]),
       ];
 
+  /*
+   * F-027 EXTENDED TO ASSIGNMENTS: the replaces below are full delete-and-insert, so a
+   * non-cross-tenant caller submitting only what they can see would silently strip every other
+   * scope's rows — and resubmitting those rows themselves would trip the escalation ceiling they
+   * cannot hold in a foreign tenant. Their payload therefore expresses intent for the AMBIENT
+   * tenant only: assignments scoped to any other tenant AND global-scope (tenant_id null)
+   * role/permission rows are carried over untouched. Global GROUPS stay caller-managed — a
+   * membership is scope-less, the group is visible in the caller's own picker, and
+   * `assertGroupsAssignable` ceiling-checks it on submit.
+   */
+  const preservedRoleAssignments = actor.isCrossTenant
+    ? []
+    : existingRoleAssignments.filter((assignment) => assignment.tenantId !== actor.tenantId);
+  const preservedPermissionAssignments = actor.isCrossTenant
+    ? []
+    : existingPermissionAssignments.filter((assignment) => assignment.tenantId !== actor.tenantId);
+  const preservedGroupIds: number[] = [];
+  if (!actor.isCrossTenant) {
+    for (const groupId of existingGroupIds) {
+      const group = await findGroup(deps.db, groupId);
+      if (group !== undefined && group.tenantId !== null && group.tenantId !== actor.tenantId) {
+        preservedGroupIds.push(groupId);
+      }
+    }
+  }
+
   // Self-lockout: a self-edit may change profile fields but never the caller's own assignments.
   // PUT is full-replace, so a self-edit dropping `users.edit` is irreversible by the caller.
-  // Compared as sets, so resubmitting current state (how the UI saves a name change) passes.
+  // Compared as FINAL sets (submitted + preserved), so resubmitting current state — or, for a
+  // tenant-scoped caller, resubmitting just their own tenant's slice of it — passes.
   if (userId === actor.userId) {
-    const currentRoleIds = new Set(
-      (await userRoleAssignments(deps.db, userId)).map((assignment) => assignment.roleId),
-    );
+    const currentRoleIds = new Set(existingRoleAssignments.map((assignment) => assignment.roleId));
     const currentPermissionCodes = new Set(
-      (await userPermissionAssignments(deps.db, userId)).map(
-        (assignment) => assignment.permissionCode,
-      ),
+      existingPermissionAssignments.map((assignment) => assignment.permissionCode),
     );
-    const currentGroupIds = new Set(await userGroupIds(deps.db, userId));
+    const currentGroupIds = new Set(existingGroupIds);
 
     const changed =
       !sameSet(new Set(finalTenantIds), new Set(existingTenantIds)) ||
-      !sameSet(new Set(input.roleAssignments.map((a) => a.roleId)), currentRoleIds) ||
       !sameSet(
-        new Set(input.permissionAssignments.map((a) => a.permissionCode)),
+        new Set([
+          ...input.roleAssignments.map((a) => a.roleId),
+          ...preservedRoleAssignments.map((a) => a.roleId),
+        ]),
+        currentRoleIds,
+      ) ||
+      !sameSet(
+        new Set([
+          ...input.permissionAssignments.map((a) => a.permissionCode),
+          ...preservedPermissionAssignments.map((a) => a.permissionCode),
+        ]),
         currentPermissionCodes,
       ) ||
-      !sameSet(new Set(input.groupIds), currentGroupIds);
+      !sameSet(new Set([...input.groupIds, ...preservedGroupIds]), currentGroupIds);
 
     if (changed) throw userCannotChangeOwnAccessError();
   }
@@ -576,6 +611,12 @@ export async function updateUser(
 
   await assertGroupsAssignable(deps.db, input.groupIds, input.tenantIds, actor);
 
+  // The written (and audited) state is the validated submission PLUS the preserved foreign-scope
+  // rows — mirroring exactly what `finalTenantIds` already does for memberships.
+  const finalRoleAssignments = [...roleAssignments, ...preservedRoleAssignments];
+  const finalPermissionAssignments = [...permissionAssignments, ...preservedPermissionAssignments];
+  const finalGroupIds = [...new Set([...input.groupIds, ...preservedGroupIds])];
+
   return await withTransaction(deps.db, async (trx) => {
     const updated = await updateUserProfile(trx, userId, {
       firstName: input.firstName,
@@ -584,9 +625,9 @@ export async function updateUser(
     });
 
     await replaceTenantAssignments(trx, userId, finalTenantIds, actor.userId);
-    await replaceRoleAssignments(trx, userId, roleAssignments, actor.userId);
-    await replacePermissionAssignments(trx, userId, permissionAssignments, actor.userId);
-    await replaceGroupMemberships(trx, userId, input.groupIds, actor.userId);
+    await replaceRoleAssignments(trx, userId, finalRoleAssignments, actor.userId);
+    await replacePermissionAssignments(trx, userId, finalPermissionAssignments, actor.userId);
+    await replaceGroupMemberships(trx, userId, finalGroupIds, actor.userId);
 
     await writeAudit(trx, {
       entityType: 'user',
@@ -603,15 +644,15 @@ export async function updateUser(
         firstName: updated.firstName,
         lastName: updated.lastName,
         tenantIds: finalTenantIds,
-        roleAssignments: roleAssignments.map((assignment) => ({
+        roleAssignments: finalRoleAssignments.map((assignment) => ({
           roleId: assignment.roleId,
           tenantId: assignment.tenantId,
         })),
-        permissionAssignments: permissionAssignments.map((assignment) => ({
+        permissionAssignments: finalPermissionAssignments.map((assignment) => ({
           permissionCode: assignment.permissionCode,
           tenantId: assignment.tenantId,
         })),
-        groupIds: [...input.groupIds],
+        groupIds: finalGroupIds,
       },
       ...(actor.correlationId === undefined
         ? {}

@@ -38,6 +38,30 @@ describe('SendQuoteDialog', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('render_WhenQuoteAlreadyHasValidUntil_ShouldPrefillTheField', () => {
+    // Arrange & Act: a valid-until entered at Draft must carry into the Send dialog rather than
+    // forcing the user to retype it (regression, 2026-07-22).
+    const onConfirm = vi.fn();
+    render(
+      <SendQuoteDialog
+        open
+        quoteRef="Q-2026-0001"
+        partyName="Acme"
+        quotedPremium={500000}
+        defaultValidUntil="2026-11-15"
+        currencySymbol="BWP"
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    // Assert: pre-filled, and confirm goes through with it untouched (only follow-up added).
+    expect(screen.getByLabelText('Valid until *')).toHaveValue('2026-11-15');
+    fireEvent.change(screen.getByLabelText('Next follow-up date *'), { target: { value: '2026-08-01' } });
+    fireEvent.click(screen.getByTestId('dialog-primary-button'));
+    expect(onConfirm).toHaveBeenCalledWith(expect.any(String), '2026-11-15', '2026-08-01');
+  });
+
   it('click_WhenValidUntilAndNextFollowUpProvided_ShouldCallOnConfirm', () => {
     // Arrange
     const onConfirm = vi.fn();

@@ -506,6 +506,43 @@ describeStack(title, () => {
     expect(rows).toEqual([]);
   });
 
+  it('keeps a member entry non-cross-tenant even when the member also holds the global grant', async () => {
+    // ENTRY MODE vs CAPABILITY (context.ts, rbac/admin-routes-support.ts): this flag drives the
+    // cross-tenant audit row and the cross-tenant export gate, and a member working inside their
+    // own tenant is doing neither — whatever else they hold. The capability side — an Internal
+    // admin who is ALSO a member keeps their cross-tenant assignment ceiling — is pinned in
+    // users.test.ts.
+    const memberGrantTenant = await createTenant('member-grant', 'active');
+    const memberWithGrant = await auth.createTestUserWithSession({ label: 'tenant-member-grant' });
+    const local = new RbacFixtures((sql, params) => auth.query(sql, params ?? []));
+    try {
+      await addMembership(appUserId(memberWithGrant), memberGrantTenant);
+      await local.grantDirectPermission(
+        appUserId(memberWithGrant),
+        'global.view_any_tenant',
+        null,
+      );
+
+      const response = await get(harness().app, SCOPED_ROUTE, {
+        token: memberWithGrant.accessToken,
+        tenantId: memberGrantTenant,
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        tenantId: String(memberGrantTenant),
+        isCrossTenant: false,
+      });
+
+      const rows = await findAuditRows((sql, params) => auth.query(sql, params ?? []), {
+        action: CROSS_TENANT_ACCESS_ACTION,
+        entityId: String(memberGrantTenant),
+      });
+      expect(rows).toEqual([]);
+    } finally {
+      await local.cleanup();
+    }
+  });
+
   it('does not let a global grant other than view_any_tenant cross tenants', async () => {
     // plainUser holds global.manage_templates — a real global grant, just not this one.
     const response = await get(harness().app, SCOPED_ROUTE, {

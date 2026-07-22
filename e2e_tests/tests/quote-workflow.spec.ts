@@ -72,8 +72,9 @@ test.fixme(
     await page.getByTestId('new-quote-button').click();
     const newQuoteModal = page.getByTestId('new-quote-modal');
     await expect(newQuoteModal).toBeVisible();
-    await expect(newQuoteModal.getByTestId('new-quote-ref-placeholder')).toHaveValue('assigned on save');
-    await expect(newQuoteModal.getByTestId('new-quote-version-placeholder')).toHaveValue('1');
+    // Ref and version are system-assigned and deliberately not shown pre-save.
+    await expect(newQuoteModal.getByTestId('new-quote-ref-placeholder')).toHaveCount(0);
+    await expect(newQuoteModal.getByTestId('new-quote-version-placeholder')).toHaveCount(0);
     await newQuoteModal.locator("input[name='quotedPremium']").fill('500,000');
     await newQuoteModal.getByTestId('dialog-primary-button').click();
     await expect(page.getByTestId('toast-success')).toBeVisible();
@@ -144,7 +145,7 @@ test.fixme(
     await page.getByTestId('new-quote-button').click();
     const modal = page.getByTestId('new-quote-modal');
     await expect(modal).toBeVisible();
-    await expect(modal.getByTestId('new-quote-ref-placeholder')).toHaveValue('assigned on save');
+    await expect(modal.getByTestId('new-quote-ref-placeholder')).toHaveCount(0);
     await expect(modal.locator("select[name='productLineId']")).not.toHaveValue('');
     await expect(modal.locator("select[name='coverTypeId']")).toBeEnabled();
 

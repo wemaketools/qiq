@@ -54,20 +54,20 @@ export function roleRoutes(deps: RolesDeps): Hono<ApiEnv> {
   const routes = new Hono<ApiEnv>();
 
   routes.get('/roles', requirePermission('roles.view'), async (c) =>
-    c.json(await listRolesForCaller(deps, adminActorFrom(c))),
+    c.json(await listRolesForCaller(deps, await adminActorFrom(c))),
   );
 
   routes.get('/roles/:id', requirePermission('roles.view'), async (c) =>
-    c.json(await getRole(deps, numericIdOf(c, 'id'), adminActorFrom(c))),
+    c.json(await getRole(deps, numericIdOf(c, 'id'), await adminActorFrom(c))),
   );
 
   routes.get('/roles/:id/usage', requirePermission('roles.view'), async (c) =>
-    c.json(await getRoleUsage(deps, numericIdOf(c, 'id'), adminActorFrom(c))),
+    c.json(await getRoleUsage(deps, numericIdOf(c, 'id'), await adminActorFrom(c))),
   );
 
   routes.post('/roles', requirePermission('roles.manage'), async (c) => {
     const input = parseOr422(createRoleSchema, await readJsonBody(c), roleValidationError);
-    const created = await createRole(deps, input, adminActorFrom(c));
+    const created = await createRole(deps, input, await adminActorFrom(c));
 
     c.header('Location', `/api/v1/roles/${created.id}`);
     return c.json(created, 201);
@@ -76,7 +76,7 @@ export function roleRoutes(deps: RolesDeps): Hono<ApiEnv> {
   routes.put('/roles/:id', requirePermission('roles.manage'), async (c) => {
     const roleId = numericIdOf(c, 'id');
     const input = parseOr422(updateRoleSchema, await readJsonBody(c), roleValidationError);
-    return c.json(await updateRole(deps, roleId, input, adminActorFrom(c)));
+    return c.json(await updateRole(deps, roleId, input, await adminActorFrom(c)));
   });
 
   routes.post('/roles/:id/disable', requirePermission('roles.manage'), async (c) => {
@@ -88,7 +88,7 @@ export function roleRoutes(deps: RolesDeps): Hono<ApiEnv> {
       await readJsonBody(c, { optional: true }),
       roleValidationError,
     );
-    await disableRole(deps, roleId, input.force, adminActorFrom(c));
+    await disableRole(deps, roleId, input.force, await adminActorFrom(c));
     return c.body(null, 200);
   });
 

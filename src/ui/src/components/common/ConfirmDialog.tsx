@@ -18,6 +18,8 @@ interface ConfirmDialogProps {
    * collapse to a zero-size (and therefore "hidden") box.
    */
   testId?: string;
+  /** `lg` widens the dialog (`.qiq-dialog--lg`, 760px) for forms that lay fields out in columns. */
+  size?: 'md' | 'lg';
 }
 
 /**
@@ -37,6 +39,7 @@ function ConfirmDialog({
   onCancel,
   children,
   testId = 'confirm-dialog',
+  size = 'md',
 }: ConfirmDialogProps) {
   if (!open) {
     return null;
@@ -44,7 +47,12 @@ function ConfirmDialog({
 
   return (
     <div role="presentation" data-testid={testId} className="qiq-scrim">
-      <div role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title" className="qiq-dialog">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-dialog-title"
+        className={size === 'lg' ? 'qiq-dialog qiq-dialog--lg' : 'qiq-dialog'}
+      >
         <div className="qiq-dialog-header">
           <h2 id="confirm-dialog-title" data-testid="workflow-dialog-title">
             {title}

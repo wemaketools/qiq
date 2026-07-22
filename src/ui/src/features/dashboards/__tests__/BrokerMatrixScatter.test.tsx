@@ -15,13 +15,40 @@ const MATRIX: BrokerMatrixDto = {
 };
 
 describe('BrokerMatrixScatter', () => {
-  it('render_WhenPointsProvided_ShouldDirectLabelEveryBrokerName', () => {
+  it('render_WhenPointsSpreadOut_ShouldDirectLabelEveryBrokerName', () => {
     render(<BrokerMatrixScatter matrix={MATRIX} currencyCode="BWP" onDrillBroker={vi.fn()} />);
 
     const matrix = within(screen.getByTestId('broker-matrix'));
     expect(matrix.getByText('Alpha Brokers')).toBeInTheDocument();
     expect(matrix.getByText('Beta Brokers')).toBeInTheDocument();
     expect(matrix.getByText('Gamma Brokers')).toBeInTheDocument();
+  });
+
+  it('render_WhenPointsCluster_ShouldDropLabelsThatCannotBePlacedWithoutOverlap', () => {
+    // Five brokers on the exact same coordinates exhaust the four candidate positions
+    // (above/below/right/left) — the greedy layout must render at most four labels and DROP the
+    // rest instead of painting text over text (the unreadable-matrix regression, docs/broker-fix.png).
+    const clustered = {
+      ...MATRIX,
+      points: ['One', 'Two', 'Three', 'Four', 'Five'].map((name, index) => ({
+        brokerId: index + 1,
+        brokerName: `Cluster ${name}`,
+        quoteVolume: 4,
+        conversionRate: 0.5,
+        wonPremium: 100_000,
+        quadrant: 'high-low' as const,
+        drillWidgetKey: 'broker.quotes',
+      })),
+    };
+
+    render(<BrokerMatrixScatter matrix={clustered} currencyCode="BWP" onDrillBroker={vi.fn()} />);
+
+    const matrix = within(screen.getByTestId('broker-matrix'));
+    const rendered = ['One', 'Two', 'Three', 'Four', 'Five'].filter(
+      (name) => matrix.queryByText(`Cluster ${name}`) !== null,
+    );
+    expect(rendered.length).toBeGreaterThan(0);
+    expect(rendered.length).toBeLessThan(5);
   });
 
   it('render_WhenTooltipActive_ShouldNameBrokerWithQuadrantAndMetrics', () => {

@@ -121,21 +121,25 @@ export async function purgeDemoLayer(client: pg.PoolClient | pg.Client, tenantId
     await client.query(`delete from ${table} where tenant_id in (${tenantList})`);
   }
 
-  // Global demo rows, children first.
-  const globalChildrenFirst = [
-    'group_permissions',
-    'group_roles',
-    'group_members',
-    'user_permissions',
-    'user_roles',
-    'role_permissions',
-    'user_groups',
-    'roles',
-    'job_run',
-    'users',
+  // Global demo rows, children first. Junction rows are matched by the DEMO ENTITIES they
+  // reference, not only by their own id: rows written through the app at runtime (a user created
+  // in the User Manager and handed a demo role, a demo user added to a group, …) carry ordinary
+  // sequence ids below DEMO_ID_BASE, and matching on id alone leaves them behind to fail the
+  // demo roles/groups/users deletes below with a foreign-key violation (observed 2026-07-22).
+  const globalChildrenFirst: ReadonlyArray<readonly [table: string, predicate: string]> = [
+    ['group_permissions', `id >= ${DEMO_ID_BASE} or group_id >= ${DEMO_ID_BASE}`],
+    ['group_roles', `id >= ${DEMO_ID_BASE} or group_id >= ${DEMO_ID_BASE} or role_id >= ${DEMO_ID_BASE}`],
+    ['group_members', `id >= ${DEMO_ID_BASE} or group_id >= ${DEMO_ID_BASE} or user_id >= ${DEMO_ID_BASE}`],
+    ['user_permissions', `id >= ${DEMO_ID_BASE} or user_id >= ${DEMO_ID_BASE}`],
+    ['user_roles', `id >= ${DEMO_ID_BASE} or role_id >= ${DEMO_ID_BASE} or user_id >= ${DEMO_ID_BASE}`],
+    ['role_permissions', `id >= ${DEMO_ID_BASE} or role_id >= ${DEMO_ID_BASE}`],
+    ['user_groups', `id >= ${DEMO_ID_BASE}`],
+    ['roles', `id >= ${DEMO_ID_BASE}`],
+    ['job_run', `id >= ${DEMO_ID_BASE}`],
+    ['users', `id >= ${DEMO_ID_BASE}`],
   ];
-  for (const table of globalChildrenFirst) {
-    await client.query(`delete from ${table} where id >= ${DEMO_ID_BASE}`);
+  for (const [table, predicate] of globalChildrenFirst) {
+    await client.query(`delete from ${table} where ${predicate}`);
   }
 }
 

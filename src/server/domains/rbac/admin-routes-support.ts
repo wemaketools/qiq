@@ -10,6 +10,7 @@ import { NO_ACTIVE_USER_MESSAGE } from '../../lib/auth/middleware.js';
 import { AppError, InternalError, NotFoundError, UnauthorizedError } from '../../lib/errors/index.js';
 import type { FieldError } from '../../lib/errors/index.js';
 import type { ApiEnv } from '../../lib/router/env.js';
+import { CROSS_TENANT_PERMISSION } from '../../lib/tenancy/index.js';
 import { toFieldErrors } from '../../lib/validation/index.js';
 import type { AdminActor } from './admin-context.js';
 
@@ -26,8 +27,19 @@ import type { ZodType } from 'zod';
  * silently evaluating every escalation ceiling against an empty permission set — which would make
  * `callerHoldsInAllScopes` deny everything, but would make `isWriteAccessible` deny global writes
  * for the wrong reason and is not a state this code should ever run in.
+ *
+ * `isCrossTenant` here is CAPABILITY, not entry mode. `validateTenantAccess` (lib/tenancy/access.ts)
+ * short-circuits on membership without ever consulting `global.view_any_tenant`, so an Internal
+ * admin who is ALSO a member of the ambient tenant arrives with `tenant.isCrossTenant: false` —
+ * and holding a membership must not LOWER what their global grant permits (an internal admin
+ * could not assign a second tenant to a new user precisely because they belonged to the first).
+ * The grant is therefore resolved here, in the global scope exactly as access.ts step 4 does,
+ * via the per-request memoized resolver. `TenantContext.isCrossTenant` keeps its entry-mode
+ * meaning for the consumers that genuinely ask "did this caller reach a foreign tenant?" — the
+ * cross-tenant audit row (tenancy/middleware.ts) and the cross-tenant export gate
+ * (exports/service.ts).
  */
-export function adminActorFrom(c: Context<ApiEnv>): AdminActor {
+export async function adminActorFrom(c: Context<ApiEnv>): Promise<AdminActor> {
   const auth = c.get('auth');
   if (auth === undefined) throw new UnauthorizedError(NO_ACTIVE_USER_MESSAGE);
 
@@ -41,10 +53,14 @@ export function adminActorFrom(c: Context<ApiEnv>): AdminActor {
   const tenant = c.get('tenant');
   const correlationId = c.get('correlationId');
 
+  const isCrossTenant =
+    tenant?.isCrossTenant === true ||
+    (await resolveAccess(null)).has(CROSS_TENANT_PERMISSION);
+
   return {
     userId: Number(auth.userId),
     tenantId: tenant === undefined ? null : Number(tenant.tenantId),
-    isCrossTenant: tenant?.isCrossTenant ?? false,
+    isCrossTenant,
     resolveAccess,
     ...(correlationId === undefined ? {} : { correlationId }),
   };

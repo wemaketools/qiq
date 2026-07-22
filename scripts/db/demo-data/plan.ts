@@ -464,26 +464,8 @@ export function buildDemoPlan(inputs: PlanInputs): DemoPlan {
     uwSlotIdByTenant.set(tenant.index, uwId);
   }
 
-  // --- Reference sequences (so tenant-scoped ref generation has a starting point) ---
-  const year = now.getUTCFullYear();
-  for (const tenant of TENANTS) {
-    plan.referenceSequences.push(
-      {
-        id: tenantEntityId(tenant.index, ENTITY_OFFSET.referenceSequence, 0),
-        tenant_id: tenant.id,
-        entity_type: 'lead',
-        year,
-        next_value: TENANT_VOLUMES[tenant.index - 1]?.leads ?? 0,
-      },
-      {
-        id: tenantEntityId(tenant.index, ENTITY_OFFSET.referenceSequence, 1),
-        tenant_id: tenant.id,
-        entity_type: 'quote',
-        year,
-        next_value: 600,
-      },
-    );
-  }
+  // Reference sequences are planted AFTER the business data below, derived from the refs actually
+  // used — see the end of this function.
 
   // --- Reference items per tenant ---
   const tenantRefs = new Map<number, TenantRefs>();
@@ -565,6 +547,38 @@ export function buildDemoPlan(inputs: PlanInputs): DemoPlan {
       ownerPool,
       uwPool,
     });
+  }
+
+  // --- Reference sequences: continue AFTER the highest planted ref, never after a volume count ---
+  //
+  // `next_value` must equal the LARGEST sequence number any planted ref uses, because the app's
+  // allocator hands out `next_value + 1` (lead-ref.ts). Deriving it from a volume constant is how
+  // this broke before (2026-07-22): alert-fixture leads number PAST the bulk lead count and quote
+  // refs start at 600, so the low-seeded counters made the first POST /leads re-mint an
+  // already-taken reference — a unique violation surfacing as a 500.
+  const year = now.getUTCFullYear();
+  const trailingNumber = (ref: string): number => Number(ref.slice(ref.lastIndexOf('-') + 1));
+  const maxRefFor = (tenantId: number, refs: readonly { tenant: number; ref: string }[]): number =>
+    refs.reduce((max, row) => (row.tenant === tenantId ? Math.max(max, trailingNumber(row.ref)) : max), 0);
+  const leadRefs = plan.leads.map((lead) => ({ tenant: lead.tenant_id, ref: lead.lead_ref }));
+  const quoteRefs = plan.quotes.map((quote) => ({ tenant: quote.tenant_id, ref: quote.quote_ref }));
+  for (const tenant of TENANTS) {
+    plan.referenceSequences.push(
+      {
+        id: tenantEntityId(tenant.index, ENTITY_OFFSET.referenceSequence, 0),
+        tenant_id: tenant.id,
+        entity_type: 'lead',
+        year,
+        next_value: maxRefFor(tenant.id, leadRefs),
+      },
+      {
+        id: tenantEntityId(tenant.index, ENTITY_OFFSET.referenceSequence, 1),
+        tenant_id: tenant.id,
+        entity_type: 'quote',
+        year,
+        next_value: maxRefFor(tenant.id, quoteRefs),
+      },
+    );
   }
 
   // --- Sample job runs (AC-085 "sample job runs") ---

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAppSelector } from '../../app/hooks';
-import { selectHasPermission } from '../../app/slices/sessionSlice';
+import { selectHasPermission, selectSession } from '../../app/slices/sessionSlice';
 import { PermissionCodes } from '../../auth/permissions';
 import type { NormalizedError } from '../../api/client';
 import { fetchBusinessAssignments, updateBusinessAssignments, type BusinessAssignmentsDto } from './settingsApi';
@@ -20,6 +20,7 @@ import { useToast } from '../../components/common/Toast';
 function BusinessAssignmentsTab() {
   const { showSuccess, showError } = useToast();
   const canManage = useAppSelector(selectHasPermission(PermissionCodes.BusinessAssignmentsManage));
+  const activeTenantId = useAppSelector(selectSession).activeTenantId;
 
   const [allRoles, setAllRoles] = useState<RoleDto[]>([]);
   const [rmRoleId, setRmRoleId] = useState<number | null>(null);
@@ -39,7 +40,9 @@ function BusinessAssignmentsTab() {
     setLoadError(null);
     Promise.all([fetchBusinessAssignments(), listRoles()])
       .then(([assignments, roles]) => {
-        setAllRoles(roles);
+        // Cross-tenant callers get EVERY tenant's roles from /roles; the two slots configure THIS
+        // tenant, and the server refuses a foreign tenant's role — offer only what can be saved.
+        setAllRoles(roles.filter((role) => role.tenantId === null || role.tenantId === activeTenantId));
         applyLoaded(assignments);
       })
       .catch((err: unknown) => setLoadError((err as NormalizedError).title ?? 'Unable to load business assignments.'))

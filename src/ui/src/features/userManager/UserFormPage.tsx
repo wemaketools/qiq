@@ -2,50 +2,50 @@ import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
-import { selectActiveTenant, selectHasPermission, selectSession } from '../../app/slices/sessionSlice';
-import { PermissionCodes } from '../../auth/permissions';
+import { selectActiveTenant, selectSession } from '../../app/slices/sessionSlice';
 import type { NormalizedError } from '../../api/client';
 import { createUser } from './usersApi';
 import { listRoles, type RoleDto } from './rolesApi';
 import { listGroups, type GroupDto } from './groupsApi';
-import { groupPermissionsByCategory, formatPermissionCategory, PERMISSION_CATALOG } from './permissionCatalog';
+import PermissionPicker from './PermissionPicker';
 import { useToast } from '../../components/common/Toast';
 import ErrorBanner from '../../components/common/ErrorBanner';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function selectedOptionValues(event: { target: HTMLSelectElement }): string[] {
-  return Array.from(event.target.selectedOptions).map((option) => option.value);
-}
-
 /**
  * New User form (spec FR-13/FR-16, PRD 20.1.1, AC-012, verification.json V-012/V-013). Route
- * `/admin/users/new`: first/last/email plus tenant/role/group/direct-permission assignment
- * (`POST /users`, T-007 `CreateUserCommand`). Mirrors the backend's FR-16 rule as a UX affordance
- * only (>=1 tenant required unless the caller holds `global.view_any_tenant`, in which case a
- * zero-tenant Internal-style user is permitted) — the server (`UserErrors.RequiresTenant`) is the
- * sole authority.
+ * `/admin/users/new`: first/last/email plus role/group/direct-permission assignment
+ * (`POST /users`, T-007 `CreateUserCommand`).
+ *
+ * CREATE IS ACTIVE-TENANT-ONLY (2026-07-21 decision): the new user is silently assigned to the
+ * caller's ACTIVE tenant — there is no tenant field — and the role/group dropdowns offer only that
+ * tenant's rows plus global ones (suffixed "(Global)"), because the flat create contract grants
+ * every pick in the created user's tenant. Exactly one role and one group can be picked here, and
+ * at least ONE of the two is required — the common case is a single role; anything richer
+ * (multi-tenant membership, several roles, per-tenant assignments) is managed on the user's detail
+ * page, which speaks the per-assignment update contract.
  */
 function UserFormPage() {
   const navigate = useNavigate();
   const { showSuccess } = useToast();
-  const canCreateGlobalUser = useAppSelector(selectHasPermission(PermissionCodes.GlobalViewAnyTenant));
   const activeTenant = useAppSelector(selectActiveTenant);
   const session = useAppSelector(selectSession);
-  const grantableCodes = activeTenant?.permissions ?? [];
+  // Grant-no-higher-than-self affordance for the permission checkboxes; the caller's global set
+  // covers the (Internal) case of acting without a membership. Server remains authoritative.
+  const grantableCodes = activeTenant?.permissions ?? session.globalPermissions;
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [tenantIds, setTenantIds] = useState<number[]>(activeTenant ? [activeTenant.tenantId] : []);
-  const [roleIds, setRoleIds] = useState<number[]>([]);
-  const [groupIds, setGroupIds] = useState<number[]>([]);
+  const [roleId, setRoleId] = useState('');
+  const [groupId, setGroupId] = useState('');
   const [directPermissions, setDirectPermissions] = useState<string[]>([]);
 
   const [roles, setRoles] = useState<RoleDto[]>([]);
   const [groups, setGroups] = useState<GroupDto[]>([]);
 
-  const [fieldErrors, setFieldErrors] = useState<{ firstName?: string; lastName?: string; email?: string; tenantIds?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ firstName?: string; lastName?: string; email?: string; access?: string }>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -53,6 +53,16 @@ function UserFormPage() {
     listRoles().then(setRoles).catch(() => setRoles([]));
     listGroups().then(setGroups).catch(() => setGroups([]));
   }, []);
+
+  // Only the active tenant's rows (plus global ones) are assignable here — offering another
+  // tenant's roles would only produce a server-side USER_ROLE_TENANT_MISMATCH.
+  const activeTenantId = activeTenant?.tenantId ?? null;
+  const assignableRoles = roles.filter(
+    (role) => role.tenantId === null || role.tenantId === activeTenantId,
+  );
+  const assignableGroups = groups.filter(
+    (group) => group.tenantId === null || group.tenantId === activeTenantId,
+  );
 
   function validate(): typeof fieldErrors {
     const errors: typeof fieldErrors = {};
@@ -67,8 +77,8 @@ function UserFormPage() {
     } else if (!EMAIL_PATTERN.test(email.trim())) {
       errors.email = 'Enter a valid email address.';
     }
-    if (tenantIds.length === 0 && !canCreateGlobalUser) {
-      errors.tenantIds = 'Select at least one tenant.';
+    if (roleId === '' && groupId === '') {
+      errors.access = 'Select a role or a group.';
     }
     return errors;
   }
@@ -89,10 +99,10 @@ function UserFormPage() {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
-        tenantIds,
-        directRoleIds: roleIds,
+        tenantIds: activeTenantId === null ? [] : [activeTenantId],
+        directRoleIds: roleId === '' ? [] : [Number(roleId)],
         directPermissions,
-        groupIds,
+        groupIds: groupId === '' ? [] : [Number(groupId)],
       });
       showSuccess(`User ${result.email} created`);
       navigate(`/admin/users/${result.userId}`);
@@ -101,6 +111,10 @@ function UserFormPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function scopedName(name: string, tenantId: number | null): string {
+    return tenantId === null ? `${name} (Global)` : name;
   }
 
   return (
@@ -152,36 +166,25 @@ function UserFormPage() {
 
             <h3 className="qiq-form-section-title">Access</h3>
 
-            <div className="qiq-field">
-              <label htmlFor="user-tenant">Tenant</label>
-              <select
-                id="user-tenant"
-                multiple
-                value={tenantIds.map(String)}
-                aria-invalid={fieldErrors.tenantIds ? true : undefined}
-                onChange={(event) => setTenantIds(selectedOptionValues(event).map(Number))}
-              >
-                {session.memberships.map((membership) => (
-                  <option key={membership.tenantId} value={membership.tenantId}>
-                    {membership.tenantName}
-                  </option>
-                ))}
-              </select>
-              {fieldErrors.tenantIds && <p data-testid="field-error" className="qiq-field-error">{fieldErrors.tenantIds}</p>}
-              <p className="qiq-field-hint">Hold Ctrl (Cmd on Mac) to select more than one.</p>
-            </div>
+            {activeTenant && (
+              <p className="qiq-field-hint qiq-form-full" style={{ margin: 0 }}>
+                This user is created in {activeTenant.tenantName}; access below is granted there.
+                Additional tenants can be assigned from the user&apos;s detail page after creation.
+              </p>
+            )}
 
             <div className="qiq-field">
               <label htmlFor="user-role">Role</label>
               <select
                 id="user-role"
-                multiple
-                value={roleIds.map(String)}
-                onChange={(event) => setRoleIds(selectedOptionValues(event).map(Number))}
+                value={roleId}
+                aria-invalid={fieldErrors.access ? true : undefined}
+                onChange={(event) => setRoleId(event.target.value)}
               >
-                {roles.map((role) => (
+                <option value="">Select a role…</option>
+                {assignableRoles.map((role) => (
                   <option key={role.id} value={role.id}>
-                    {role.name}
+                    {scopedName(role.name, role.tenantId)}
                   </option>
                 ))}
               </select>
@@ -191,36 +194,32 @@ function UserFormPage() {
               <label htmlFor="user-group">Group</label>
               <select
                 id="user-group"
-                multiple
-                value={groupIds.map(String)}
-                onChange={(event) => setGroupIds(selectedOptionValues(event).map(Number))}
+                value={groupId}
+                aria-invalid={fieldErrors.access ? true : undefined}
+                onChange={(event) => setGroupId(event.target.value)}
               >
-                {groups.map((group) => (
+                <option value="">Select a group…</option>
+                {assignableGroups.map((group) => (
                   <option key={group.id} value={group.id}>
-                    {group.name}
+                    {scopedName(group.name, group.tenantId)}
                   </option>
                 ))}
               </select>
             </div>
 
-            <div className="qiq-field">
-              <label htmlFor="user-direct-permission">Direct permission</label>
-              <select
-                id="user-direct-permission"
-                multiple
-                value={directPermissions}
-                onChange={(event) => setDirectPermissions(selectedOptionValues(event))}
-              >
-                {groupPermissionsByCategory(PERMISSION_CATALOG).map(({ category, entries }) => (
-                  <optgroup key={category} label={formatPermissionCategory(category)}>
-                    {entries.map((entry) => (
-                      <option key={entry.code} value={entry.code} disabled={!grantableCodes.includes(entry.code)}>
-                        {entry.description}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+            {fieldErrors.access && (
+              <p data-testid="field-error" className="qiq-field-error qiq-form-full" style={{ margin: 0 }}>
+                {fieldErrors.access}
+              </p>
+            )}
+
+            <div className="qiq-field qiq-form-full">
+              <label>Direct permissions</label>
+              <PermissionPicker
+                selected={directPermissions}
+                onChange={setDirectPermissions}
+                grantableCodes={grantableCodes}
+              />
               <p className="qiq-field-hint">Permissions you do not hold yourself cannot be granted.</p>
             </div>
           </div>

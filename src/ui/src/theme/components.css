@@ -1111,6 +1111,22 @@ th[aria-sort='descending'] .qiq-sort-arrow {
   border-top: 1px solid var(--qiq-border-subtle);
 }
 
+/* Two-column field grid for wider (`--lg`) workflow dialogs. Full-width children (textareas)
+   opt in via .qiq-dialog-grid-full; collapses where the dialog itself is squeezed narrow. */
+.qiq-dialog-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: var(--qiq-space-5);
+}
+.qiq-dialog-grid .qiq-dialog-grid-full {
+  grid-column: 1 / -1;
+}
+@media (max-width: 640px) {
+  .qiq-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Field flow inside workflow dialogs (spec FR-41's shared dialog anatomy): the feature dialogs
    render flat label/control/error runs as dialog children — styled here once, not per-dialog.
    `:where()` keeps specificity at the bare-element level so `.qiq-field` internals still win. */
@@ -1168,35 +1184,52 @@ th[aria-sort='descending'] .qiq-sort-arrow {
   color: var(--qiq-success);
 }
 
+/* Toasts stack top-CENTER (UI standards §14.1): success is unmistakably green, errors red —
+   tinted surface, colored border and text — rather than a subtle accent stripe. */
 .qiq-toasts {
   position: fixed;
   top: var(--qiq-space-5);
-  right: var(--qiq-space-5);
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 90;
   display: flex;
   flex-direction: column;
   gap: var(--qiq-space-2);
-  align-items: flex-end;
+  align-items: center;
+  max-width: min(560px, calc(100vw - 2 * var(--qiq-space-5)));
 }
 .qiq-toast {
   background: var(--qiq-surface-raised);
   color: var(--qiq-text-primary);
   border: 1px solid var(--qiq-border-subtle);
-  border-left: 3px solid var(--qiq-accent);
-  padding: var(--qiq-space-3) var(--qiq-space-4);
+  padding: var(--qiq-space-3) var(--qiq-space-5);
   border-radius: 11px;
-  font-size: 13px;
-  font-weight: 550;
+  font-size: 14px;
+  font-weight: 600;
   box-shadow: var(--qiq-shadow-raised);
   display: flex;
   align-items: center;
   gap: var(--qiq-space-3);
 }
+.qiq-toast::before {
+  font-weight: 700;
+  flex: none;
+}
 .qiq-toast--success {
-  border-left-color: var(--qiq-success);
+  background: var(--qiq-success-soft);
+  border-color: var(--qiq-success);
+  color: var(--qiq-success);
+}
+.qiq-toast--success::before {
+  content: '✓';
 }
 .qiq-toast--error {
-  border-left-color: var(--qiq-danger);
+  background: var(--qiq-danger-soft);
+  border-color: var(--qiq-danger);
+  color: var(--qiq-danger);
+}
+.qiq-toast--error::before {
+  content: '!';
 }
 
 .qiq-skeleton {

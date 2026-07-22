@@ -275,7 +275,7 @@ The product speaks in plain business language: specific, calm, and actionable. I
 
 ### 14.1 Toasts
 
-- Transient confirmation of an action; auto-dismiss ~4s; dismissible; stack top-right; announced to assistive tech.
+- Transient confirmation of an action; auto-dismiss ~4s; dismissible; stack top-center; announced to assistive tech. Success toasts render green (`--qiq-success` text on `--qiq-success-soft`), error toasts red (`--qiq-danger` on `--qiq-danger-soft`).
 - Success example: `Lead L-2026-0421 created`. Include the identifier so the user can confirm the result.
 - Use for success and low-severity info; do **not** use toasts for validation errors (those are inline) or for anything requiring a decision.
 

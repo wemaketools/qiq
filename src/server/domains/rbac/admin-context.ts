@@ -49,7 +49,13 @@ export interface AdminActor {
   readonly userId: number;
   /** The VERIFIED ambient tenant, or null on a route with no tenant context. */
   readonly tenantId: number | null;
-  /** True when the tenant middleware admitted the caller via `global.view_any_tenant` (T-013). */
+  /**
+   * True when the caller HOLDS the Internal cross-tenant capability — `global.view_any_tenant` as
+   * a GLOBAL grant — whether or not they are also a member of the ambient tenant. NOT the same as
+   * `TenantContext.isCrossTenant`, which records how the caller ENTERED the tenant and stays false
+   * for a member; `adminActorFrom` resolves the grant itself so a membership cannot lower what the
+   * grant permits.
+   */
   readonly isCrossTenant: boolean;
   /** The per-request effective-permission resolver installed by `permissionResolution()`. */
   readonly resolveAccess: EffectiveAccessResolver;

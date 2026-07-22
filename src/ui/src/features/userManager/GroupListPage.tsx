@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
-import { selectHasPermission } from '../../app/slices/sessionSlice';
+import { selectHasPermission, selectSession } from '../../app/slices/sessionSlice';
 import { PermissionCodes } from '../../auth/permissions';
 import type { NormalizedError } from '../../api/client';
 import { disableGroup, listGroups, type GroupDto } from './groupsApi';
@@ -13,13 +13,9 @@ import EmptyState from '../../components/common/EmptyState';
 import ErrorBanner from '../../components/common/ErrorBanner';
 import { useToast } from '../../components/common/Toast';
 import UserManagerNav from './UserManagerNav';
+import { scopeLabel } from './scopeLabel';
 
-type GroupSortField = 'name' | 'status';
-
-const GROUP_SORT_ACCESSORS: SortAccessors<GroupDto, GroupSortField> = {
-  name: (group) => group.name,
-  status: (group) => (group.isActive ? 'Active' : 'Disabled'),
-};
+type GroupSortField = 'name' | 'scope' | 'status';
 
 /**
  * Group Manager list screen (spec FR-12/FR-13, AC-012, verification.json V-013), sibling to
@@ -29,9 +25,20 @@ function GroupListPage() {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
   const canManage = useAppSelector(selectHasPermission(PermissionCodes.GroupsManage));
+  const memberships = useAppSelector(selectSession).memberships;
 
   const [groups, setGroups] = useState<GroupDto[]>([]);
-  const { sorted: sortedGroups, sort, toggle: toggleSort } = useClientSort(groups, GROUP_SORT_ACCESSORS, {
+  // Scope column mirrors RoleListPage: cross-tenant callers see several tenants' groups at once,
+  // and same-named groups need their tenant name to be told apart (scopeLabel.ts).
+  const sortAccessors = useMemo<SortAccessors<GroupDto, GroupSortField>>(
+    () => ({
+      name: (group) => group.name,
+      scope: (group) => scopeLabel(group.tenantId, memberships),
+      status: (group) => (group.isActive ? 'Active' : 'Disabled'),
+    }),
+    [memberships],
+  );
+  const { sorted: sortedGroups, sort, toggle: toggleSort } = useClientSort(groups, sortAccessors, {
     field: 'name',
     direction: 'asc',
   });
@@ -75,7 +82,7 @@ function GroupListPage() {
 
       {error && <ErrorBanner message={error} onRetry={load} />}
 
-      {!error && loading && <SkeletonTable rows={5} columns={3} />}
+      {!error && loading && <SkeletonTable rows={5} columns={4} />}
 
       {!error && !loading && groups.length === 0 && (
         <EmptyState
@@ -96,6 +103,7 @@ function GroupListPage() {
           <thead>
             <tr>
               <SortableTh field="name" label="Name" sort={sort} onSort={toggleSort} />
+              <SortableTh field="scope" label="Scope" sort={sort} onSort={toggleSort} />
               <SortableTh field="status" label="Status" sort={sort} onSort={toggleSort} />
               <th>Actions</th>
             </tr>
@@ -108,6 +116,7 @@ function GroupListPage() {
                     {group.name}
                   </Link>
                 </td>
+                <td>{scopeLabel(group.tenantId, memberships)}</td>
                 <td>
                   <StatusChip label={group.isActive ? 'Active' : 'Disabled'} category={group.isActive ? 'won' : 'expired'} />
                 </td>

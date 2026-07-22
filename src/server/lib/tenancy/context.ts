@@ -28,8 +28,12 @@ export interface TenantContext {
   /** Verified — the caller is a member, or holds the Internal cross-tenant grant. */
   readonly tenantId: TenantId;
   /**
-   * True when access was granted by `global.view_any_tenant` rather than by membership. The
-   * middleware writes an audit row for exactly these requests (AC-020, spec §13).
+   * True when access was granted by `global.view_any_tenant` rather than by membership — this is
+   * ENTRY MODE, not capability. The middleware writes an audit row for exactly these requests
+   * (AC-020, spec §13), and the cross-tenant export gate keys on it (AC-084). A caller who holds
+   * the grant AND a membership enters with `false`; code that needs "does the caller hold the
+   * cross-tenant capability?" must resolve `global.view_any_tenant` in the global scope instead,
+   * as `adminActorFrom` (rbac/admin-routes-support.ts) does.
    */
   readonly isCrossTenant: boolean;
 }

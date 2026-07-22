@@ -106,6 +106,8 @@ describeStack(title, () => {
   let inviterOnly: TestUserSession;
   /** Internal: global `view_any_tenant`, so it may create zero-tenant users. */
   let internal: TestUserSession;
+  /** Internal capability AND a tenant-A membership — membership must not lower the global grant. */
+  let internalMember: TestUserSession;
   /** A tenant-B-only user, used as the by-id cross-tenant probe target. */
   let tenantBUser: TestUserSession;
 
@@ -320,6 +322,21 @@ describeStack(title, () => {
     for (const code of ['global.view_any_tenant', 'users.view', 'users.invite'] as const) {
       await fixtures.grantDirectPermission(appUserId(internal), code, null);
     }
+
+    // The same global grants PLUS a tenant-A membership — the regression persona for the
+    // membership-masks-capability bug (see adminActorFrom, rbac/admin-routes-support.ts).
+    internalMember = await auth.createTestUserWithSession({ label: 'um-internal-member' });
+    await addMembership(appUserId(internalMember), tenantA);
+    for (const code of [
+      'global.view_any_tenant',
+      'users.view',
+      'users.invite',
+      'users.edit',
+      'users.assign_tenant',
+      'users.grant_direct_permission',
+    ] as const) {
+      await fixtures.grantDirectPermission(appUserId(internalMember), code, null);
+    }
   }, 180_000);
 
   afterAll(async () => {
@@ -422,6 +439,115 @@ describeStack(title, () => {
       tenantId: tenantB,
     });
     expect(allowed.status).toBe(200);
+  });
+
+  // --------------------------------------- cross-tenant assignment capability (regression)
+
+  it('lets an Internal admin who is ALSO a member of the ambient tenant assign multiple tenants', async () => {
+    // Regression: `validateTenantAccess` short-circuits on membership with `isCrossTenant: false`,
+    // which used to mask the caller's `global.view_any_tenant` grant — the assignment ceiling then
+    // refused every tenant but the ambient one with USER_TENANT_NOT_ALLOWED. Holding a membership
+    // must not lower what the global grant permits.
+    const email = uniqueEmail('internal-member');
+    const created = await createUserViaApi(
+      { firstName: 'Multi', lastName: 'Tenant', email, tenantIds: [tenantA, tenantB] },
+      { token: internalMember.accessToken, tenantId: tenantA },
+    );
+
+    const memberships = await query<{ tenant_id: string }>(
+      'select tenant_id::text as tenant_id from user_tenants where user_id = $1',
+      [created.userId],
+    );
+    expect(memberships.map((row) => Number(row.tenant_id)).sort((a, b) => a - b)).toEqual(
+      [tenantA, tenantB].sort((a, b) => a - b),
+    );
+  });
+
+  it('still refuses a tenant-scoped admin assigning a foreign tenant, identified by id only', async () => {
+    const response = await call('POST', '/api/v1/users', {
+      token: admin.accessToken,
+      tenantId: tenantA,
+      body: {
+        firstName: 'No',
+        lastName: 'CrossTenant',
+        email: uniqueEmail('foreign-tenant'),
+        tenantIds: [tenantA, tenantB],
+      },
+    });
+
+    expect(response.status).toBe(403);
+    const problem = (await response.json()) as ProblemBody;
+    expect(problem.code).toBe('USER_TENANT_NOT_ALLOWED');
+    // The refused tenant appears as the caller's own input id, NEVER as a name — a name here would
+    // be an id→name oracle over other tenants (users/errors.ts).
+    expect(problem.detail).toBe(
+      `USER_TENANT_NOT_ALLOWED: You can only assign users to your active tenant. Assigning ` +
+        `tenant ${tenantB} requires internal cross-tenant access.`,
+    );
+  });
+
+  it('stores direct permissions per tenant, and a tenant-scoped edit preserves the other scopes', async () => {
+    // Per-tenant direct permissions (user_permissions.tenant_id) end to end, plus the F-027
+    // extension: a tenant-scoped caller's PUT expresses intent for the AMBIENT tenant only —
+    // every other scope's assignment rows and memberships survive their save untouched.
+    const email = uniqueEmail('per-tenant-perms');
+    const created = await createUserViaApi(
+      { firstName: 'Scoped', lastName: 'Perms', email, tenantIds: [tenantA, tenantB] },
+      { token: internalMember.accessToken, tenantId: tenantA },
+    );
+
+    // The Internal caller grants users.view in BOTH tenants — one row per scope.
+    const crossPut = await call('PUT', `/api/v1/users/${created.userId}`, {
+      token: internalMember.accessToken,
+      tenantId: tenantA,
+      body: {
+        firstName: 'Scoped',
+        lastName: 'Perms',
+        tenantIds: [tenantA, tenantB],
+        roleAssignments: [],
+        permissionAssignments: [
+          { permissionCode: 'users.view', tenantId: tenantA },
+          { permissionCode: 'users.view', tenantId: tenantB },
+        ],
+        groupIds: [],
+      },
+    });
+    expect(crossPut.status, `cross-tenant grant failed: ${await crossPut.clone().text()}`).toBe(200);
+
+    const scopes = async (): Promise<string[]> =>
+      (
+        await query<{ tenant_id: string }>(
+          `select tenant_id::text as tenant_id from user_permissions
+           where user_id = $1 and permission_code = 'users.view' order by tenant_id`,
+          [created.userId],
+        )
+      ).map((row) => row.tenant_id);
+    expect(await scopes()).toEqual([tenantA, tenantB].sort((a, b) => a - b).map(String));
+
+    // Tenant-A admin saves ONLY their tenant's slice (what the scoped UI submits): drops the
+    // tenant-A grant, says nothing about tenant B. Tenant B's row and membership must survive.
+    const scopedPut = await call('PUT', `/api/v1/users/${created.userId}`, {
+      token: admin.accessToken,
+      tenantId: tenantA,
+      body: {
+        firstName: 'Scoped',
+        lastName: 'Perms',
+        tenantIds: [tenantA],
+        roleAssignments: [],
+        permissionAssignments: [],
+        groupIds: [],
+      },
+    });
+    expect(scopedPut.status, `scoped edit failed: ${await scopedPut.clone().text()}`).toBe(200);
+
+    expect(await scopes()).toEqual([String(tenantB)]);
+    const memberships = await query<{ tenant_id: string }>(
+      'select tenant_id::text as tenant_id from user_tenants where user_id = $1 order by tenant_id',
+      [created.userId],
+    );
+    expect(memberships.map((row) => Number(row.tenant_id)).sort((a, b) => a - b)).toEqual(
+      [tenantA, tenantB].sort((a, b) => a - b),
+    );
   });
 
   // ------------------------------------------------------------------ creation (AC-029/AC-031)

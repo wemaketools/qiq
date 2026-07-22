@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
-import { selectActiveTenant, selectHasPermission } from '../../app/slices/sessionSlice';
+import { selectActiveTenant, selectHasPermission, selectSession } from '../../app/slices/sessionSlice';
 import { PermissionCodes } from '../../auth/permissions';
 import type { NormalizedError } from '../../api/client';
 import {
@@ -21,6 +21,7 @@ import { useToast } from '../../components/common/Toast';
 import ErrorBanner from '../../components/common/ErrorBanner';
 import PermissionPicker from './PermissionPicker';
 import UserManagerNav from './UserManagerNav';
+import { scopeLabel } from './scopeLabel';
 
 /**
  * Add/Edit group screen (spec FR-12/FR-13, AC-012/AC-013, verification.json V-013). Route
@@ -36,6 +37,7 @@ function GroupDetailPage() {
 
   const canManage = useAppSelector(selectHasPermission(PermissionCodes.GroupsManage));
   const activeTenant = useAppSelector(selectActiveTenant);
+  const memberships = useAppSelector(selectSession).memberships;
   const grantableCodes = activeTenant?.permissions ?? [];
 
   const [name, setName] = useState('');
@@ -283,7 +285,7 @@ function GroupDetailPage() {
                     onChange={(event) => toggleRole(role.id, event.target.checked)}
                   />
                   {' '}
-                  {role.name}
+                  {role.name} — {scopeLabel(role.tenantId, memberships)}
                 </label>
               ))}
             </div>

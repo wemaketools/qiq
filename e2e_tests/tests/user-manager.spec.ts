@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { loginAs, E2E_PASSWORD, gotoAndExpectForbidden, setUserPasswordByEmail } from '../helpers/auth';
-import { DEMO_TENANT_NAME } from '../helpers/personas';
 
 /**
  * User Manager (spec §12.2, FR-13/FR-14/FR-16, PRD 20.1.1, AC-012/AC-013, T-007/T-015,
@@ -66,14 +65,15 @@ test.describe('user manager (V-012/V-013)', () => {
     await page.getByTestId('user-manager-nav-users').click();
     await expect(page.getByTestId('user-list')).toBeVisible();
 
+    // The form has no tenant field: the new user lands in the caller's ACTIVE tenant. A group
+    // satisfies the role-or-group requirement; direct permissions are checkboxes labeled by code.
     const userEmail = `e2e-access-${runId}@quoteiq.test`;
     await page.getByRole('button', { name: '+ New User' }).first().click();
     const form = page.getByTestId('user-form');
     await form.getByLabel('First name').fill('Access');
     await form.getByLabel('Last name').fill('Demo');
     await form.getByLabel('Email').fill(userEmail);
-    await form.getByLabel('Tenant').selectOption({ label: DEMO_TENANT_NAME });
-    await form.getByLabel('Direct permission').selectOption({ value: 'parties.view' });
+    await form.getByLabel('parties.view', { exact: true }).check();
     await form.getByLabel('Group').selectOption({ label: groupName });
     await page.getByRole('button', { name: 'Save' }).click();
 

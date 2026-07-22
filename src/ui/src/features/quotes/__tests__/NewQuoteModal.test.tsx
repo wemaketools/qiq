@@ -38,9 +38,10 @@ describe('NewQuoteModal', () => {
       />,
     );
 
-    // Assert
-    expect(screen.getByTestId('new-quote-ref-placeholder')).toHaveValue('assigned on save');
-    expect(screen.getByTestId('new-quote-version-placeholder')).toHaveValue('1');
+    // Assert: no ref/version placeholders — the system-assigned values only show on the saved quote.
+    expect(screen.getByTestId('workflow-dialog-title')).toHaveTextContent('New Quote');
+    expect(screen.queryByTestId('new-quote-ref-placeholder')).toBeNull();
+    expect(screen.queryByTestId('new-quote-version-placeholder')).toBeNull();
     expect(screen.getByLabelText('Product line')).toHaveValue('1');
     expect(screen.getByLabelText('Cover type')).toHaveValue('10');
   });

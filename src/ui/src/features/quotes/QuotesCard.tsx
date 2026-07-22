@@ -506,6 +506,7 @@ const QuotesCard = forwardRef<QuotesCardHandle, QuotesCardProps>(function Quotes
         quoteRef={dialogQuoteItem?.quoteRef ?? ''}
         partyName={lead.partyName}
         quotedPremium={dialogQuoteItem?.currentQuotedPremium ?? null}
+        defaultValidUntil={dialogQuoteItem?.validUntil ?? null}
         currencySymbol={currencySymbol}
         busy={dialogBusy}
         error={dialogError}

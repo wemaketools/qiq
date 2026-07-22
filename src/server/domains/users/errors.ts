@@ -101,9 +101,16 @@ export function userPermissionNotFoundError(code: string): AppError {
   return unprocessable('USER_PERMISSION_NOT_FOUND', `Permission '${code}' is not in the catalog.`);
 }
 
+/**
+ * Identifies the refused tenant by ID, never by name, on purpose: this error only fires for a
+ * caller who may NOT reach that tenant, so echoing its name would hand any tenant admin an
+ * id→name oracle over every other tenant. The id is the caller's own input. Internal admins
+ * (cross-tenant capability) never see this error.
+ */
 export function userTenantNotAllowedError(tenantId: number): ForbiddenError {
   return new ForbiddenError(
-    `Caller is not permitted to assign tenant ${tenantId} without cross-tenant access.`,
+    `You can only assign users to your active tenant. Assigning tenant ${tenantId} requires ` +
+      `internal cross-tenant access.`,
     { code: 'USER_TENANT_NOT_ALLOWED' },
   );
 }

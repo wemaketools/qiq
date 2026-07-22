@@ -7,6 +7,8 @@ interface SendQuoteDialogProps {
   quoteRef: string;
   partyName: string;
   quotedPremium: number | null;
+  /** The quote's stored valid-until (set at Draft), pre-filling the required field below. */
+  defaultValidUntil?: string | null;
   currencySymbol: string;
   busy?: boolean;
   error?: string | null;
@@ -22,9 +24,11 @@ function today(): string {
  * Send quote (spec FR-38/FR-46, PRD 10.4, T-029): sent date defaults today, valid-until and the
  * lead's next follow-up date are BOTH required (`SendQuoteValidator`'s exact server-side rule —
  * mirrored here for UX only, the server remains authoritative), quoted premium shown read-only for
- * confirmation. Legal only from Draft; the lead's status chip becomes Quote Sent on the first send.
+ * confirmation. Valid-until pre-fills from the value stored on the quote at Draft — it stays
+ * editable, and is only truly required here because a DRAFT may legally lack one. Legal only from
+ * Draft; the lead's status chip becomes Quote Sent on the first send.
  */
-function SendQuoteDialog({ open, quoteRef, partyName, quotedPremium, currencySymbol, busy, error, onConfirm, onCancel }: SendQuoteDialogProps) {
+function SendQuoteDialog({ open, quoteRef, partyName, quotedPremium, defaultValidUntil, currencySymbol, busy, error, onConfirm, onCancel }: SendQuoteDialogProps) {
   const [sentDate, setSentDate] = useState(today());
   const [validUntil, setValidUntil] = useState('');
   const [nextFollowUpDate, setNextFollowUpDate] = useState('');
@@ -36,11 +40,11 @@ function SendQuoteDialog({ open, quoteRef, partyName, quotedPremium, currencySym
       return;
     }
     setSentDate(today());
-    setValidUntil('');
+    setValidUntil(defaultValidUntil ?? '');
     setNextFollowUpDate('');
     setValidUntilError(null);
     setNextFollowUpError(null);
-  }, [open, quoteRef]);
+  }, [open, quoteRef, defaultValidUntil]);
 
   if (!open) {
     return null;

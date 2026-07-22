@@ -55,16 +55,16 @@ export function groupRoutes(deps: GroupsDeps): Hono<ApiEnv> {
   const routes = new Hono<ApiEnv>();
 
   routes.get('/groups', requirePermission('groups.view'), async (c) =>
-    c.json(await listGroupsForCaller(deps, adminActorFrom(c))),
+    c.json(await listGroupsForCaller(deps, await adminActorFrom(c))),
   );
 
   routes.get('/groups/:id', requirePermission('groups.view'), async (c) =>
-    c.json(await getGroup(deps, numericIdOf(c, 'id'), adminActorFrom(c))),
+    c.json(await getGroup(deps, numericIdOf(c, 'id'), await adminActorFrom(c))),
   );
 
   routes.post('/groups', requirePermission('groups.manage'), async (c) => {
     const input = parseOr422(createGroupSchema, await readJsonBody(c), groupValidationError);
-    const created = await createGroup(deps, input, adminActorFrom(c));
+    const created = await createGroup(deps, input, await adminActorFrom(c));
 
     c.header('Location', `/api/v1/groups/${created.id}`);
     return c.json(created, 201);
@@ -73,18 +73,18 @@ export function groupRoutes(deps: GroupsDeps): Hono<ApiEnv> {
   routes.put('/groups/:id', requirePermission('groups.manage'), async (c) => {
     const groupId = numericIdOf(c, 'id');
     const input = parseOr422(updateGroupSchema, await readJsonBody(c), groupValidationError);
-    return c.json(await updateGroup(deps, groupId, input, adminActorFrom(c)));
+    return c.json(await updateGroup(deps, groupId, input, await adminActorFrom(c)));
   });
 
   routes.post('/groups/:id/disable', requirePermission('groups.manage'), async (c) => {
-    await disableGroup(deps, numericIdOf(c, 'id'), adminActorFrom(c));
+    await disableGroup(deps, numericIdOf(c, 'id'), await adminActorFrom(c));
     return c.body(null, 200);
   });
 
   routes.post('/groups/:id/members', requirePermission('groups.manage'), async (c) => {
     const groupId = numericIdOf(c, 'id');
     const input = parseOr422(addGroupMemberSchema, await readJsonBody(c), groupValidationError);
-    await addGroupMember(deps, groupId, input.userId, adminActorFrom(c));
+    await addGroupMember(deps, groupId, input.userId, await adminActorFrom(c));
     return c.body(null, 200);
   });
 
@@ -94,7 +94,7 @@ export function groupRoutes(deps: GroupsDeps): Hono<ApiEnv> {
     async (c) => {
       const groupId = numericIdOf(c, 'id');
       const userId = numericIdOf(c, 'userId');
-      await removeGroupMember(deps, groupId, userId, adminActorFrom(c));
+      await removeGroupMember(deps, groupId, userId, await adminActorFrom(c));
       return c.body(null, 200);
     },
   );
@@ -106,7 +106,7 @@ export function groupRoutes(deps: GroupsDeps): Hono<ApiEnv> {
       await readJsonBody(c, { optional: true }),
       groupValidationError,
     );
-    await setGroupRoles(deps, groupId, input, adminActorFrom(c));
+    await setGroupRoles(deps, groupId, input, await adminActorFrom(c));
     return c.body(null, 200);
   });
 
@@ -117,7 +117,7 @@ export function groupRoutes(deps: GroupsDeps): Hono<ApiEnv> {
       await readJsonBody(c, { optional: true }),
       groupValidationError,
     );
-    await setGroupPermissions(deps, groupId, input, adminActorFrom(c));
+    await setGroupPermissions(deps, groupId, input, await adminActorFrom(c));
     return c.body(null, 200);
   });
 

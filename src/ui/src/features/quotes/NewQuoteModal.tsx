@@ -23,13 +23,15 @@ function today(): string {
 }
 
 /**
- * New Quote (spec FR-46, PRD 7.3, T-029): ref/version are read-only system-assigned values (a real
- * ref/version is only known once `POST /leads/{id}/quotes` succeeds), product line/cover type default
- * from the lead but remain editable, quoted premium is required and must be greater than zero,
- * prepared date defaults today and cannot precede the lead's date received, valid-until is optional
- * at Draft (required only at Send, `SendQuoteDialog`'s own scope), notes, and a single "Save as
- * draft" primary action. Client-side validation is UX only — `CreateQuoteValidator`/
- * `CreateQuoteCommandHandler` remain authoritative (spec FR-46).
+ * New Quote (spec FR-46, PRD 7.3, T-029): the system-assigned values — quote ref AND version —
+ * are NOT shown here; both are only known once `POST /leads/{id}/quotes` succeeds and are visible
+ * on the saved quote (2026-07-22 decision; the old "assigned on save"/"1" placeholder fields were
+ * noise). Product line/cover type default from the lead but remain editable, quoted
+ * premium is required and must be greater than zero, prepared date defaults today and cannot
+ * precede the lead's date received, valid-until is optional at Draft (required only at Send,
+ * `SendQuoteDialog`'s own scope), notes, and a single "Save as draft" primary action. Fields lay
+ * out two-up in a wide (`size="lg"`) dialog. Client-side validation is UX only —
+ * `CreateQuoteValidator`/`CreateQuoteCommandHandler` remain authoritative (spec FR-46).
  */
 function NewQuoteModal({
   open,
@@ -107,7 +109,8 @@ function NewQuoteModal({
     <ConfirmDialog
       testId="new-quote-modal"
       open={open}
-      title="New quote"
+      size="lg"
+      title="New Quote"
       description="A draft quote will be created for this lead."
       confirmLabel="Save as draft"
       busy={busy}
@@ -120,92 +123,100 @@ function NewQuoteModal({
         </p>
       )}
 
-      <label htmlFor="new-quote-ref">Quote ref</label>
-      <input id="new-quote-ref" name="quoteRef" type="text" value="assigned on save" disabled data-testid="new-quote-ref-placeholder" />
+      <div className="qiq-dialog-grid">
+        <div>
+          <label htmlFor="new-quote-product-line">Product line</label>
+          <select
+            id="new-quote-product-line"
+            name="productLineId"
+            value={productLineId}
+            disabled={productLineOptions === null}
+            onChange={(event) => {
+              setProductLineId(event.target.value);
+              setCoverTypeId('');
+            }}
+          >
+            <option value="">Select a product line</option>
+            {(productLineOptions ?? []).map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <label htmlFor="new-quote-version">Version</label>
-      <input id="new-quote-version" name="version" type="text" value="1" disabled data-testid="new-quote-version-placeholder" />
+        <div>
+          <label htmlFor="new-quote-cover-type">Cover type</label>
+          <select
+            id="new-quote-cover-type"
+            name="coverTypeId"
+            value={coverTypeId}
+            disabled={productLineId === '' || coverTypeOptions === null}
+            onChange={(event) => setCoverTypeId(event.target.value)}
+          >
+            <option value="">Select a cover type</option>
+            {availableCoverTypes.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+        </div>
 
-      <label htmlFor="new-quote-product-line">Product line</label>
-      <select
-        id="new-quote-product-line"
-        name="productLineId"
-        value={productLineId}
-        disabled={productLineOptions === null}
-        onChange={(event) => {
-          setProductLineId(event.target.value);
-          setCoverTypeId('');
-        }}
-      >
-        <option value="">Select a product line</option>
-        {(productLineOptions ?? []).map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+        <div>
+          <label htmlFor="new-quote-prepared-date">Prepared date</label>
+          <input
+            id="new-quote-prepared-date"
+            name="preparedDate"
+            type="date"
+            value={preparedDate}
+            onChange={(event) => {
+              setPreparedDate(event.target.value);
+              if (preparedDateError) {
+                setPreparedDateError(null);
+              }
+            }}
+          />
+          {preparedDateError && (
+            <p role="alert" data-testid="field-error-prepared-date">
+              {preparedDateError}
+            </p>
+          )}
+        </div>
 
-      <label htmlFor="new-quote-cover-type">Cover type</label>
-      <select
-        id="new-quote-cover-type"
-        name="coverTypeId"
-        value={coverTypeId}
-        disabled={productLineId === '' || coverTypeOptions === null}
-        onChange={(event) => setCoverTypeId(event.target.value)}
-      >
-        <option value="">Select a cover type</option>
-        {availableCoverTypes.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
-        ))}
-      </select>
+        <div>
+          <label htmlFor="new-quote-valid-until">Valid until</label>
+          <input id="new-quote-valid-until" name="validUntil" type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} />
+        </div>
 
-      <label htmlFor="new-quote-premium">Quoted premium *</label>
-      <CurrencyInput
-        id="new-quote-premium"
-        name="quotedPremium"
-        value={quotedPremium}
-        currencySymbol={currencySymbol}
-        required
-        ariaInvalid={!!premiumError}
-        onChange={(value) => {
-          setQuotedPremium(value);
-          if (premiumError) {
-            setPremiumError(null);
-          }
-        }}
-      />
-      {premiumError && (
-        <p role="alert" data-testid="field-error-premium">
-          {premiumError}
-        </p>
-      )}
+        <div>
+          <label htmlFor="new-quote-premium">Quoted premium *</label>
+          <CurrencyInput
+            id="new-quote-premium"
+            name="quotedPremium"
+            value={quotedPremium}
+            currencySymbol={currencySymbol}
+            required
+            ariaInvalid={!!premiumError}
+            onChange={(value) => {
+              setQuotedPremium(value);
+              if (premiumError) {
+                setPremiumError(null);
+              }
+            }}
+          />
+          {premiumError && (
+            <p role="alert" data-testid="field-error-premium">
+              {premiumError}
+            </p>
+          )}
+        </div>
 
-      <label htmlFor="new-quote-prepared-date">Prepared date</label>
-      <input
-        id="new-quote-prepared-date"
-        name="preparedDate"
-        type="date"
-        value={preparedDate}
-        onChange={(event) => {
-          setPreparedDate(event.target.value);
-          if (preparedDateError) {
-            setPreparedDateError(null);
-          }
-        }}
-      />
-      {preparedDateError && (
-        <p role="alert" data-testid="field-error-prepared-date">
-          {preparedDateError}
-        </p>
-      )}
-
-      <label htmlFor="new-quote-valid-until">Valid until</label>
-      <input id="new-quote-valid-until" name="validUntil" type="date" value={validUntil} onChange={(event) => setValidUntil(event.target.value)} />
-
-      <label htmlFor="new-quote-notes">Notes</label>
-      <textarea id="new-quote-notes" name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        <div className="qiq-dialog-grid-full">
+          <label htmlFor="new-quote-notes">Notes</label>
+          <textarea id="new-quote-notes" name="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        </div>
+      </div>
     </ConfirmDialog>
   );
 }

@@ -60,20 +60,20 @@ export function userRoutes(deps: UsersDeps): Hono<ApiEnv> {
   const routes = new Hono<ApiEnv>();
 
   routes.get('/users', requirePermission('users.view'), async (c) =>
-    c.json(await listUsersForCaller(deps, adminActorFrom(c))),
+    c.json(await listUsersForCaller(deps, await adminActorFrom(c))),
   );
 
   routes.get('/users/:id', requirePermission('users.view'), async (c) =>
-    c.json(await getUser(deps, numericIdOf(c, 'id'), adminActorFrom(c))),
+    c.json(await getUser(deps, numericIdOf(c, 'id'), await adminActorFrom(c))),
   );
 
   routes.get('/users/:id/effective-access', requirePermission('users.view'), async (c) =>
-    c.json(await getEffectiveAccess(deps, numericIdOf(c, 'id'), adminActorFrom(c))),
+    c.json(await getEffectiveAccess(deps, numericIdOf(c, 'id'), await adminActorFrom(c))),
   );
 
   routes.post('/users', requirePermission('users.invite'), async (c) => {
     const input = parseOr422(createUserSchema, await readJsonBody(c), userValidationError);
-    const created = await createUser(deps, input, adminActorFrom(c));
+    const created = await createUser(deps, input, await adminActorFrom(c));
 
     c.header('Location', `/api/v1/users/${created.userId}`);
     return c.json(created, 201);
@@ -82,16 +82,16 @@ export function userRoutes(deps: UsersDeps): Hono<ApiEnv> {
   routes.put('/users/:id', requirePermission('users.edit'), async (c) => {
     const userId = numericIdOf(c, 'id');
     const input = parseOr422(updateUserSchema, await readJsonBody(c), userValidationError);
-    return c.json(await updateUser(deps, userId, input, adminActorFrom(c)));
+    return c.json(await updateUser(deps, userId, input, await adminActorFrom(c)));
   });
 
   routes.post('/users/:id/deactivate', requirePermission('users.deactivate'), async (c) => {
-    await deactivateUser(deps, numericIdOf(c, 'id'), adminActorFrom(c));
+    await deactivateUser(deps, numericIdOf(c, 'id'), await adminActorFrom(c));
     return c.body(null, 200);
   });
 
   routes.post('/users/:id/activate', requirePermission('users.deactivate'), async (c) => {
-    await activateUser(deps, numericIdOf(c, 'id'), adminActorFrom(c));
+    await activateUser(deps, numericIdOf(c, 'id'), await adminActorFrom(c));
     return c.body(null, 200);
   });
 

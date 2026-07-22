@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector } from '../../app/hooks';
-import { selectHasPermission } from '../../app/slices/sessionSlice';
+import { selectHasPermission, selectSession } from '../../app/slices/sessionSlice';
 import { PermissionCodes } from '../../auth/permissions';
 import type { NormalizedError } from '../../api/client';
 import { disableRole, getRoleUsage, listRoles, type RoleDto, type RoleUsageDto } from './rolesApi';
@@ -14,15 +14,9 @@ import ErrorBanner from '../../components/common/ErrorBanner';
 import { useToast } from '../../components/common/Toast';
 import RoleUsageDialog from './RoleUsageDialog';
 import UserManagerNav from './UserManagerNav';
+import { scopeLabel } from './scopeLabel';
 
 type RoleSortField = 'name' | 'scope' | 'permissions' | 'status';
-
-const ROLE_SORT_ACCESSORS: SortAccessors<RoleDto, RoleSortField> = {
-  name: (role) => role.name,
-  scope: (role) => (role.tenantId === null ? 'Global' : 'Tenant'),
-  permissions: (role) => role.permissionCodes.length,
-  status: (role) => (role.isActive ? 'Active' : 'Disabled'),
-};
 
 /**
  * Role Manager list screen (spec FR-12/FR-13, AC-012, verification.json V-012), sibling to
@@ -33,9 +27,21 @@ function RoleListPage() {
   const navigate = useNavigate();
   const { showSuccess, showError } = useToast();
   const canManage = useAppSelector(selectHasPermission(PermissionCodes.RolesManage));
+  const memberships = useAppSelector(selectSession).memberships;
 
   const [roles, setRoles] = useState<RoleDto[]>([]);
-  const { sorted: sortedRoles, sort, toggle: toggleSort } = useClientSort(roles, ROLE_SORT_ACCESSORS, {
+  // Scope sorts and renders by tenant NAME: cross-tenant callers see several tenants' roles at
+  // once, and a bare "Tenant" label cannot tell same-named roles apart (scopeLabel.ts).
+  const sortAccessors = useMemo<SortAccessors<RoleDto, RoleSortField>>(
+    () => ({
+      name: (role) => role.name,
+      scope: (role) => scopeLabel(role.tenantId, memberships),
+      permissions: (role) => role.permissionCodes.length,
+      status: (role) => (role.isActive ? 'Active' : 'Disabled'),
+    }),
+    [memberships],
+  );
+  const { sorted: sortedRoles, sort, toggle: toggleSort } = useClientSort(roles, sortAccessors, {
     field: 'name',
     direction: 'asc',
   });
@@ -132,7 +138,7 @@ function RoleListPage() {
             {sortedRoles.map((role) => (
               <tr key={role.id} className="qiq-row-clickable" onClick={() => navigate(`/admin/roles/${role.id}`)}>
                 <td>{role.name}</td>
-                <td>{role.tenantId === null ? 'Global' : 'Tenant'}</td>
+                <td>{scopeLabel(role.tenantId, memberships)}</td>
                 <td>{role.permissionCodes.length}</td>
                 <td>
                   <StatusChip label={role.isActive ? 'Active' : 'Disabled'} category={role.isActive ? 'won' : 'expired'} />

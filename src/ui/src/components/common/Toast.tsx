@@ -20,8 +20,9 @@ const AUTO_DISMISS_MS = 4000;
 
 /**
  * Toast provider (docs/QuoteIQ_UI_Standards.md §14.1): transient success/error confirmations,
- * auto-dismissed after ~4s, stacked top-right, announced via `aria-live`. Never used for
- * validation errors (those render inline per §10.2).
+ * auto-dismissed after ~4s, stacked top-CENTER, announced via `aria-live`. Success renders green,
+ * error red (tinted surface + colored text, components.css). Never used for validation errors
+ * (those render inline per §10.2).
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);

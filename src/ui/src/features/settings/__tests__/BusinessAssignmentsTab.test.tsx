@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import { sessionReducer, setSession } from '../../../app/slices/sessionSlice';
@@ -65,6 +65,25 @@ describe('BusinessAssignmentsTab', () => {
     const rmSelect = await screen.findByTestId('rm-role-select');
     expect(rmSelect).toHaveValue('1');
     expect(screen.getByTestId('underwriting-role-select')).toHaveValue('');
+  });
+
+  it('render_WhenRoleListSpansTenants_ShouldOfferOnlyActiveTenantAndGlobalRoles', async () => {
+    // Arrange: cross-tenant callers receive EVERY tenant's roles from /roles, but the two slots
+    // configure the ACTIVE tenant and the server refuses a foreign tenant's role — the dropdown
+    // must not offer options that can never be saved.
+    vi.mocked(listRoles).mockResolvedValue([
+      { id: 1, tenantId: 1, name: 'RM', isActive: true, permissionCodes: [] },
+      { id: 9, tenantId: 2, name: 'Foreign RM', isActive: true, permissionCodes: [] },
+      { id: 3, tenantId: null, name: 'Global RM', isActive: true, permissionCodes: [] },
+    ]);
+
+    // Act
+    renderTab(['business_assignments.manage']);
+
+    // Assert
+    const rmSelect = await screen.findByTestId('rm-role-select');
+    const optionLabels = within(rmSelect).getAllByRole('option').map((option) => option.textContent);
+    expect(optionLabels).toEqual(['Not configured', 'RM', 'Global RM']);
   });
 
   it('save_WhenBothSlotsChosen_ShouldSendSlotRoleIdsInPayload', async () => {
