@@ -5,15 +5,12 @@
   "outputDirectory": "src/ui/dist",
   "functions": {
     "api/v1/[[...segments]].ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 30
     },
     "api/cron/*.ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 60
     },
     "api/queue/*.ts": {
-      "runtime": "nodejs22.x",
       "maxDuration": 60
     }
   }
