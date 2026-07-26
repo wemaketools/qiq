@@ -109,6 +109,32 @@ jobs:
       - name: Reset database (migrations + baseline seed)
         run: npm run supabase:reset
 
+      # The suite spawns real npm scripts as subprocesses (`db:seed`, `cron:run`, `jobs:status`,
+      # `queue:worker`) to prove they actually work. Those scripts run under
+      # `tsx --env-file-if-exists=.env.local` and load the FULL typed configuration, so without
+      # this file they fail with "8 problems" while the tests around them pass — the suite's own
+      # database connection comes from probing the local stack, not from here.
+      #
+      # Not a secret: every value below belongs to the throwaway stack on this runner. The
+      # connection string is read from `supabase status` rather than hardcoded, and .env.local is
+      # git-ignored, so `scan-secrets` (which walks `git ls-files`) never sees it.
+      #
+      # APP_ENV is deliberately ABSENT: it defaults to `local`, which is what the seed's
+      # production-safety tests expect to be able to override with their own --env-file.
+      - name: Write .env.local for the scripts the suite spawns
+        run: |
+          eval "$(npx supabase status -o env | sed 's/^/export /')"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_DATABASE_URL=$DB_URL"
+            echo "SUPABASE_DIRECT_DATABASE_URL=$DB_URL"
+            echo "CRON_SECRET=ci-only-cron-secret"
+            echo "INTERNAL_JOB_SECRET=ci-only-internal-job-secret"
+            echo "API_KEY_PEPPER=ci-only-api-key-pepper-0123456789"
+          } > .env.local
+
       - name: Backend tests — unit + integration (fails on any skipped test)
         # The integration suites skip themselves when the stack is unreachable and STILL EXIT 0
         # (deliberate, so a laptop without Docker is not blocked). In CI the stack is always
