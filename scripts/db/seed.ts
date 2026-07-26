@@ -13,13 +13,13 @@
  * Usage:
  *   npm run db:seed                      seed the configured (local) database
  *   npm run db:seed -- --baseline        the same thing, stated explicitly
- *   npm run db:seed -- --env=staging     required to seed anything that is not local
+ *   npm run db:seed -- --env=dev         required to seed anything that is not local
  *
  * SAFETY (M-11: "never run automatically in production"). The target environment comes from the
  * loaded configuration, never from a flag; a non-local target additionally requires the operator
  * to name it with `--env=`. See scripts/db/seed-target.ts for the decision matrix.
  *
- * CONNECTION: DIRECT_DATABASE_URL, never DATABASE_URL. Admin/DDL-adjacent work must not go through
+ * CONNECTION: SUPABASE_DIRECT_DATABASE_URL, never SUPABASE_DATABASE_URL. Admin/DDL-adjacent work must not go through
  * the transaction pooler (A-8).
  *
  * IDEMPOTENCY: every statement in the baseline block is conflict-tolerant, so re-running converges
@@ -104,7 +104,7 @@ async function main(): Promise<void> {
     config = getConfig();
   } catch (error) {
     if (error instanceof ConfigurationError) {
-      fail(`${error.message}\n\nSeeding needs DIRECT_DATABASE_URL at minimum.`);
+      fail(`${error.message}\n\nSeeding needs SUPABASE_DIRECT_DATABASE_URL at minimum.`);
     }
     throw error;
   }
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
 
   log(`Baseline seed (permission catalog + global default reference template)`);
   log(`  target environment: ${decision.appEnv}`);
-  log(`  connection: DIRECT_DATABASE_URL (direct, not the pooler)`);
+  log(`  connection: SUPABASE_DIRECT_DATABASE_URL (direct, not the pooler)`);
 
   // Never log the connection string itself: it carries the database password.
   const client = new pg.Client({ connectionString: config.database.directUrl });

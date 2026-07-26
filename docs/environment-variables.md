@@ -45,8 +45,8 @@ environment variables.
 | `SUPABASE_URL` | Server-only | Low (project URL) | No | Vercel env / `.env.local` |
 | `SUPABASE_ANON_KEY` | Server-only | Public value | No | Vercel env / `.env.local` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only | **Secret** — bypasses RLS, drives Auth Admin API | **Yes** | Vercel env / `.env.local` |
-| `DATABASE_URL` | Server-only (Supavisor pooler, runtime) | **Secret** — contains DB password | **Yes** | Vercel env / `.env.local` |
-| `DIRECT_DATABASE_URL` | Server-only (migrations / admin) | **Secret** — contains DB password | **Yes** | Vercel env / `.env.local` |
+| `SUPABASE_DATABASE_URL` | Server-only (Supavisor pooler, runtime) | **Secret** — contains DB password | **Yes** | Vercel env / `.env.local` |
+| `SUPABASE_DIRECT_DATABASE_URL` | Server-only (migrations / admin) | **Secret** — contains DB password | **Yes** | Vercel env / `.env.local` |
 | `CRON_SECRET` | Server-only (guards `/api/cron/*`) | **Secret** | **Yes** | Vercel env / `.env.local` + `job_cron_config.cron_secret` |
 | `INTERNAL_JOB_SECRET` | Server-only (guards `/api/queue/drain`) | **Secret** | **Yes** | Vercel env / `.env.local` + `job_cron_config.internal_job_secret` |
 | `API_KEY_PEPPER` | Server-only (Q-19 intake API-key hashing, min 16 chars) | **Secret** | **Yes** | Vercel env / `.env.local` |
@@ -89,7 +89,7 @@ short-lived signed URLs issued server-side after authorization (A-7).
 - **No server-only variable may leak into the SPA bundle.** V-003 is the built-bundle scan
   `scripts/ci/scan-bundle.ts` (T-051): it runs `npm run build:ui` and then scans every emitted
   asset under `src/ui/dist` for the server variable names (`SUPABASE_SERVICE_ROLE_KEY`,
-  `DATABASE_URL`, `DIRECT_DATABASE_URL`, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `API_KEY_PEPPER`),
+  `SUPABASE_DATABASE_URL`, `SUPABASE_DIRECT_DATABASE_URL`, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `API_KEY_PEPPER`),
   for the `service_role` / `sb_secret_` literals, for `src/server/` module path fragments, and —
   when the server secret values are present in the scan environment — for those concrete values.
   It scans the compiled ARTIFACT, not the source, so a secret pulled into the bundle by a
@@ -100,7 +100,7 @@ short-lived signed URLs issued server-side after authorization (A-7).
   a dedicated fast-feedback step in `.github/workflows/ci.yml`).
 - **The example files carry placeholders only.** `.env.example` and `.env.local.example` are
   guarded by `src/server/tests/integration/env-examples.test.ts`, which rejects any JWT-shaped
-  string or any `postgres://user:pass@` connection string with an inline credential. In addition,
+  string or any `postgres://user:<password>@` connection string with an inline credential. In addition,
   V-114's repo-wide scan `scripts/ci/scan-secrets.ts` (T-051) walks every TRACKED file for
   real-looking credentials (three-segment JWTs, `sb_secret_` keys, PEM private-key blocks,
   inline-credential postgres URLs, and high-entropy values assigned to secret-named variables) and

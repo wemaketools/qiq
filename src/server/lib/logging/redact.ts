@@ -78,7 +78,7 @@ const VALUE_PATTERNS: readonly Replacement[] = [
   [/\beyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+){0,2}/g, () => REDACTED],
   // Current-generation Supabase API keys.
   [/\bsb_(?:secret|publishable)_[A-Za-z0-9_-]{6,}/g, () => REDACTED],
-  // Credentials embedded in any URL, e.g. DATABASE_URL. The host stays readable.
+  // Credentials embedded in any URL, e.g. SUPABASE_DATABASE_URL. The host stays readable.
   [
     /\b([a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s/:@]+):[^\s/@]+@/g,
     (_m, prefix: string) => `${prefix}:${REDACTED}@`,

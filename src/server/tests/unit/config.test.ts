@@ -15,8 +15,8 @@ function validEnv(): Record<string, string> {
     NODE_ENV: 'test',
     APP_ENV: 'preview',
     LOG_LEVEL: 'debug',
-    DATABASE_URL: 'postgresql://postgres:pooler-pass@db.example.supabase.co:6543/postgres',
-    DIRECT_DATABASE_URL: 'postgresql://postgres:direct-pass@db.example.supabase.co:5432/postgres',
+    SUPABASE_DATABASE_URL: 'postgresql://postgres:pooler-pass@db.example.supabase.co:6543/postgres',
+    SUPABASE_DIRECT_DATABASE_URL: 'postgresql://postgres:direct-pass@db.example.supabase.co:5432/postgres',
     SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
     SUPABASE_ANON_KEY: 'anon-key-value-for-tests',
     SUPABASE_SERVICE_ROLE_KEY: 'service-role-key-value-for-tests',
@@ -128,20 +128,20 @@ describe('loadConfig — fail fast on missing variables', () => {
 
   it('reports every problem at once rather than only the first', () => {
     const env: Record<string, string | undefined> = validEnv();
-    delete env.DATABASE_URL;
+    delete env.SUPABASE_DATABASE_URL;
     delete env.CRON_SECRET;
     delete env.SUPABASE_URL;
 
     const error = expectConfigError(env);
 
     expect(error.variables).toEqual(
-      expect.arrayContaining(['DATABASE_URL', 'CRON_SECRET', 'SUPABASE_URL']),
+      expect.arrayContaining(['SUPABASE_DATABASE_URL', 'CRON_SECRET', 'SUPABASE_URL']),
     );
     expect(error.message).toContain('3 problem');
   });
 
   it('produces an actionable message pointing at the env files', () => {
-    const error = expectConfigError(envWithout('DATABASE_URL'));
+    const error = expectConfigError(envWithout('SUPABASE_DATABASE_URL'));
 
     expect(error.message).toContain('.env.local');
     expect(error.message).toContain('.env.example');
@@ -162,9 +162,9 @@ describe('loadConfig — fail fast on missing variables', () => {
 
 describe('loadConfig — fail fast on malformed variables', () => {
   it.each([
-    ['DATABASE_URL', 'not-a-connection-string'],
-    ['DATABASE_URL', 'https://db.example.com/postgres'],
-    ['DIRECT_DATABASE_URL', 'mysql://user:pass@host:3306/db'],
+    ['SUPABASE_DATABASE_URL', 'not-a-connection-string'],
+    ['SUPABASE_DATABASE_URL', 'https://db.example.com/postgres'],
+    ['SUPABASE_DIRECT_DATABASE_URL', 'mysql://user:pass@host:3306/db'],
   ])('rejects %s when it is not a postgres connection string (%s)', (name, value) => {
     const env = validEnv();
     env[name] = value;
@@ -220,7 +220,7 @@ describe('loadConfig — fail fast on malformed variables', () => {
 
   it('accepts a postgres:// scheme as well as postgresql://', () => {
     const env = validEnv();
-    env.DATABASE_URL = 'postgres://postgres:pw@127.0.0.1:54322/postgres';
+    env.SUPABASE_DATABASE_URL = 'postgres://postgres:pw@127.0.0.1:54322/postgres';
 
     expect(loadConfig(env).database.url).toBe('postgres://postgres:pw@127.0.0.1:54322/postgres');
   });
@@ -284,7 +284,7 @@ describe('getConfig — process-level accessor', () => {
 
   it('tryGetConfig returns null on an invalid environment instead of throwing', () => {
     stubValidEnv();
-    vi.stubEnv('DATABASE_URL', '');
+    vi.stubEnv('SUPABASE_DATABASE_URL', '');
     resetConfigCache();
 
     expect(tryGetConfig()).toBeNull();

@@ -3,7 +3,7 @@
  *
  * CONNECTION SAFETY — WHY THIS FILE LOOKS THE WAY IT DOES
  * =======================================================
- * Runtime traffic goes through Supabase's Supavisor pooler in TRANSACTION mode (`DATABASE_URL`,
+ * Runtime traffic goes through Supabase's Supavisor pooler in TRANSACTION mode (`SUPABASE_DATABASE_URL`,
  * port 6543). Transaction pooling assigns a server backend for the duration of a TRANSACTION, not
  * a connection, and hands it to someone else afterwards. Three consequences drive everything here:
  *
@@ -33,7 +33,7 @@
  *     `pg_cancel_backend(pid)` issued over a second connection; under transaction pooling that pid
  *     may by then belong to another client's transaction, so cancelling is actively unsafe.
  *
- * Migrations and admin scripts use `directPoolConfig` against `DIRECT_DATABASE_URL` (port 5432),
+ * Migrations and admin scripts use `directPoolConfig` against `SUPABASE_DIRECT_DATABASE_URL` (port 5432),
  * where a real session exists and none of the above applies.
  */
 import pg from 'pg';

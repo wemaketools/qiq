@@ -536,7 +536,7 @@ CREATE TABLE IF NOT EXISTS "public"."job_run" (
     "counts" "jsonb",
     CONSTRAINT "ck_job_run_attempt_positive" CHECK (("attempt" >= 1)),
     CONSTRAINT "ck_job_run_duration_non_negative" CHECK ((("duration_ms" IS NULL) OR ("duration_ms" >= 0))),
-    CONSTRAINT "ck_job_run_environment" CHECK (("environment" = ANY (ARRAY['local'::"text", 'preview'::"text", 'staging'::"text", 'production'::"text"]))),
+    CONSTRAINT "ck_job_run_environment" CHECK (("environment" = ANY (ARRAY['local'::"text", 'dev'::"text", 'preview'::"text", 'staging'::"text", 'production'::"text"]))),
     CONSTRAINT "ck_job_run_failure_has_error" CHECK ((("status" <> 'failed'::"text") OR ("error_message" IS NOT NULL))),
     CONSTRAINT "ck_job_run_status" CHECK (("status" = ANY (ARRAY['running'::"text", 'succeeded'::"text", 'failed'::"text"]))),
     CONSTRAINT "ck_job_run_terminal_has_finish" CHECK (((("status" = 'running'::"text") AND ("finished_at" IS NULL) AND ("duration_ms" IS NULL)) OR (("status" <> 'running'::"text") AND ("finished_at" IS NOT NULL) AND ("duration_ms" IS NOT NULL)))),

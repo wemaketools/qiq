@@ -42,10 +42,10 @@ describe('scan-bundle detects leaks in built assets (V-003)', () => {
     expect(findings[0]?.file).toContain('index-abc.js');
   });
 
-  it('flags DATABASE_URL / CRON_SECRET / INTERNAL_JOB_SECRET names', () => {
-    writeAsset('index-abc.js', 'x.DATABASE_URL;y.CRON_SECRET;z.INTERNAL_JOB_SECRET;');
+  it('flags SUPABASE_DATABASE_URL / CRON_SECRET / INTERNAL_JOB_SECRET names', () => {
+    writeAsset('index-abc.js', 'x.SUPABASE_DATABASE_URL;y.CRON_SECRET;z.INTERNAL_JOB_SECRET;');
     const rules = scanBundleDir(dist).map((f) => f.rule);
-    expect(rules).toContain('server-var:DATABASE_URL');
+    expect(rules).toContain('server-var:SUPABASE_DATABASE_URL');
     expect(rules).toContain('server-var:CRON_SECRET');
     expect(rules).toContain('server-var:INTERNAL_JOB_SECRET');
   });
@@ -72,7 +72,7 @@ describe('scan-bundle detects leaks in built assets (V-003)', () => {
   });
 
   it('does not scan binary assets (guards against byte-noise false positives)', () => {
-    writeAsset('logo.png', 'DATABASE_URL-lookalike-bytes');
+    writeAsset('logo.png', 'SUPABASE_DATABASE_URL-lookalike-bytes');
     expect(scanBundleDir(dist)).toEqual([]);
   });
 });
@@ -82,8 +82,8 @@ describe('scan-bundle rule coverage (V-003)', () => {
     const ruleNames = BUNDLE_RULES.map((r) => r.name);
     for (const varName of [
       'SUPABASE_SERVICE_ROLE_KEY',
-      'DATABASE_URL',
-      'DIRECT_DATABASE_URL',
+      'SUPABASE_DATABASE_URL',
+      'SUPABASE_DIRECT_DATABASE_URL',
       'CRON_SECRET',
       'INTERNAL_JOB_SECRET',
       'API_KEY_PEPPER',

@@ -10,7 +10,13 @@ import { z } from 'zod';
  * - Any Supabase Vault (tier 2) surface — deferred with no MVP consumer (Q-23).
  */
 
-export const appEnvValues = ['local', 'preview', 'staging', 'production'] as const;
+// Ordered by deployment lifecycle, which is also the order they are listed back in a validation
+// error. `dev` is the shared qiq-dev project the `dev` branch deploys to; `staging` is retained
+// for a pre-production tier that does not exist yet. Nothing branches on any individual value —
+// the only behavioural distinction drawn anywhere is `!== 'local'` (see lib/storage/index.ts and
+// lib/router/app.ts) — so a new tier here is a LABEL, and its cost is the `job_run.environment`
+// check constraint that has to list it (supabase/migrations/*_job_run_environment_dev.sql).
+export const appEnvValues = ['local', 'dev', 'preview', 'staging', 'production'] as const;
 export type AppEnv = (typeof appEnvValues)[number];
 
 export const nodeEnvValues = ['development', 'test', 'production'] as const;
@@ -78,8 +84,8 @@ export const configSchema = z.object({
   APP_ENV: choice(appEnvValues, 'local'),
   LOG_LEVEL: choice(logLevelValues, 'info'),
 
-  DATABASE_URL: postgresUrl(),
-  DIRECT_DATABASE_URL: postgresUrl(),
+  SUPABASE_DATABASE_URL: postgresUrl(),
+  SUPABASE_DIRECT_DATABASE_URL: postgresUrl(),
 
   SUPABASE_URL: httpUrl(),
   SUPABASE_ANON_KEY: secret(),
@@ -108,8 +114,8 @@ export type RawConfig = z.infer<typeof configSchema>;
  * Used by tests and by docs generation; keep in sync with `configSchema`.
  */
 export const requiredEnvVars = [
-  'DATABASE_URL',
-  'DIRECT_DATABASE_URL',
+  'SUPABASE_DATABASE_URL',
+  'SUPABASE_DIRECT_DATABASE_URL',
   'SUPABASE_URL',
   'SUPABASE_ANON_KEY',
   'SUPABASE_SERVICE_ROLE_KEY',
@@ -161,8 +167,8 @@ export function toAppConfig(raw: RawConfig): AppConfig {
     appEnv: raw.APP_ENV,
     logLevel: raw.LOG_LEVEL,
     database: {
-      url: raw.DATABASE_URL,
-      directUrl: raw.DIRECT_DATABASE_URL,
+      url: raw.SUPABASE_DATABASE_URL,
+      directUrl: raw.SUPABASE_DIRECT_DATABASE_URL,
     },
     supabase: {
       url: raw.SUPABASE_URL,

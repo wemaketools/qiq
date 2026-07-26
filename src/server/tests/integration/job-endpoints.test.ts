@@ -117,8 +117,8 @@ describeStack(title, () => {
     // so the production wiring (createJobRuntime -> getDb -> PgmqTransport) is what runs.
     vi.stubEnv('APP_ENV', 'local');
     vi.stubEnv('LOG_LEVEL', 'error');
-    vi.stubEnv('DATABASE_URL', probe.stack.dbUrl);
-    vi.stubEnv('DIRECT_DATABASE_URL', probe.stack.dbUrl);
+    vi.stubEnv('SUPABASE_DATABASE_URL', probe.stack.dbUrl);
+    vi.stubEnv('SUPABASE_DIRECT_DATABASE_URL', probe.stack.dbUrl);
     vi.stubEnv('SUPABASE_URL', probe.stack.apiUrl);
     vi.stubEnv('SUPABASE_ANON_KEY', probe.stack.anonKey);
     vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', probe.stack.serviceRoleKey);
