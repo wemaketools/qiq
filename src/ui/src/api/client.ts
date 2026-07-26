@@ -90,8 +90,12 @@ async function toNormalizedError(response: Response): Promise<NormalizedError> {
   }
 
   return {
+    // `||`, not `??`, on `statusText`: over HTTP/2 it is ALWAYS the empty string, and an empty
+    // title is worse than a generic one — every call site does `setError(err.title ?? fallback)`,
+    // which keeps `''` and then renders the `!error` branch. That is how a platform-level 404 on
+    // every nested `/api/v1` route surfaced as "No dashboard data available." instead of an error.
+    title: body?.detail ?? body?.title ?? (response.statusText || 'Request failed'),
     status: response.status,
-    title: body?.detail ?? body?.title ?? response.statusText ?? 'Request failed',
     fieldErrors: toFieldErrors(body?.errors),
   };
 }

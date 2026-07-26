@@ -68,7 +68,7 @@ commands and [Running the app locally](#running-the-app-locally) for `npm run de
 
 ### Running the app locally
 
-`/api/v1` is served by exactly one Vercel function, `api/v1/[[...segments]].ts`, which hands every
+`/api/v1` is served by exactly one Vercel function, `api/v1/[...segments].ts`, which hands every
 request to the Hono app in `src/server/lib/router/app.ts`. There are no per-route functions.
 
 **Everyday full-app command — `npm run dev`.** This starts both processes the app needs together:

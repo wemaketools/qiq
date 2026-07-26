@@ -4,7 +4,7 @@
   "buildCommand": "npm run typecheck && npm run build:ui",
   "outputDirectory": "src/ui/dist",
   "functions": {
-    "api/v1/[[...segments]].ts": {
+    "api/v1/[...segments].ts": {
       "maxDuration": 30
     },
     "api/cron/*.ts": {

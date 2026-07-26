@@ -60,7 +60,7 @@ const requiredFiles = [
   'vitest.config.ts',
   '.env.example',
   '.env.local.example',
-  'api/v1/[[...segments]].ts',
+  'api/v1/[...segments].ts',
 ];
 
 // Cutover (T-044) removed the legacy .NET stack and its docker-compose infrastructure. These
