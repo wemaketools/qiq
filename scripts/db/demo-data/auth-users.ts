@@ -12,7 +12,7 @@
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-import { DEMO_PASSWORD, PERSONAS } from './catalog.js';
+import { PERSONAS } from './catalog.js';
 
 export interface AuthProvisionResult {
   /** persona key -> auth.users.id (uuid). */
@@ -43,6 +43,8 @@ async function listAllUsers(admin: SupabaseClient): Promise<Map<string, string>>
 export async function provisionDemoAuthUsers(config: {
   readonly supabaseUrl: string;
   readonly serviceRoleKey: string;
+  /** Resolved by resolveDemoPassword(): never the committed local default outside local. */
+  readonly password: string;
 }): Promise<AuthProvisionResult> {
   const admin = createClient(config.supabaseUrl, config.serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -61,7 +63,7 @@ export async function provisionDemoAuthUsers(config: {
     if (userId === undefined) {
       const { data, error } = await admin.auth.admin.createUser({
         email: persona.email,
-        password: DEMO_PASSWORD,
+        password: config.password,
         email_confirm: true,
         user_metadata: { firstName: persona.firstName, lastName: persona.lastName, demo: true },
       });
@@ -73,7 +75,7 @@ export async function provisionDemoAuthUsers(config: {
     } else {
       // Re-assert the known password and confirmation so the persona can always sign in.
       const { error } = await admin.auth.admin.updateUserById(userId, {
-        password: DEMO_PASSWORD,
+        password: config.password,
         email_confirm: true,
       });
       if (error !== null) {

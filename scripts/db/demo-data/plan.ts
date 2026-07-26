@@ -14,7 +14,6 @@
  * at least one guaranteed match after an evaluation run.
  */
 import {
-  DEMO_PASSWORD,
   ENTITY_OFFSET,
   GLOBAL_ID,
   INTERNAL_ROLE,
@@ -345,6 +344,8 @@ function money(amount: number): string {
 // plan carries no hidden coupling to a live database.
 export interface PlanInputs {
   readonly now: Date;
+  /** Resolved by resolveDemoPassword(); recorded on the plan so it is never re-derived here. */
+  readonly password: string;
   /** Every permission code from the seeded `permissions` table (for `permissions: 'all'`). */
   readonly allPermissionCodes: readonly string[];
 }
@@ -361,11 +362,11 @@ interface TenantRefs {
 // ---------------------------------------------------------------------------------------------
 
 export function buildDemoPlan(inputs: PlanInputs): DemoPlan {
-  const { now, allPermissionCodes } = inputs;
+  const { now, allPermissionCodes, password } = inputs;
   const rng = new Rng(DEMO_SEED);
 
   const plan: DemoPlan = {
-    password: DEMO_PASSWORD,
+    password,
     tenants: [],
     tenantSettings: [],
     referenceItems: [],

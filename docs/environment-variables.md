@@ -68,8 +68,17 @@ present them. See [`background-jobs.md`](./background-jobs.md).
 | `NODE_ENV` | `development` | `development` \| `test` \| `production` | Non-sensitive |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` | Non-sensitive |
 | `JOB_CRON_BASE_URL` | *(unset)* | absolute origin, no path, no trailing slash | Non-sensitive |
+| `DEMO_SEED_PASSWORD` | *(unset)* | at least 6 characters | **Secret** — grants sign-in to every demo persona |
 | `STORAGE_ADAPTER` | `supabase` | `supabase` \| `fake` | Non-sensitive |
 | `STORAGE_ATTACHMENTS_BUCKET` | `quote-attachments` | lower-case bucket name | Non-sensitive |
+
+`DEMO_SEED_PASSWORD` is the password `npm run db:seed:demo` gives its sixteen personas, read by
+that script alone and never by the application. Locally it may be omitted: the seed falls back to
+the value committed in `scripts/db/demo-data/catalog.ts`, which is what the e2e suite signs in
+with, and a local stack grants nothing beyond the machine it runs on. **Away from local it is
+required** — the seed re-asserts every persona's password on each run, so a fallback would undo a
+rotation and re-publish a password that lives in this repository. `resolveDemoPassword()` refuses
+instead. The demo seed will not run against `production` under any circumstances.
 
 `JOB_CRON_BASE_URL` is the deployed origin the `pg_cron -> pg_net` schedules call back on. It is
 read by exactly one thing — `npm run db:cron:configure` — which writes it, together with

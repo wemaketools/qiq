@@ -17,7 +17,7 @@ import {
   type DemoPlan,
   type LeadRow,
 } from '../../../../scripts/db/demo-data/plan.js';
-import { TENANTS } from '../../../../scripts/db/demo-data/catalog.js';
+import { LOCAL_DEMO_PASSWORD, TENANTS } from '../../../../scripts/db/demo-data/catalog.js';
 import { DEMO_MINIMUMS } from '../../../../scripts/db/demo-data/verify.js';
 import {
   evaluateAllRules,
@@ -32,7 +32,7 @@ const NOW = new Date('2026-07-20T09:00:00Z');
 const PERMISSION_CODES = ['leads.view', 'quotes.view', 'dashboards.view_executive'];
 
 function build(): DemoPlan {
-  return buildDemoPlan({ now: NOW, allPermissionCodes: PERMISSION_CODES });
+  return buildDemoPlan({ now: NOW, allPermissionCodes: PERMISSION_CODES, password: LOCAL_DEMO_PASSWORD });
 }
 
 /** The SHIPPED tenant_settings defaults the alert rules read (20260718002200_tenant_settings.sql). */

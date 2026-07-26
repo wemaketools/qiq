@@ -29,7 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { applyDemoSeed, purgeDemoLayer } from '../../../../scripts/db/demo-data/apply.js';
 import { provisionDemoAuthUsers, deprovisionDemoAuthUsers } from '../../../../scripts/db/demo-data/auth-users.js';
 import { verifyDemoSeed, DEMO_MINIMUMS } from '../../../../scripts/db/demo-data/verify.js';
-import { DEMO_PASSWORD, PERSONAS, TENANTS } from '../../../../scripts/db/demo-data/catalog.js';
+import { LOCAL_DEMO_PASSWORD, PERSONAS, TENANTS } from '../../../../scripts/db/demo-data/catalog.js';
 import { loadGrantGraph } from '../../domains/rbac/repository.js';
 import { computeEffectivePermissions } from '../../domains/rbac/effective-permissions.js';
 import { reconcileTenantAlerts } from '../../domains/alerts/evaluate.js';
@@ -94,10 +94,11 @@ async function seedOnce(): Promise<void> {
   const auth = await provisionDemoAuthUsers({
     supabaseUrl: stack.apiUrl,
     serviceRoleKey: stack.serviceRoleKey,
+      password: LOCAL_DEMO_PASSWORD,
   });
   const c = await client();
   try {
-    const { plan } = await applyDemoSeed(c, auth.byPersona, now);
+    const { plan } = await applyDemoSeed(c, auth.byPersona, now, LOCAL_DEMO_PASSWORD);
     tenantIds = plan.tenants.map((t) => t.id);
   } finally {
     await c.end();
@@ -320,14 +321,14 @@ describeStack(title, () => {
     const active = PERSONAS.find((p) => (p.isActive ?? true) && p.key === 'internal_admin');
     if (active === undefined) throw new Error('expected an active persona');
 
-    const ok = await anon.auth.signInWithPassword({ email: active.email, password: DEMO_PASSWORD });
+    const ok = await anon.auth.signInWithPassword({ email: active.email, password: LOCAL_DEMO_PASSWORD });
     expect(ok.error, ok.error?.message).toBeNull();
     expect(ok.data.session?.access_token).toBeTruthy();
 
     // The deactivated persona is banned and must NOT be able to sign in (deactivate-not-delete).
     const disabled = PERSONAS.find((p) => (p.isActive ?? true) === false);
     if (disabled !== undefined) {
-      const denied = await anon.auth.signInWithPassword({ email: disabled.email, password: DEMO_PASSWORD });
+      const denied = await anon.auth.signInWithPassword({ email: disabled.email, password: LOCAL_DEMO_PASSWORD });
       expect(denied.data.session).toBeNull();
       expect(denied.error).not.toBeNull();
     }
