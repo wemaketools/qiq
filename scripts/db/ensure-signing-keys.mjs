@@ -39,27 +39,52 @@ process.stderr.write(`Generating local-only ES256 JWT signing key at ${keysPath}
 mkdirSync(dirname(keysPath), { recursive: true });
 writeFileSync(keysPath, '[]', { encoding: 'utf8' });
 
+// The exit code is NOT the success signal; the file on disk is.
+//
+// The CLI emits anonymous telemetry and exits non-zero when it cannot reach its analytics
+// endpoint ("Timeout while shutting down PostHog"), even after the key has been written and
+// logged. On a developer laptop that is invisible; on a CI runner with restricted egress it is
+// routine, and treating it as failure deleted a perfectly good key — then broke `supabase stop`
+// afterwards with "failed to read signing keys: no such file or directory".
+//
+// So capture any error, VALIDATE THE ARTEFACT, and only then decide. The validation below is the
+// check that actually matters anyway: a truncated or empty key set makes `supabase start` fail
+// later with a far less obvious error, or worse, silently fall back to HS256.
+let execError;
 try {
   execFileSync(process.execPath, [supabaseCli, 'gen', 'signing-key', '--algorithm', 'ES256', '--append'], {
     cwd: repoRoot,
     stdio: ['ignore', 'inherit', 'inherit'],
   });
 } catch (error) {
-  rmSync(keysPath, { force: true });
-  process.stderr.write(`Failed to generate a JWT signing key: ${error instanceof Error ? error.message : error}\n`);
-  process.exit(1);
+  execError = error;
 }
 
-// Validate rather than trust: a truncated or empty key set makes `supabase start` fail later
-// with a far less obvious error, or worse, silently fall back to HS256.
 let parsed;
 try {
   parsed = JSON.parse(readFileSync(keysPath, 'utf8'));
 } catch {
   parsed = undefined;
 }
-if (!Array.isArray(parsed) || parsed.length === 0 || parsed[0]?.alg !== 'ES256') {
+
+const usable = Array.isArray(parsed) && parsed.length > 0 && parsed[0]?.alg === 'ES256';
+
+if (!usable) {
   rmSync(keysPath, { force: true });
-  process.stderr.write('Generated signing key file is not a non-empty ES256 key set. Aborting.\n');
+  if (execError !== undefined) {
+    process.stderr.write(
+      `Failed to generate a JWT signing key: ${execError instanceof Error ? execError.message : execError}\n`,
+    );
+  } else {
+    process.stderr.write('Generated signing key file is not a non-empty ES256 key set. Aborting.\n');
+  }
   process.exit(1);
+}
+
+if (execError !== undefined) {
+  // Worth one line in the log: the key is good, but the CLI is unhappy about something unrelated
+  // and a future failure may well point back here.
+  process.stderr.write(
+    'Note: the Supabase CLI exited non-zero but wrote a valid ES256 key set; continuing.\n',
+  );
 }

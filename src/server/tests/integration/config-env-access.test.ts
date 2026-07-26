@@ -37,7 +37,7 @@ describe('AC-010 / V-012 — direct environment access is confined to the config
 
   it('demonstrably fails when a violation is introduced', () => {
     const probe = [
-      { path: 'src/server/domains/leads/handler.ts', contents: `const x = ${ENV_ACCESS}.DATABASE_URL;\n` },
+      { path: 'src/server/domains/leads/handler.ts', contents: `const x = ${ENV_ACCESS}.SUPABASE_DATABASE_URL;\n` },
     ];
 
     const violations = findProcessEnvViolations(probe);
@@ -54,7 +54,7 @@ describe('AC-010 / V-012 — direct environment access is confined to the config
   });
 
   it('does not flag the allow-listed config module', () => {
-    const probe = [{ path: 'src/server/lib/config/index.ts', contents: `${ENV_ACCESS}.DATABASE_URL` }];
+    const probe = [{ path: 'src/server/lib/config/index.ts', contents: `${ENV_ACCESS}.SUPABASE_DATABASE_URL` }];
 
     expect(findProcessEnvViolations(probe)).toEqual([]);
   });
@@ -78,7 +78,7 @@ describe('AC-010 / V-012 — the check is wired into the CI lint gate', () => {
   it('eslint rejects a domain file that reads the environment directly', () => {
     const result = lintSource(
       'src/server/domains/leads/lint-probe.ts',
-      `export const url = ${ENV_ACCESS}.DATABASE_URL;\n`,
+      `export const url = ${ENV_ACCESS}.SUPABASE_DATABASE_URL;\n`,
     );
 
     expect(result.status, `eslint output:\n${result.output}`).toBe(1);
@@ -88,7 +88,7 @@ describe('AC-010 / V-012 — the check is wired into the CI lint gate', () => {
   it('eslint allows the config module to read the environment', () => {
     const result = lintSource(
       'src/server/lib/config/index.ts',
-      `export const url = ${ENV_ACCESS}.DATABASE_URL;\n`,
+      `export const url = ${ENV_ACCESS}.SUPABASE_DATABASE_URL;\n`,
     );
 
     expect(result.status, `eslint output:\n${result.output}`).toBe(0);
@@ -97,7 +97,7 @@ describe('AC-010 / V-012 — the check is wired into the CI lint gate', () => {
   it('eslint also covers the test tree, which the textual scan deliberately skips', () => {
     const result = lintSource(
       'src/server/tests/unit/lint-probe.test.ts',
-      `const url = ${ENV_ACCESS}.DATABASE_URL;\n`,
+      `const url = ${ENV_ACCESS}.SUPABASE_DATABASE_URL;\n`,
     );
 
     expect(result.status, `eslint output:\n${result.output}`).toBe(1);

@@ -25,7 +25,7 @@ Rules that follow from M-23:
   Preview build that could reach Production is a release-blocking misconfiguration.
 - Supabase database branching (Q-12) may be used to give a branch its own ephemeral database off
   the non-production project; if adopted, the branch's connection string is what that Preview
-  deployment's `DATABASE_URL` points at.
+  deployment's `SUPABASE_DATABASE_URL` points at.
 
 ## Vercel project shape (M-22)
 
@@ -68,7 +68,7 @@ Repeat for each persistent environment (Preview/Staging share the non-production
 ### 2. Apply migrations
 
 Migrations are plain SQL in `supabase/migrations/`, applied in timestamp order. Apply them to the
-target project through `DIRECT_DATABASE_URL` (never the pooler). Validate locally first with
+target project through `SUPABASE_DIRECT_DATABASE_URL` (never the pooler). Validate locally first with
 `npm run db:validate` (migration-from-clean). The schema must build from empty; CI proves this on
 every push.
 
@@ -81,12 +81,12 @@ list are in `.env.example`.
 
 Point the database URLs at the right connection:
 
-- `DATABASE_URL` → the Supavisor **transaction pooler** (port 6543) — serverless runtime traffic.
-- `DIRECT_DATABASE_URL` → the **direct** Postgres connection — migrations and admin tooling.
+- `SUPABASE_DATABASE_URL` → the Supavisor **transaction pooler** (port 6543) — serverless runtime traffic.
+- `SUPABASE_DIRECT_DATABASE_URL` → the **direct** Postgres connection — migrations and admin tooling.
 
 ### 4. Seed the database
 
-Run the baseline seed against the target through `DIRECT_DATABASE_URL`:
+Run the baseline seed against the target through `SUPABASE_DIRECT_DATABASE_URL`:
 
 ```bash
 npm run db:seed -- --env=<environment>
@@ -165,9 +165,9 @@ mislead you — read the T-034 migration's header for the fix.
 ## Pre-cutover checklist (PRD 10.8)
 
 - [ ] Migrations apply cleanly from empty against the target project (`db:validate` green).
-- [ ] Baseline seed applied through `DIRECT_DATABASE_URL` with the correct `--env`.
+- [ ] Baseline seed applied through `SUPABASE_DIRECT_DATABASE_URL` with the correct `--env`.
 - [ ] All variables from `environment-variables.md` set; Sensitive ones marked Sensitive.
-- [ ] `DATABASE_URL` → pooler (6543); `DIRECT_DATABASE_URL` → direct.
+- [ ] `SUPABASE_DATABASE_URL` → pooler (6543); `SUPABASE_DIRECT_DATABASE_URL` → direct.
 - [ ] Asymmetric JWT signing keys enabled; no `SUPABASE_JWT_SECRET` set.
 - [ ] Auth Site URL / redirect URLs set to the deployed origin(s); signup disabled.
 - [ ] `job_cron_config` populated out of band with this environment's origin and both secrets.

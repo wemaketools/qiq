@@ -33,7 +33,7 @@ npm run supabase:start
 
 - `VITE_SUPABASE_ANON_KEY` ← `ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` ← `SERVICE_ROLE_KEY`
-- in `DATABASE_URL` and `DIRECT_DATABASE_URL`, replace `<local-db-password>` with `postgres`
+- in `SUPABASE_DATABASE_URL` and `SUPABASE_DIRECT_DATABASE_URL`, replace `<local-db-password>` with `postgres`
   (the local database password; `DB_URL` shows the complete string)
 
 Reprint all of these at any time with `npx supabase status`.
@@ -186,7 +186,7 @@ left alone on conflict, because Internal users may have edited them and those ed
 
 ### Seeding a deployed environment
 
-The same script is the deploy step (Q-8). It connects through `DIRECT_DATABASE_URL` — never the
+The same script is the deploy step (Q-8). It connects through `SUPABASE_DIRECT_DATABASE_URL` — never the
 pooler — and takes the target environment from the loaded configuration, not from a flag.
 
 A **non-local target refuses to run** unless you name it explicitly:
@@ -218,7 +218,7 @@ different environment than the configuration resolves to, it also refuses — a 
 It is **idempotent**: it removes the previous demo layer (only demo tenants and rows above
 `DEMO_ID_BASE`, never your own data) and reinserts with explicit ids, so re-running — or a reset
 followed by two demo runs — converges to byte-identical state. Like the baseline seed it connects
-through `DIRECT_DATABASE_URL` and refuses a non-local target without `--env=<that environment>`, so
+through `SUPABASE_DIRECT_DATABASE_URL` and refuses a non-local target without `--env=<that environment>`, so
 it never runs automatically in production.
 
 ```bash

@@ -789,8 +789,8 @@ The repository must include placeholder documentation for all required deploymen
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser-safe if RLS/auth posture allows it | Frontend/local | Supabase anonymous key. Must not grant privileged access. |
 | `SUPABASE_URL` | Server | Backend | Supabase project URL for server-side code. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server secret | Backend/jobs | Privileged Supabase key for server-side operations only. Never expose to browser. |
-| `DATABASE_URL` | Server secret | Migrations/server data access | Pooled database connection string or approved serverless-safe connection string. |
-| `DIRECT_DATABASE_URL` | Server secret / CI only | Migrations/admin | Direct database connection for migrations or administrative scripts where needed. |
+| `SUPABASE_DATABASE_URL` | Server secret | Migrations/server data access | Pooled database connection string or approved serverless-safe connection string. |
+| `SUPABASE_DIRECT_DATABASE_URL` | Server secret / CI only | Migrations/admin | Direct database connection for migrations or administrative scripts where needed. |
 | `AUTH_ISSUER_URL` | Server | Auth | OIDC issuer or equivalent identity provider URL if existing auth remains. |
 | `AUTH_CLIENT_ID` | Server | Auth | Auth client identifier. |
 | `AUTH_CLIENT_SECRET` | Server secret | Auth | Auth client secret. |
@@ -823,8 +823,8 @@ NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
 NEXT_PUBLIC_SUPABASE_ANON_KEY=replace-with-local-anon-key
 SUPABASE_URL=http://127.0.0.1:54321
 SUPABASE_SERVICE_ROLE_KEY=replace-with-local-service-role-key
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
-DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+SUPABASE_DATABASE_URL=postgresql://postgres:<local-db-password>@127.0.0.1:54322/postgres
+SUPABASE_DIRECT_DATABASE_URL=postgresql://postgres:<local-db-password>@127.0.0.1:54322/postgres
 
 AUTH_ISSUER_URL=https://identity.example.com/realms/quoteiq
 AUTH_CLIENT_ID=quoteiq-local

@@ -507,8 +507,8 @@ describeStack(title, () => {
     config = loadConfig({
       APP_ENV: 'local',
       LOG_LEVEL: 'error',
-      DATABASE_URL: stack.dbUrl,
-      DIRECT_DATABASE_URL: stack.dbUrl,
+      SUPABASE_DATABASE_URL: stack.dbUrl,
+      SUPABASE_DIRECT_DATABASE_URL: stack.dbUrl,
       SUPABASE_URL: stack.apiUrl,
       SUPABASE_ANON_KEY: stack.anonKey,
       SUPABASE_SERVICE_ROLE_KEY: stack.serviceRoleKey,

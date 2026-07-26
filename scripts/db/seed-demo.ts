@@ -10,13 +10,13 @@
  *
  * Usage:
  *   npm run db:seed:demo                    seed the configured (local) database
- *   npm run db:seed:demo -- --env=staging   required to seed anything that is not local
+ *   npm run db:seed:demo -- --env=dev       required to seed anything that is not local
  *
  * SAFETY (A-1, M-11: "never run automatically in production"). Identical gate to the baseline seed:
  * the target comes from the loaded configuration, and a non-local target additionally requires the
  * operator to NAME it with `--env=`. See scripts/db/seed-target.ts.
  *
- * CONNECTION: DIRECT_DATABASE_URL, never the pooler (A-8). Auth provisioning uses the service-role
+ * CONNECTION: SUPABASE_DIRECT_DATABASE_URL, never the pooler (A-8). Auth provisioning uses the service-role
  * key via the server config module (A-4), never a browser-exposed key.
  */
 import pg from 'pg';
@@ -69,7 +69,7 @@ async function main(): Promise<void> {
     config = getConfig();
   } catch (error) {
     if (error instanceof ConfigurationError) {
-      fail(`${error.message}\n\nThe demo seed needs DIRECT_DATABASE_URL, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`);
+      fail(`${error.message}\n\nThe demo seed needs SUPABASE_DIRECT_DATABASE_URL, SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.`);
     }
     throw error;
   }
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   const now = new Date();
   log('Demo seed (M-11 layer 2): full demo dataset + auth personas + alert fixtures');
   log(`  target environment: ${decision.appEnv}`);
-  log('  connection: DIRECT_DATABASE_URL (direct, not the pooler)');
+  log('  connection: SUPABASE_DIRECT_DATABASE_URL (direct, not the pooler)');
 
   // 1. Auth identities first — users.auth_user_id is NOT NULL and references auth.users.
   log('  provisioning Supabase Auth identities (Admin API, create-if-absent)...');

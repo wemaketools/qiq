@@ -16,7 +16,7 @@
  *
  * THE FAKE CANNOT BE SELECTED IN A DEPLOYED ENVIRONMENT
  * ====================================================
- * Nothing about `STORAGE_ADAPTER=fake` is safe in preview/staging/production: objects would live in
+ * Nothing about `STORAGE_ADAPTER=fake` is safe in dev/preview/staging/production: objects would live in
  * one warm instance's memory, vanish on recycle, and be visible to every request that instance
  * serves. A misconfigured deploy must fail loudly at composition rather than silently accept
  * uploads it will lose, so selecting it outside `local` throws.

@@ -19,11 +19,23 @@ on:
 concurrency:
   # One CI run per ref. A second push cancels the first; the Supabase stack and the destructive
   # migration validation must not have two runs racing on the same runner class.
+  #
+  # EXCEPT on the two deploying branches. Workflow-level cancellation kills every job in the run,
+  # including `migrate` — cancelling that mid-`db push` can leave a hosted database with a
+  # partially applied migration set and a history table that disagrees with the schema. On dev and
+  # main a second push therefore QUEUES behind the first instead of cancelling it.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev' }}
 
 permissions:
   contents: read
+
+env:
+  # Best-effort suppression of the Supabase CLI's anonymous telemetry. Runners often cannot reach
+  # its analytics endpoint, and the CLI then spends ~10s timing out and exits non-zero even when
+  # the command itself succeeded. Belt and braces only: whether this variable is honoured varies
+  # by CLI version, so scripts/db/ensure-signing-keys.mjs no longer trusts the exit code either.
+  DO_NOT_TRACK: '1'
 
 jobs:
   verify:
@@ -97,6 +109,32 @@ jobs:
       - name: Reset database (migrations + baseline seed)
         run: npm run supabase:reset
 
+      # The suite spawns real npm scripts as subprocesses (`db:seed`, `cron:run`, `jobs:status`,
+      # `queue:worker`) to prove they actually work. Those scripts run under
+      # `tsx --env-file-if-exists=.env.local` and load the FULL typed configuration, so without
+      # this file they fail with "8 problems" while the tests around them pass — the suite's own
+      # database connection comes from probing the local stack, not from here.
+      #
+      # Not a secret: every value below belongs to the throwaway stack on this runner. The
+      # connection string is read from `supabase status` rather than hardcoded, and .env.local is
+      # git-ignored, so `scan-secrets` (which walks `git ls-files`) never sees it.
+      #
+      # APP_ENV is deliberately ABSENT: it defaults to `local`, which is what the seed's
+      # production-safety tests expect to be able to override with their own --env-file.
+      - name: Write .env.local for the scripts the suite spawns
+        run: |
+          eval "$(npx supabase status -o env | sed 's/^/export /')"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_ANON_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "SUPABASE_DATABASE_URL=$DB_URL"
+            echo "SUPABASE_DIRECT_DATABASE_URL=$DB_URL"
+            echo "CRON_SECRET=ci-only-cron-secret"
+            echo "INTERNAL_JOB_SECRET=ci-only-internal-job-secret"
+            echo "API_KEY_PEPPER=ci-only-api-key-pepper-0123456789"
+          } > .env.local
+
       - name: Backend tests — unit + integration (fails on any skipped test)
         # The integration suites skip themselves when the stack is unreachable and STILL EXIT 0
         # (deliberate, so a laptop without Docker is not blocked). In CI the stack is always
@@ -157,8 +195,9 @@ jobs:
   #           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
   #           echo "VITE_SUPABASE_URL=$API_URL"
   #           echo "VITE_SUPABASE_ANON_KEY=$ANON_KEY"
-  #           echo "DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-  #           echo "DIRECT_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+  #           # DB_URL comes from the `supabase status -o env` eval above — no hardcoded password.
+  #           echo "SUPABASE_DATABASE_URL=$DB_URL"
+  #           echo "SUPABASE_DIRECT_DATABASE_URL=$DB_URL"
   #           echo "API_KEY_PEPPER=ci-only-pepper"
   #         } > .env.local
   #     - run: CI=1 npm run test:e2e:smoke
@@ -167,38 +206,172 @@ jobs:
   # -------------------------------------------------------------------------------------
 
   # -------------------------------------------------------------------------------------
-  # DEPLOYMENT (placeholder — intentionally not enabled; M-24 documents it, does not require it)
+  # SCHEMA DELIVERY — dev branch -> qiq-dev, main -> qiq-PROD.
   #
-  # Deployment stays human-driven for now. To enable later, add these repository secrets:
+  # WHAT THIS SHIPS: schema only. `supabase db push` applies the migration files in
+  # supabase/migrations/ that the target's history table has not recorded yet, in filename order.
+  # It never copies rows out of any database. The one data-shaped step is the BASELINE seed
+  # (permission catalog + global default reference template), which is code-owned, conflict-
+  # tolerant and transactional — see supabase/seed.sql. Tenant and demo data are never seeded here.
   #
-  #   VERCEL_TOKEN        Vercel account/team token used by `vercel deploy`
-  #   VERCEL_ORG_ID       from `.vercel/project.json` after `vercel link`
-  #   VERCEL_PROJECT_ID   from `.vercel/project.json` after `vercel link`
+  # CREDENTIALS: Doppler is the single source of truth and already syncs each config into the
+  # matching GitHub Actions ENVIRONMENT, so this job just reads `secrets.*`. No Doppler token, no
+  # CLI install, no fetch step — the values are placed by the sync before the run starts.
   #
-  # and for pushing migrations to a hosted Supabase project:
+  #   Doppler config   GitHub Environment   Supabase project   APP_ENV
+  #   dev              dev                  qiq-dev            dev
+  #   prd              Production           qiq-PROD           production
   #
-  #   SUPABASE_ACCESS_TOKEN   personal access token for the Supabase CLI
-  #   SUPABASE_PROJECT_REF    target project ref
-  #   SUPABASE_DB_PASSWORD    database password for `supabase db push`
+  # That the sync targets an ENVIRONMENT rather than repository secrets is what makes the whole
+  # job work: the same `${{ secrets.X }}` expression resolves to a different project per branch.
+  # A repository-level sync would collapse both branches onto one project, and nothing in this
+  # file would look wrong.
   #
-  # then uncomment a job along these lines:
+  # ENVIRONMENT NAMES ARE MATCHED VERBATIM by the `environment:` expression below. If either is
+  # renamed in GitHub or re-pointed in Doppler, change it here too — a name that matches nothing
+  # yields an environment with no secrets, and the job fails at the first `supabase link`.
   #
-  # deploy:
-  #   name: Deploy (preview/production)
-  #   needs: verify
-  #   if: github.ref == 'refs/heads/main'
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with: { node-version: '22', cache: npm }
-  #     - run: npm ci
-  #     - run: npx supabase db push --linked
-  #       env:
-  #         SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-  #         SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-  #     - run: npx vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
-  #       env:
-  #         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  #         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Put required reviewers on `Production`. GitHub evaluates that gate BEFORE exposing the
+  # environment's secrets, so an unapproved run never obtains the production credentials.
+  #
+  # The Doppler config must carry the full server catalog — SUPABASE_DATABASE_URL,
+  # SUPABASE_DIRECT_DATABASE_URL, SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY,
+  # CRON_SECRET, INTERNAL_JOB_SECRET, API_KEY_PEPPER — plus SUPABASE_ACCESS_TOKEN,
+  # SUPABASE_PROJECT_REF and SUPABASE_DATABASE_PASSWORD for the CLI. Most are unused by the push
+  # itself, but getConfig() validates the WHOLE configuration before seed.ts may open a connection
+  # (AC-010), so a partial config fails the seed step rather than half-seeding.
+  # -------------------------------------------------------------------------------------
+
+  migrate:
+    name: Migrate ${{ github.ref_name == 'main' && 'qiq-PROD' || 'qiq-dev' }}
+    needs: verify
+    # Pushes only. A PR must never touch a hosted database — it has not passed `verify` on the
+    # merged result yet, and its head branch is not a deploying branch.
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ github.ref_name == 'main' && 'Production' || 'dev' }}
+
+    concurrency:
+      # Serialise per target. Never cancel: a cancelled `db push` is the one failure mode that
+      # leaves a hosted schema in a state no rerun can reason about.
+      group: migrate-${{ github.ref }}
+      cancel-in-progress: false
+
+    env:
+      # Placed by the Doppler sync into this job's environment. SUPABASE_DB_PASSWORD is the name
+      # the Supabase CLI itself reads and is fixed by the CLI; Doppler stores the value under
+      # SUPABASE_DATABASE_PASSWORD, so the mapping happens here rather than in Doppler. Set as env
+      # rather than passed as `--password`, which would expose it in the process list.
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DATABASE_PASSWORD }}
+
+      # Derived from the BRANCH, not read from the secret store: which tier a push targets is a
+      # property of what was merged, and stays visible in this file rather than in a config anyone
+      # can edit. seed.ts refuses unless this matches the APP_ENV the loaded configuration
+      # resolves to, so once APP_ENV is added to the Doppler configs (it must be — the deployed
+      # app needs it, and without it the config module defaults to `local`), a config wired to the
+      # wrong tier fails loudly here instead of seeding the wrong database.
+      APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'dev' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # supabase/config.toml declares [auth].signing_keys_path, and the CLI refuses to run once it
+      # has parsed that unless the file exists — including for `db push`, which has nothing to do
+      # with local auth ("failed to read signing keys: no such file or directory"). `verify` gets
+      # one for free from `supabase:start`; this job is a fresh runner with no local stack, so it
+      # generates one purely to satisfy config parsing.
+      #
+      # It is local-only and never leaves the runner: `db push` applies migration SQL and nothing
+      # else, and the project's auth configuration is only ever sent by `supabase config push`,
+      # which this workflow does not run.
+      - name: Generate a local signing key (config.toml requires the file to exist)
+        run: node scripts/db/ensure-signing-keys.mjs
+
+      # The CLI is the version pinned in devDependencies, identical to the one `verify` just ran
+      # the migrations through locally.
+      - name: Link to the target Supabase project
+        run: npx supabase link --project-ref "$SUPABASE_PROJECT_REF"
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+
+      # Printed before anything is applied, so the run log records exactly which migrations this
+      # deployment introduced. This is the audit trail for a schema change.
+      - name: List pending migrations (applies nothing)
+        run: npx supabase db push --dry-run
+
+      - name: Push migrations
+        run: npx supabase db push --yes
+
+      # Not --include-seed: that would run the file through the CLI's own path. `npm run db:seed`
+      # is the sanctioned deploy-time route (Q-8) — it extracts the same baseline block, runs it in
+      # ONE transaction over SUPABASE_DIRECT_DATABASE_URL, and refuses to touch a non-local target
+      # unless --env matches the APP_ENV the loaded configuration resolves to.
+      - name: Apply baseline seed (permission catalog + default reference template)
+        run: npm run db:seed -- --baseline --env="$APP_ENV"
+        env:
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DIRECT_DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          API_KEY_PEPPER: ${{ secrets.API_KEY_PEPPER }}
+
+      # public.job_cron_config holds the origin and the two bearer secrets the pg_cron -> pg_net
+      # schedules call with. The migration that creates the table deliberately does NOT populate
+      # it — "the origin differs per environment and the secret must never enter version control"
+      # — so it is written here instead, from the same secret store the application reads.
+      #
+      # This is what keeps the row in step with CRON_SECRET / INTERNAL_JOB_SECRET: rotating either
+      # in Doppler and pushing re-applies it. Without this step the schedules stay no-ops that say
+      # so only in the Postgres log, which is the quietest possible failure.
+      #
+      # Skipped, not failed, when JOB_CRON_BASE_URL is unset: an environment with no stable origin
+      # yet should not block a schema deploy. The step name says which happened.
+      - name: Configure the pg_cron schedules (job_cron_config)
+        run: |
+          if [ -z "$JOB_CRON_BASE_URL" ]; then
+            echo "JOB_CRON_BASE_URL is not set for this environment — skipping."
+            echo "The pg_cron schedules will remain no-ops until it is configured."
+            exit 0
+          fi
+          npm run db:cron:configure -- --env="$APP_ENV"
+        env:
+          JOB_CRON_BASE_URL: ${{ secrets.JOB_CRON_BASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DIRECT_DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          API_KEY_PEPPER: ${{ secrets.API_KEY_PEPPER }}
+
+  # -------------------------------------------------------------------------------------
+  # APPLICATION DEPLOY — deliberately NOT here.
+  #
+  # Vercel's own Git integration builds and deploys on push, which is the supported path and the
+  # one that gives preview URLs per PR. Point its Production branch at `main` and add `dev` as a
+  # deploy branch in the Vercel project settings; no workflow step is needed.
+  #
+  # ORDERING CAVEAT: that integration deploys in parallel with this workflow, so an additive
+  # migration may land after the code that reads it. For the usual expand/contract discipline
+  # (add nullable column -> ship code -> backfill -> drop old) that is safe. It is NOT safe for a
+  # breaking change; those still want a human sequencing the two, or a `vercel deploy` step moved
+  # in here behind `needs: migrate` with the Git integration turned off.
   # -------------------------------------------------------------------------------------

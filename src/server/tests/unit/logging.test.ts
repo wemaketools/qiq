@@ -220,7 +220,7 @@ const ACCESS_TOKEN = 'eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.abcdefghijklmn
 const REFRESH_TOKEN = 'v1MTo6cmVmcmVzaC10b2tlbi12YWx1ZQ';
 const PASSWORD = 'Sup3rSecret-Password!';
 const DB_PASSWORD = 'db-p4ssw0rd-value';
-const DATABASE_URL = `postgresql://postgres:${DB_PASSWORD}@db.example.supabase.co:6543/postgres`;
+const SUPABASE_DATABASE_URL = `postgresql://postgres:${DB_PASSWORD}@db.example.supabase.co:6543/postgres`;
 const API_KEY = 'qiq_live_9f8e7d6c5b4a3210';
 const PEPPER = 'pepper-value-with-enough-entropy';
 const SSN = '123-45-6789';
@@ -269,9 +269,9 @@ const redactionCases: readonly RedactionCase[] = [
     build: () => ({ detail: `client configured with ${SERVICE_ROLE_KEY}` }),
   },
   {
-    name: 'DATABASE_URL credentials',
+    name: 'SUPABASE_DATABASE_URL credentials',
     secret: DB_PASSWORD,
-    build: () => ({ database: { url: DATABASE_URL } }),
+    build: () => ({ database: { url: SUPABASE_DATABASE_URL } }),
   },
   {
     name: 'plaintext API key',
@@ -316,7 +316,7 @@ const redactionCases: readonly RedactionCase[] = [
   {
     name: 'secret inside an Error message',
     secret: DB_PASSWORD,
-    build: () => ({ err: new Error(`connect ECONNREFUSED for ${DATABASE_URL}`) }),
+    build: () => ({ err: new Error(`connect ECONNREFUSED for ${SUPABASE_DATABASE_URL}`) }),
   },
   {
     name: 'secret inside a nested Error cause',
@@ -476,7 +476,7 @@ describe('redact / scrubString primitives', () => {
     ['bearer token', `Authorization: Bearer ${ACCESS_TOKEN}`, ACCESS_TOKEN],
     ['basic auth', 'Authorization: Basic dXNlcjpwYXNzd29yZA==', 'dXNlcjpwYXNzd29yZA=='],
     ['jwt', `token is ${SERVICE_ROLE_KEY}`, SERVICE_ROLE_KEY],
-    ['postgres url password', `dsn=${DATABASE_URL}`, DB_PASSWORD],
+    ['postgres url password', `dsn=${SUPABASE_DATABASE_URL}`, DB_PASSWORD],
     ['supabase secret key', 'key sb_secret_abcdef123456', 'sb_secret_abcdef123456'],
   ])('scrubString removes %s', (_label, input, secret) => {
     const scrubbed = scrubString(input);
@@ -492,7 +492,7 @@ describe('redact / scrubString primitives', () => {
   });
 
   it('keeps the host of a connection string readable while removing the password', () => {
-    const scrubbed = scrubString(DATABASE_URL);
+    const scrubbed = scrubString(SUPABASE_DATABASE_URL);
 
     expect(scrubbed).toContain('db.example.supabase.co');
     expect(scrubbed).not.toContain(DB_PASSWORD);

@@ -76,7 +76,7 @@ describe('scan-secrets allowlist is specific, not a hole (V-114)', () => {
   });
 
   it('does not treat placeholder connection strings or var names as secrets', () => {
-    expect(scanContent(NON_ALLOWLISTED, 'DATABASE_URL=<direct-postgres-connection-string>')).toEqual([]);
+    expect(scanContent(NON_ALLOWLISTED, 'SUPABASE_DATABASE_URL=<direct-postgres-connection-string>')).toEqual([]);
     expect(scanContent(NON_ALLOWLISTED, 'SUPABASE_SERVICE_ROLE_KEY=<supabase-service-role-key>')).toEqual([]);
     expect(scanContent(NON_ALLOWLISTED, 'const name = "SUPABASE_SERVICE_ROLE_KEY";')).toEqual([]);
   });

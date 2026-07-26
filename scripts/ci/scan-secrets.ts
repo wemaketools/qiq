@@ -78,10 +78,19 @@ export const SECRET_RULES: readonly SecretRule[] = [
  *    `src/server/tests/integration/env-examples.test.ts`);
  *  - `log-fixture-secrets.ts` is the documented synthetic-secret fixture proving log scrubbing;
  *  - `ci-scan-probe-secrets.ts` holds the fake secrets these scanners' own tests plant;
- *  - the two CI scanner test files reference planted-secret literals to prove the scanners bite.
+ *  - the two CI scanner test files reference planted-secret literals to prove the scanners bite;
+ *  - the test files in the second group below assign synthetic credentials to the very variables
+ *    the patterns look for, because that IS what they test: config parsing rejects a malformed
+ *    connection string, the pool splits pooled from direct, the logger scrubs a token it can see,
+ *    API-key verification fails under a different pepper. None can use an opaque stand-in — a
+ *    connection string must parse, a JWT must have three segments, a pepper must clear the
+ *    16-character floor. Every value is visibly fake (`db.example.supabase.co`, `pooler-pass`,
+ *    a JWT signed `s1gnatur3v4lue`) and none reaches a network.
  *
  * This is a specific-path list, never a glob such as `**` or `*fixture*`, so it cannot silently
- * widen into a hole. A real secret in any file NOT on this list fails the scan.
+ * widen into a hole. A real secret in any file NOT on this list fails the scan. Adding a path is
+ * a deliberate act: prefer moving a fixture into `tests/fixtures/` over extending this list, and
+ * never list a file that also contains production code.
  */
 export const ALLOWLIST: readonly string[] = [
   '.env.example',
@@ -90,6 +99,18 @@ export const ALLOWLIST: readonly string[] = [
   'src/server/tests/fixtures/ci-scan-probe-secrets.ts',
   'src/server/tests/unit/ci-scan-secrets.test.ts',
   'src/server/tests/unit/ci-scan-bundle.test.ts',
+
+  // Tests whose subject matter is credential handling (see the fourth bullet above).
+  'src/server/tests/integration/api-access.test.ts',
+  'src/server/tests/integration/http.skeleton.test.ts',
+  'src/server/tests/integration/intake.test.ts',
+  'src/server/tests/integration/job-endpoints.test.ts',
+  'src/server/tests/types/db-tenant.type-test.ts',
+  'src/server/tests/unit/api-keys.test.ts',
+  'src/server/tests/unit/config.test.ts',
+  'src/server/tests/unit/db-pool.test.ts',
+  'src/server/tests/unit/db-tenant.test.ts',
+  'src/server/tests/unit/logging.test.ts',
 ];
 
 /** Extensions treated as binary and skipped (byte noise cannot be read as source text). */

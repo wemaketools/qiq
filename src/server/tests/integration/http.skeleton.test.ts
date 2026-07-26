@@ -16,8 +16,8 @@ import { validateBody } from '../../lib/validation/index.js';
 const TEST_ENV: Record<string, string> = {
   APP_ENV: 'local',
   LOG_LEVEL: 'info',
-  DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
-  DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
+  SUPABASE_DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
+  SUPABASE_DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres',
   SUPABASE_URL: 'http://127.0.0.1:54321',
   SUPABASE_ANON_KEY: 'local-anon-key',
   SUPABASE_SERVICE_ROLE_KEY: 'local-service-role-key',

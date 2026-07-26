@@ -3,11 +3,11 @@
  *
  * Two entry points, and the difference between them is load-bearing:
  *
- *   getDb()          runtime request/job traffic, through DATABASE_URL (Supavisor :6543,
+ *   getDb()          runtime request/job traffic, through SUPABASE_DATABASE_URL (Supavisor :6543,
  *                    transaction pooling). Cached per cold start so warm invocations reuse the
  *                    pool. Everything it does must be pooler-safe — see pool.ts.
  *
- *   createDirectDb() migrations, codegen and admin scripts, through DIRECT_DATABASE_URL (:5432),
+ *   createDirectDb() migrations, codegen and admin scripts, through SUPABASE_DIRECT_DATABASE_URL (:5432),
  *                    where a session exists. Never used by request handlers. Callers own the
  *                    returned handle and must `close()` it.
  *

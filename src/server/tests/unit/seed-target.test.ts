@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { decideSeedTarget, nonLocalRefusalHint } from '../../../../scripts/db/seed-target.js';
 
-const nonLocalEnvs = ['preview', 'staging', 'production'] as const;
+const nonLocalEnvs = ['dev', 'preview', 'staging', 'production'] as const;
 
 describe('decideSeedTarget', () => {
   it('allows a local target with no confirmation flag', () => {
