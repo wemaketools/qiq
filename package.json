@@ -21,6 +21,7 @@
     "db:validate": "node scripts/db/ensure-signing-keys.mjs && tsx scripts/db/validate-migrations.ts",
     "db:seed": "tsx --env-file-if-exists=.env.local scripts/db/seed.ts --baseline",
     "db:seed:demo": "tsx --env-file-if-exists=.env.local scripts/db/seed-demo.ts",
+    "db:cron:configure": "tsx --env-file-if-exists=.env.local scripts/db/configure-job-cron.ts",
     "db:types": "tsx scripts/db/generate-types.ts",
     "db:types:check": "tsx scripts/db/generate-types.ts --check",
     "typecheck": "tsc -p tsconfig.server.json",

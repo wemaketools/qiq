@@ -64,11 +64,19 @@ present them. See [`background-jobs.md`](./background-jobs.md).
 
 | Variable | Default | Allowed values | Sensitivity |
 | --- | --- | --- | --- |
-| `APP_ENV` | `local` | `local` \| `preview` \| `staging` \| `production` | Non-sensitive |
+| `APP_ENV` | `local` | `local` \| `dev` \| `preview` \| `staging` \| `production` | Non-sensitive |
 | `NODE_ENV` | `development` | `development` \| `test` \| `production` | Non-sensitive |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` | Non-sensitive |
+| `JOB_CRON_BASE_URL` | *(unset)* | absolute origin, no path, no trailing slash | Non-sensitive |
 | `STORAGE_ADAPTER` | `supabase` | `supabase` \| `fake` | Non-sensitive |
 | `STORAGE_ATTACHMENTS_BUCKET` | `quote-attachments` | lower-case bucket name | Non-sensitive |
+
+`JOB_CRON_BASE_URL` is the deployed origin the `pg_cron -> pg_net` schedules call back on. It is
+read by exactly one thing — `npm run db:cron:configure` — which writes it, together with
+`CRON_SECRET` and `INTERNAL_JOB_SECRET`, into `public.job_cron_config`. It is deliberately unset
+locally, where the schedules are documented no-ops (Q-7), and it has no default because the origin
+differs per environment. **It must be stable**: a Vercel preview URL changes per deployment, so a
+schedule pinned to one stops resolving on the next deploy — use a branch alias or a custom domain.
 
 `STORAGE_ADAPTER=fake` is the in-memory test seam and is **refused outside a local environment**
 by `createStorageAdapter()` — composition throws if it is set in preview/staging/production

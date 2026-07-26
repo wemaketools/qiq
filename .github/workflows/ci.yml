@@ -332,6 +332,36 @@ jobs:
           INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
           API_KEY_PEPPER: ${{ secrets.API_KEY_PEPPER }}
 
+      # public.job_cron_config holds the origin and the two bearer secrets the pg_cron -> pg_net
+      # schedules call with. The migration that creates the table deliberately does NOT populate
+      # it — "the origin differs per environment and the secret must never enter version control"
+      # — so it is written here instead, from the same secret store the application reads.
+      #
+      # This is what keeps the row in step with CRON_SECRET / INTERNAL_JOB_SECRET: rotating either
+      # in Doppler and pushing re-applies it. Without this step the schedules stay no-ops that say
+      # so only in the Postgres log, which is the quietest possible failure.
+      #
+      # Skipped, not failed, when JOB_CRON_BASE_URL is unset: an environment with no stable origin
+      # yet should not block a schema deploy. The step name says which happened.
+      - name: Configure the pg_cron schedules (job_cron_config)
+        run: |
+          if [ -z "$JOB_CRON_BASE_URL" ]; then
+            echo "JOB_CRON_BASE_URL is not set for this environment — skipping."
+            echo "The pg_cron schedules will remain no-ops until it is configured."
+            exit 0
+          fi
+          npm run db:cron:configure -- --env="$APP_ENV"
+        env:
+          JOB_CRON_BASE_URL: ${{ secrets.JOB_CRON_BASE_URL }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_DIRECT_DATABASE_URL: ${{ secrets.SUPABASE_DIRECT_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          API_KEY_PEPPER: ${{ secrets.API_KEY_PEPPER }}
+
   # -------------------------------------------------------------------------------------
   # APPLICATION DEPLOY — deliberately NOT here.
   #

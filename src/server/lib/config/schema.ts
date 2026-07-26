@@ -95,6 +95,26 @@ export const configSchema = z.object({
   INTERNAL_JOB_SECRET: secret(),
   API_KEY_PEPPER: secret(MIN_PEPPER_LENGTH),
 
+  // Origin the pg_cron -> pg_net schedules call back on, consumed ONLY by
+  // `npm run db:cron:configure` when it writes public.job_cron_config. Optional because it has no
+  // sensible default and local development has no deployed origin to call: the schedules are
+  // documented no-ops there (Q-7). The configure script fails loudly if it is missing.
+  //
+  // Must be an ORIGIN, not a URL with a path, and must not end in a slash — invoke_cron_endpoint()
+  // concatenates `base_url || '/api/cron/' || job_name`, so a trailing slash yields a double slash
+  // and a path segment yields a 404 that only shows up at 03:00 in the Postgres log.
+  JOB_CRON_BASE_URL: z
+    .string({ error: 'must be a string' })
+    .transform((value) => value.trim())
+    .refine((value) => hasProtocol(value, ['http:', 'https:']), {
+      error: 'must be an absolute http:// or https:// URL',
+    })
+    .refine((value) => !value.endsWith('/'), { error: 'must not end with a trailing slash' })
+    .refine((value) => new URL(value).pathname === '/', {
+      error: 'must be an origin only, with no path',
+    })
+    .optional(),
+
   // Storage port binding (T-027, A-6/Q-6). Defaulted, so no deployment must set them to get the
   // approved default behaviour; `fake` is refused outside local by createStorageAdapter().
   STORAGE_ADAPTER: choice(storageAdapterValues, 'supabase'),
@@ -128,6 +148,7 @@ export const optionalEnvVars = [
   'NODE_ENV',
   'APP_ENV',
   'LOG_LEVEL',
+  'JOB_CRON_BASE_URL',
   'STORAGE_ADAPTER',
   'STORAGE_ATTACHMENTS_BUCKET',
 ] as const;
@@ -158,6 +179,13 @@ export interface AppConfig {
     readonly adapter: StorageAdapterName;
     readonly attachmentsBucket: string;
   };
+  readonly jobs: {
+    /**
+     * Origin the pg_cron schedules call back on. `null` when unset, which is the normal state
+     * locally; only `db:cron:configure` reads it, and it refuses rather than inventing one.
+     */
+    readonly cronBaseUrl: string | null;
+  };
 }
 
 /** Maps the flat validated env record onto the nested `AppConfig` shape. */
@@ -183,6 +211,9 @@ export function toAppConfig(raw: RawConfig): AppConfig {
     storage: {
       adapter: raw.STORAGE_ADAPTER,
       attachmentsBucket: raw.STORAGE_ATTACHMENTS_BUCKET,
+    },
+    jobs: {
+      cronBaseUrl: raw.JOB_CRON_BASE_URL ?? null,
     },
   };
 }
