@@ -43,6 +43,23 @@ function hasProtocol(value: string, protocols: readonly string[]): boolean {
   }
 }
 
+/**
+ * True when the value parses as a URL whose path is empty — i.e. an origin.
+ *
+ * Parsing is guarded because zod runs EVERY refinement, not just up to the first failure: an
+ * unparseable value still reaches this check after the protocol check has already rejected it, and
+ * an exception thrown here escapes validation entirely. The operator would then see a bare
+ * "Invalid URL" instead of a message naming the variable — which is precisely the diagnosis this
+ * config module exists to provide.
+ */
+function isOriginOnly(value: string): boolean {
+  try {
+    return new URL(value).pathname === '/';
+  } catch {
+    return false;
+  }
+}
+
 function secret(minLength = 1, label = 'must be a non-empty value'): z.ZodType<string> {
   return z
     .string({ error: 'must be a string' })
@@ -68,6 +85,25 @@ function httpUrl(): z.ZodType<string> {
     .refine((value) => hasProtocol(value, ['http:', 'https:']), {
       error: 'must be an absolute http:// or https:// URL',
     });
+}
+
+/**
+ * Makes an optional variable tolerate an EMPTY value as well as an absent one.
+ *
+ * `.optional()` alone only skips `undefined`. A secret store that holds the key with a blank value
+ * — which is how "not applicable here" is usually expressed in a shared config, and how it reaches
+ * Vercel — supplies `''`, which then runs the full validation and fails. For an OPTIONAL variable
+ * that is a hard startup failure caused by a variable nobody needed: the config module validates
+ * the whole catalog at once, so one blank entry takes down every function.
+ *
+ * Blank therefore means absent. It is only ever used for genuinely optional variables, so there is
+ * no case where a blank should have been rejected instead.
+ */
+function blankAsAbsent<T extends z.ZodTypeAny>(schema: T): z.ZodType<z.output<T> | undefined> {
+  return z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    schema.optional(),
+  ) as z.ZodType<z.output<T> | undefined>;
 }
 
 function choice<const T extends readonly [string, ...string[]]>(
@@ -103,17 +139,29 @@ export const configSchema = z.object({
   // Must be an ORIGIN, not a URL with a path, and must not end in a slash — invoke_cron_endpoint()
   // concatenates `base_url || '/api/cron/' || job_name`, so a trailing slash yields a double slash
   // and a path segment yields a 404 that only shows up at 03:00 in the Postgres log.
-  JOB_CRON_BASE_URL: z
-    .string({ error: 'must be a string' })
+  JOB_CRON_BASE_URL: blankAsAbsent(
+    z
+      .string({ error: 'must be a string' })
     .transform((value) => value.trim())
     .refine((value) => hasProtocol(value, ['http:', 'https:']), {
       error: 'must be an absolute http:// or https:// URL',
     })
     .refine((value) => !value.endsWith('/'), { error: 'must not end with a trailing slash' })
-    .refine((value) => new URL(value).pathname === '/', {
-      error: 'must be an origin only, with no path',
-    })
-    .optional(),
+      .refine(isOriginOnly, {
+        error: 'must be an origin only, with no path',
+      }),
+  ),
+
+  // Password the demo seed gives its personas. Read ONLY by `npm run db:seed:demo`, never by the
+  // application. Optional because a local stack falls back to the committed default; away from
+  // local the seed refuses without it, rather than re-publishing a password that lives in this
+  // repository — see resolveDemoPassword() in scripts/db/demo-data/catalog.ts.
+  //
+  // Minimum 6 to match `minimum_password_length` in supabase/config.toml; the Auth Admin API
+  // rejects anything shorter and the seed would fail halfway through provisioning identities.
+  DEMO_SEED_PASSWORD: blankAsAbsent(
+    secret(6, 'must be at least 6 characters (Supabase minimum_password_length)'),
+  ),
 
   // Storage port binding (T-027, A-6/Q-6). Defaulted, so no deployment must set them to get the
   // approved default behaviour; `fake` is refused outside local by createStorageAdapter().
@@ -149,6 +197,7 @@ export const optionalEnvVars = [
   'APP_ENV',
   'LOG_LEVEL',
   'JOB_CRON_BASE_URL',
+  'DEMO_SEED_PASSWORD',
   'STORAGE_ADAPTER',
   'STORAGE_ATTACHMENTS_BUCKET',
 ] as const;
@@ -178,6 +227,10 @@ export interface AppConfig {
   readonly storage: {
     readonly adapter: StorageAdapterName;
     readonly attachmentsBucket: string;
+  };
+  readonly seed: {
+    /** Demo persona password. `null` locally, where the committed default applies. */
+    readonly demoPassword: string | null;
   };
   readonly jobs: {
     /**
@@ -211,6 +264,9 @@ export function toAppConfig(raw: RawConfig): AppConfig {
     storage: {
       adapter: raw.STORAGE_ADAPTER,
       attachmentsBucket: raw.STORAGE_ATTACHMENTS_BUCKET,
+    },
+    seed: {
+      demoPassword: raw.DEMO_SEED_PASSWORD ?? null,
     },
     jobs: {
       cronBaseUrl: raw.JOB_CRON_BASE_URL ?? null,

@@ -155,10 +155,12 @@ export async function applyDemoSeed(
   client: pg.PoolClient | pg.Client,
   authByPersona: ReadonlyMap<string, string>,
   now: Date,
+  /** Resolved by resolveDemoPassword(); recorded on the plan rather than re-derived here. */
+  password: string,
 ): Promise<ApplyResult> {
   const nowIso = now.toISOString();
   const codes = await loadPermissionCodes(client);
-  const plan = buildDemoPlan({ now, allPermissionCodes: codes });
+  const plan = buildDemoPlan({ now, allPermissionCodes: codes, password });
   const tenantIds = plan.tenants.map((t) => t.id);
 
   await client.query('begin');

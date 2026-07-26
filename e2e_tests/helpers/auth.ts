@@ -20,7 +20,7 @@ import { createClient } from '@supabase/supabase-js';
  * Both are valid per Q-21. The shared demo password is the LOCAL/E2E-only value the T-041 demo seed
  * sets on every persona (scripts/db/demo-data/catalog.ts `DEMO_PASSWORD`).
  */
-export const E2E_PASSWORD = 'test1234';
+export const E2E_PASSWORD = process.env.DEMO_SEED_PASSWORD ?? 'test1234';
 
 // ---------------------------------------------------------------------------------------------
 // Local Supabase config resolution (URL + anon key), shared by the session-minting path.

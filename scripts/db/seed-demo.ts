@@ -26,6 +26,7 @@ import { createDirectDb } from '../../src/server/lib/db/client.js';
 import { toTenantId } from '../../src/server/lib/db/tenant.js';
 import { reconcileTenantAlerts } from '../../src/server/domains/alerts/evaluate.js';
 import { applyDemoSeed } from './demo-data/apply.js';
+import { resolveDemoPassword } from './demo-data/catalog.js';
 import { provisionDemoAuthUsers } from './demo-data/auth-users.js';
 import { verifyDemoSeed } from './demo-data/verify.js';
 import { decideSeedTarget } from './seed-target.js';
@@ -74,15 +75,37 @@ async function main(): Promise<void> {
     throw error;
   }
 
+  // PRODUCTION IS REFUSED OUTRIGHT, before the --env gate is even consulted.
+  //
+  // Every other target is a judgement call the operator can make by naming it; this one is not.
+  // The demo dataset is two invented tenants, sixteen invented users and several hundred invented
+  // leads and quotes, and there is no undo — M-11 requires it "never run automatically in
+  // production", and a flag that merely has to be typed is a weaker guarantee than a refusal.
+  if (config.appEnv === 'production') {
+    fail(
+      'The demo seed will not run against production.\n\n' +
+        'It creates fabricated tenants, users, leads and quotes, and nothing removes them again. ' +
+        'Production is bootstrapped with `npm run db:admin:create`, which creates one real account ' +
+        'and no data.',
+    );
+  }
+
   const decision = decideSeedTarget(config.appEnv, parseEnvFlag(argv));
   if (!decision.allowed) {
     process.stderr.write(`\n${decision.reason}\n`);
     process.exit(1);
   }
 
+  // Away from local this must come from DEMO_SEED_PASSWORD: the committed default is in the
+  // repository, and this seed re-asserts every persona's password on each run, so falling back to
+  // it would silently undo a rotation and re-publish the known one.
+  const passwordDecision = resolveDemoPassword(config.appEnv, config.seed.demoPassword);
+  if (!passwordDecision.ok) fail(passwordDecision.reason);
+
   const now = new Date();
   log('Demo seed (M-11 layer 2): full demo dataset + auth personas + alert fixtures');
   log(`  target environment: ${decision.appEnv}`);
+  log(`  persona password  : ${passwordDecision.source === 'configured' ? 'DEMO_SEED_PASSWORD' : 'committed local default'}`);
   log('  connection: SUPABASE_DIRECT_DATABASE_URL (direct, not the pooler)');
 
   // 1. Auth identities first — users.auth_user_id is NOT NULL and references auth.users.
@@ -90,6 +113,7 @@ async function main(): Promise<void> {
   const auth = await provisionDemoAuthUsers({
     supabaseUrl: config.supabase.url,
     serviceRoleKey: config.supabase.serviceRoleKey,
+    password: passwordDecision.password,
   });
   log(`  auth identities: ${String(auth.created)} created, ${String(auth.reused)} reused`);
 
@@ -98,7 +122,7 @@ async function main(): Promise<void> {
   await client.connect();
   let tenantIds: number[] = [];
   try {
-    const { plan } = await applyDemoSeed(client, auth.byPersona, now);
+    const { plan } = await applyDemoSeed(client, auth.byPersona, now, passwordDecision.password);
     tenantIds = plan.tenants.map((t) => t.id);
     log(
       `  inserted: ${String(plan.tenants.length)} tenants, ${String(plan.users.length)} users, ` +
