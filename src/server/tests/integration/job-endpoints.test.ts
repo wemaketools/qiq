@@ -25,16 +25,19 @@ import { createJobRuntime, type JobRuntime } from '../../jobs/runtime.js';
 import { ALERT_REEVALUATION_QUEUE } from '../../jobs/queue/pgmq-adapter.js';
 import { registerQueueHandler } from '../../jobs/queue/registry.js';
 import { jobMessageEnvelopeSchema, type JobHandler, type JobMessageEnvelope } from '../../jobs/types.js';
-import alertEvaluationEntrypoint, {
+import {
+  GET as alertEvaluationEntrypoint,
   jobName as alertEvaluationJobName,
 } from '../../../../api/cron/alert-evaluation.js';
-import leadInactivityEntrypoint, {
+import {
+  GET as leadInactivityEntrypoint,
   jobName as leadInactivityJobName,
 } from '../../../../api/cron/lead-inactivity-expiry.js';
-import quoteExpiryEntrypoint, {
+import {
+  GET as quoteExpiryEntrypoint,
   jobName as quoteExpiryJobName,
 } from '../../../../api/cron/quote-expiry.js';
-import drainEntrypoint from '../../../../api/queue/drain.js';
+import { POST as drainEntrypoint } from '../../../../api/queue/drain.js';
 import { probeLocalStack, suiteTitle } from './helpers/local-stack.js';
 
 const probe = await probeLocalStack();

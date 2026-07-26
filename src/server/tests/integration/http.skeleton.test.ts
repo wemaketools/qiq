@@ -81,7 +81,7 @@ describe('GET /api/v1/health (anonymous)', () => {
     resetConfigCache();
 
     const entry = await import('../../../../api/v1/[[...segments]].js');
-    const response = await entry.default(new Request('http://localhost/api/v1/health'));
+    const response = await entry.GET(new Request('http://localhost/api/v1/health'));
 
     expect(response.status).toBe(200);
     expect((await response.json()) as { status: string }).toMatchObject({ status: 'ok' });
