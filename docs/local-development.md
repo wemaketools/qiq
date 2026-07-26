@@ -68,8 +68,12 @@ commands and [Running the app locally](#running-the-app-locally) for `npm run de
 
 ### Running the app locally
 
-`/api/v1` is served by exactly one Vercel function, `api/v1/[...segments].ts`, which hands every
+`/api/v1` is served by exactly one Vercel function, `api/v1/index.ts`, which hands every
 request to the Hono app in `src/server/lib/router/app.ts`. There are no per-route functions.
+Deployed, the whole surface reaches that function through the `/api/v1/:path*` rewrite in
+`vercel.json` — see [`deployment.md`](./deployment.md). Neither `npm run dev` nor the test suites
+go through Vercel's routing layer, so a routing change is only verifiable with `vercel build`
+(inspect `.vercel/output/config.json`) or a real deployment.
 
 **Everyday full-app command — `npm run dev`.** This starts both processes the app needs together:
 the API function runner (`dev:api`, http://127.0.0.1:3001) and the SPA dev server

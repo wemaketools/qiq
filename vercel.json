@@ -3,8 +3,12 @@
   "framework": "vite",
   "buildCommand": "npm run typecheck && npm run build:ui",
   "outputDirectory": "src/ui/dist",
+  "rewrites": [
+    { "source": "/api/v1/:path*", "destination": "/api/v1" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
   "functions": {
-    "api/v1/[...segments].ts": {
+    "api/v1/index.ts": {
       "maxDuration": 30
     },
     "api/cron/*.ts": {

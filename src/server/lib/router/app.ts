@@ -1,7 +1,7 @@
 /**
  * The /api/v1 Hono application (spec §9.2, A-19, M-04, T-009).
  *
- * One app, one function: `api/v1/[...segments].ts` is the only entrypoint, and every route is
+ * One app, one function: `api/v1/index.ts` is the only entrypoint, and every route is
  * composed in here via `app.route(...)`. There are no per-route Vercel functions.
  *
  * Middleware order (spec §9.2). The two slots are intentionally empty and are filled by later

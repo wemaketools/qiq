@@ -14,7 +14,7 @@ import { API_BASE_PATH, PUBLIC_PATHS } from '../../lib/router/app.js';
 import { repoRoot } from './helpers/repo.js';
 
 /** Files that build the app for real traffic. Add new roots here deliberately. */
-const COMPOSITION_ROOTS = ['api/v1/[...segments].ts', 'scripts/dev/serve-api.ts'] as const;
+const COMPOSITION_ROOTS = ['api/v1/index.ts', 'scripts/dev/serve-api.ts'] as const;
 
 function read(relativePath: string): string {
   return readFileSync(resolve(repoRoot, relativePath), 'utf8');
