@@ -14,6 +14,12 @@ export const config = {
   runtime: 'nodejs',
 } as const;
 
-export default async function handler(request: Request): Promise<Response> {
+// NAMED METHOD EXPORT, NOT `export default`. Vercel's Node runtime invokes a default export with
+// the legacy `(req, res)` signature, so `request` arrived as an IncomingMessage and every drain
+// died on `request.headers.get is not a function`. A named HTTP method export selects the Web
+// `fetch` signature, which is what this handler and every test already assume.
+//
+// POST because the pg_cron drain schedule reaches this through `net.http_post` (invoke_queue_drain).
+export async function POST(request: Request): Promise<Response> {
   return await handleQueueDrainRequest(request);
 }

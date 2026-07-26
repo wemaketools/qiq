@@ -85,7 +85,7 @@ function getHandler(): (request: Request) => Response | Promise<Response> {
   return cachedHandler;
 }
 
-export default async function handler(request: Request): Promise<Response> {
+async function serve(request: Request): Promise<Response> {
   try {
     return await getHandler()(request);
   } catch (error) {
@@ -99,3 +99,20 @@ export default async function handler(request: Request): Promise<Response> {
     return problemResponse(error, correlationId);
   }
 }
+
+// NAMED METHOD EXPORTS, NOT `export default`. Vercel's Node runtime invokes a default export with
+// the legacy `(req, res)` signature and IGNORES anything it returns — so this function built a
+// correct Response, handed it back, and then sat until the 30s wall clock killed it. Every request
+// to /api/v1 timed out that way, while the suite stayed green because it drives the Hono app
+// directly with Web Request objects and never goes through Vercel's invocation contract.
+//
+// One catch-all serves the whole versioned surface (routing happens inside Hono, per the note at
+// the top of this file), so every method the API answers has to be listed here — an unlisted verb
+// is a 405 from the platform that never reaches the router.
+export const GET = serve;
+export const POST = serve;
+export const PUT = serve;
+export const PATCH = serve;
+export const DELETE = serve;
+export const HEAD = serve;
+export const OPTIONS = serve;

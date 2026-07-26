@@ -16,6 +16,13 @@ export const config = {
 
 export const jobName = 'lead-inactivity-expiry';
 
-export default async function handler(request: Request): Promise<Response> {
+// NAMED METHOD EXPORT, NOT `export default`. Vercel's Node runtime invokes a default export with
+// the legacy `(req, res)` signature, so `request` arrived as an IncomingMessage and every call
+// died on `request.headers.get is not a function` before the job could run — see the T-031 note in
+// src/server/jobs/http.ts. A named HTTP method export selects the Web `fetch` signature instead,
+// which is what this handler, the job layer and every test already assume.
+//
+// GET because the pg_cron schedules reach this through `net.http_get` (invoke_cron_endpoint).
+export async function GET(request: Request): Promise<Response> {
   return await handleCronRequest(request, jobName);
 }
