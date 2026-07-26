@@ -17,8 +17,8 @@ import { loadConfig } from '../../lib/config/index.js';
  */
 
 const BASE = {
-  SUPABASE_DATABASE_URL: 'postgresql://u:p@127.0.0.1:5432/postgres',
-  SUPABASE_DIRECT_DATABASE_URL: 'postgresql://u:p@127.0.0.1:5432/postgres',
+  SUPABASE_DATABASE_URL: 'postgresql://127.0.0.1:5432/postgres',
+  SUPABASE_DIRECT_DATABASE_URL: 'postgresql://127.0.0.1:5432/postgres',
   SUPABASE_URL: 'https://project.supabase.co',
   SUPABASE_ANON_KEY: 'anon-key',
   SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
