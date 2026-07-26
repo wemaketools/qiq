@@ -36,7 +36,7 @@ and the serverless functions together:
 - `buildCommand` runs the backend typecheck (`npm run typecheck`) before the SPA build
   (`npm run build:ui`), so a type error fails the deploy.
 - `functions` declares the Node.js runtime and `maxDuration` for each function group:
-  - `api/v1/[[...segments]].ts` — the single catch-all API function (`maxDuration` 30s).
+  - `api/v1/[...segments].ts` — the single catch-all API function (`maxDuration` 30s).
   - `api/cron/*.ts` — the three cron endpoints (`maxDuration` 60s).
   - `api/queue/*.ts` — the queue-drain endpoint (`maxDuration` 60s).
 - **No `crons` key — ever.** Schedules live in `supabase/migrations/` as `pg_cron` entries that
