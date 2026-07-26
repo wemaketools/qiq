@@ -8,14 +8,22 @@
  * sanitized 500 (with a correlation id, and the real cause in the server log) rather than a raw
  * module-load crash.
  *
- * SINGLE BRACKETS. `[...segments]`, NOT `[[...segments]]`: the OPTIONAL catch-all is a Next.js
- * filename convention, and this project is a Vite SPA whose functions are routed by Vercel's plain
- * `api/` filesystem routing. Deployed as `[[...segments]].ts`, the platform matched exactly ONE
- * path segment — `/api/v1/leads` reached the router while `/api/v1/leads/1`,
- * `/api/v1/dashboards/executive`, `/api/v1/me/preferences` and every other nested route answered
- * Vercel's own `NOT_FOUND` page before the function was ever invoked. Nothing local caught it: the
- * dev server (scripts/dev/serve-api.ts) and every test drive the Hono app directly, so filesystem
- * routing is exercised only by a real deployment.
+ * PLAIN FILENAME + AN EXPLICIT REWRITE, NOT A BRACKET CATCH-ALL. Vercel's zero-config `api/`
+ * filesystem routing (this is a Vite SPA, not Next.js) has NO catch-all syntax: a `[...segments].ts`
+ * filename is treated exactly like a single dynamic `[segments].ts`. `vercel build` emits
+ * `"src": "^/api/v1/([^/]+)$"` for it — ONE path segment. So `/api/v1/leads` reached the router
+ * while `/api/v1/leads/1`, `/api/v1/dashboards/executive`, `/api/v1/me/preferences` and every other
+ * nested route answered Vercel's own `NOT_FOUND` page before the function was ever invoked.
+ * Renaming `[[...segments]]` → `[...segments]` changed nothing, because both forms collapse to the
+ * same one-segment regex.
+ *
+ * The whole `/api/v1` surface therefore reaches this function through the `rewrites` entry in
+ * vercel.json (`/api/v1/:path*` → `/api/v1`). A Vercel rewrite only selects WHICH function serves
+ * the request — the function still receives the ORIGINAL request URL — so Hono keeps matching real
+ * paths like `/api/v1/leads/1` and needs no path rewriting of its own.
+ *
+ * Nothing local caught the original break: the dev server (scripts/dev/serve-api.ts) and every test
+ * drive the Hono app directly, so Vercel's routing layer is exercised only by `vercel build`/deploy.
  */
 import { handle } from 'hono/vercel';
 

@@ -35,8 +35,18 @@ and the serverless functions together:
 - `framework: vite`, output directory `src/ui/dist`.
 - `buildCommand` runs the backend typecheck (`npm run typecheck`) before the SPA build
   (`npm run build:ui`), so a type error fails the deploy.
+- `rewrites` is what actually routes traffic, and both entries are load-bearing:
+  - `/api/v1/:path*` → `/api/v1` sends the **entire** versioned surface to the one API function.
+    Vercel's zero-config `api/` routing has no catch-all filename syntax outside Next.js — a
+    `[...segments].ts` (or `[[...segments]].ts`) entrypoint compiles to `^/api/v1/([^/]+)$` and
+    serves exactly ONE path segment, so every nested route answers Vercel's own NOT_FOUND page
+    before the function runs. A rewrite only selects which function serves the request; the
+    function still receives the original URL, so Hono keeps matching real paths.
+  - `/((?!api/).*)` → `/index.html` is the SPA fallback, so deep links and hard refreshes render
+    the app instead of a platform 404. The negative lookahead keeps `/api/*` on the API.
+  - `src/server/tests/integration/vercel-entrypoints.test.ts` asserts both.
 - `functions` declares the Node.js runtime and `maxDuration` for each function group:
-  - `api/v1/[...segments].ts` — the single catch-all API function (`maxDuration` 30s).
+  - `api/v1/index.ts` — the single API function hosting the Hono app (`maxDuration` 30s).
   - `api/cron/*.ts` — the three cron endpoints (`maxDuration` 60s).
   - `api/queue/*.ts` — the queue-drain endpoint (`maxDuration` 60s).
 - **No `crons` key — ever.** Schedules live in `supabase/migrations/` as `pg_cron` entries that

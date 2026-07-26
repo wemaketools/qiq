@@ -74,13 +74,13 @@ describe('GET /api/v1/health (anonymous)', () => {
     expect(body.version.length).toBeGreaterThan(0);
   });
 
-  it('is served through the Vercel adapter entrypoint (api/v1/[...segments].ts)', async () => {
+  it('is served through the Vercel adapter entrypoint (api/v1/index.ts)', async () => {
     for (const [key, value] of Object.entries(TEST_ENV)) {
       vi.stubEnv(key, value);
     }
     resetConfigCache();
 
-    const entry = await import('../../../../api/v1/[...segments].js');
+    const entry = await import('../../../../api/v1/index.js');
     const response = await entry.GET(new Request('http://localhost/api/v1/health'));
 
     expect(response.status).toBe(200);

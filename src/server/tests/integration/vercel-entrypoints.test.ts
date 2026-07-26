@@ -74,7 +74,7 @@ describe('Vercel function entrypoints honour the platform invocation contract', 
   });
 
   it('serves the versioned API catch-all on every method the router can answer', () => {
-    const catchAll = entrypoints.find((e) => e.relative.includes('segments'));
+    const catchAll = entrypoints.find((e) => e.relative === 'api/v1/index.ts');
     expect(catchAll, 'the /api/v1 catch-all entrypoint was not found').toBeDefined();
 
     // One function serves the whole surface, so an unlisted verb is a platform 405 that never
@@ -94,5 +94,47 @@ describe('Vercel function entrypoints honour the platform invocation contract', 
     const drain = entrypoints.find((e) => e.relative === 'api/queue/drain.ts');
     expect(drain, 'api/queue/drain.ts was not found').toBeDefined();
     expect(exportedMethods(drain?.source ?? '')).toContain('POST');
+  });
+});
+
+/**
+ * The SECOND way the deployed API died while every suite stayed green: reaching the function at all.
+ *
+ * Vercel's zero-config `api/` filesystem routing (this is a Vite SPA, not Next.js) has NO catch-all
+ * filename syntax. `api/v1/[...segments].ts` — and `[[...segments]].ts` before it — both compile to
+ * `"src": "^/api/v1/([^/]+)$"`, i.e. exactly ONE path segment. `/api/v1/leads` reached Hono while
+ * `/api/v1/leads/1`, `/api/v1/dashboards/executive` and `/api/v1/me/preferences` got Vercel's own
+ * NOT_FOUND page before the function was invoked. So the whole surface depends on the `rewrites`
+ * entry below, not on the filename — and nothing but a real `vercel build` would otherwise notice
+ * if it were dropped.
+ */
+describe('vercel.json routes the whole /api/v1 surface to the one function', () => {
+  const vercelConfig = JSON.parse(readFileSync(resolve(repoRoot, 'vercel.json'), 'utf8')) as {
+    rewrites?: { source: string; destination: string }[];
+    functions?: Record<string, unknown>;
+  };
+
+  it('declares the entrypoint under its real, bracket-free filename', () => {
+    expect(Object.keys(vercelConfig.functions ?? {})).toContain('api/v1/index.ts');
+  });
+
+  it('rewrites every nested /api/v1 path to the entrypoint, not just one segment', () => {
+    const apiRewrite = vercelConfig.rewrites?.find((r) => r.destination === '/api/v1');
+    expect(
+      apiRewrite,
+      'without this rewrite Vercel serves only /api/v1/{one-segment} and 404s everything deeper',
+    ).toBeDefined();
+    expect(apiRewrite?.source).toBe('/api/v1/:path*');
+  });
+
+  it('falls back to the SPA shell for client routes without swallowing /api', () => {
+    const rewrites = vercelConfig.rewrites ?? [];
+    const spaFallback = rewrites.find((r) => r.destination === '/index.html');
+    expect(spaFallback, 'deep links and hard refreshes 404 without an SPA fallback').toBeDefined();
+    // The lookahead is what keeps /api/* on the API; ordering alone would not survive a reshuffle.
+    expect(spaFallback?.source).toBe('/((?!api/).*)');
+    expect(rewrites.indexOf(spaFallback!)).toBeGreaterThan(
+      rewrites.findIndex((r) => r.destination === '/api/v1'),
+    );
   });
 });
