@@ -30,6 +30,13 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  # Best-effort suppression of the Supabase CLI's anonymous telemetry. Runners often cannot reach
+  # its analytics endpoint, and the CLI then spends ~10s timing out and exits non-zero even when
+  # the command itself succeeded. Belt and braces only: whether this variable is honoured varies
+  # by CLI version, so scripts/db/ensure-signing-keys.mjs no longer trusts the exit code either.
+  DO_NOT_TRACK: '1'
+
 jobs:
   verify:
     name: typecheck, lint, tests, migrations, build
