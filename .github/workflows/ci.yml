@@ -289,6 +289,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # supabase/config.toml declares [auth].signing_keys_path, and the CLI refuses to run once it
+      # has parsed that unless the file exists — including for `db push`, which has nothing to do
+      # with local auth ("failed to read signing keys: no such file or directory"). `verify` gets
+      # one for free from `supabase:start`; this job is a fresh runner with no local stack, so it
+      # generates one purely to satisfy config parsing.
+      #
+      # It is local-only and never leaves the runner: `db push` applies migration SQL and nothing
+      # else, and the project's auth configuration is only ever sent by `supabase config push`,
+      # which this workflow does not run.
+      - name: Generate a local signing key (config.toml requires the file to exist)
+        run: node scripts/db/ensure-signing-keys.mjs
+
       # The CLI is the version pinned in devDependencies, identical to the one `verify` just ran
       # the migrations through locally.
       - name: Link to the target Supabase project
