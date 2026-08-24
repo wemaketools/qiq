@@ -129,7 +129,9 @@ function ChartCard({ title, viewAllLabel, onViewAll, exportConfig, onViewDetails
           )}
         </div>
       </div>
-      <div data-testid="chart-card-body">{children}</div>
+      <div data-testid="chart-card-body" style={{ minWidth: 0, overflowX: 'auto' }}>
+        {children}
+      </div>
     </div>
   );
 }

@@ -19,15 +19,15 @@ function PipelineDonut({ title, testId, donut, onDrill }: PipelineDonutProps) {
 
   return (
     <ChartCard title={title}>
-      <div data-testid={testId} style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-4)' }}>
-        <div style={{ cursor: 'pointer' }} role="presentation" onClick={() => onDrill(donut.drillWidgetKey)}>
+      <div data-testid={testId} style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-4)', minWidth: 0 }}>
+        <div style={{ cursor: 'pointer', flexShrink: 0 }} role="presentation" onClick={() => onDrill(donut.drillWidgetKey)}>
           <DonutChartWidget data={data} height={220} width={220} onSliceClick={() => onDrill(donut.drillWidgetKey)} />
         </div>
-        <ul data-testid={`${testId}-legend`} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--qiq-space-2)' }}>
+        <ul data-testid={`${testId}-legend`} style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--qiq-space-2)', flex: '1 1 auto', minWidth: 0 }}>
           {donut.slices.length === 0 && <li className="qiq-card-sub">No data.</li>}
           {donut.slices.map((slice) => (
             <li key={slice.label} style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-2)' }}>
-              <span className="qiq-kpi-label" style={{ minWidth: 110 }}>
+              <span className="qiq-kpi-label" style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' }}>
                 {slice.label}
               </span>
               <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 32, textAlign: 'right' }}>{slice.count}</span>

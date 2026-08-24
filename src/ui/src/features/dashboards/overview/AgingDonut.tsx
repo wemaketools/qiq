@@ -34,8 +34,8 @@ function AgingDonut({ aging, onDrill, onViewAgingReport }: AgingDonutProps) {
 
   return (
     <ChartCard title="Open Quotes Aging" viewAllLabel="View aging report" onViewAll={onViewAgingReport}>
-      <div data-testid="aging-donut" style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-4)' }}>
-        <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => onDrill(aging.drillWidgetKey)} role="presentation">
+      <div data-testid="aging-donut" style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-4)', minWidth: 0 }}>
+        <div style={{ position: 'relative', cursor: 'pointer', flexShrink: 0 }} onClick={() => onDrill(aging.drillWidgetKey)} role="presentation">
           <DonutChartWidget data={data} onSliceClick={() => onDrill(aging.drillWidgetKey)} />
           <div
             style={{
@@ -54,14 +54,14 @@ function AgingDonut({ aging, onDrill, onViewAgingReport }: AgingDonutProps) {
             <span className="qiq-card-sub">Open Quotes</span>
           </div>
         </div>
-        <ul data-testid="aging-legend" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--qiq-space-2)' }}>
+        <ul data-testid="aging-legend" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 'var(--qiq-space-2)', flex: '1 1 auto', minWidth: 0 }}>
           {aging.buckets.map((bucket, index) => (
             <li key={bucket.bucket} style={{ display: 'flex', alignItems: 'center', gap: 'var(--qiq-space-2)' }}>
               <span
                 aria-hidden="true"
-                style={{ width: 10, height: 10, borderRadius: '50%', background: BUCKET_COLORS[index % BUCKET_COLORS.length] }}
+                style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: BUCKET_COLORS[index % BUCKET_COLORS.length] }}
               />
-              <span className="qiq-kpi-label" style={{ minWidth: 84 }}>
+              <span className="qiq-kpi-label" style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' }}>
                 {bucket.bucket}
               </span>
               <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 40, textAlign: 'right' }}>{bucket.count}</span>
