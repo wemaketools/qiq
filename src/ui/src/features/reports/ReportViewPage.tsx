@@ -50,7 +50,7 @@ function ReportViewPage() {
           data-testid="report-back"
           onClick={() => navigate('/reports')}
         >
-          <Icon name="arrow-right" size={16} />
+          <Icon name="chevron-left" size={16} />
           All reports
         </button>
         <div className="qiq-page-actions">
