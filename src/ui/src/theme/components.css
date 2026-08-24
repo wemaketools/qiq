@@ -473,7 +473,8 @@ button:disabled {
   display: flex;
   align-items: center;
 }
-.qiq-searchbox svg {
+/* Direct child only: the dropdown's group-header icons must not be absolutely positioned. */
+.qiq-searchbox > svg {
   position: absolute;
   left: 11px;
   width: 16px;
