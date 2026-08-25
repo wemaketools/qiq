@@ -126,7 +126,7 @@ function ReportSectionBlock({ section }: { section: ReportSection }) {
           {section.kpis.map((kpi) => (
             <div key={kpi.key} className="qiq-card" style={{ boxShadow: 'none' }}>
               <div className="qiq-kpi-label">{kpi.label}</div>
-              <div className="qiq-kpi-value">{kpi.displayValue}</div>
+              <div className={`qiq-kpi-value${kpiValueClass(kpi.kind)}`}>{kpi.displayValue}</div>
             </div>
           ))}
         </div>
@@ -167,6 +167,23 @@ function ReportSectionBlock({ section }: { section: ReportSection }) {
       )}
     </section>
   );
+}
+
+/**
+ * Kind-based color class for report KPI values (see `print.css`): currency, percent, and days
+ * values each get a distinct token color so they stand out in the printed/PDF report. Counts and
+ * text values stay on the neutral primary text color — a colored count would read as a good/bad
+ * judgment (e.g. SLA breaches) the report does not intend.
+ */
+function kpiValueClass(kind: string): string {
+  switch (kind) {
+    case 'currency':
+    case 'percent':
+    case 'days':
+      return ` qiq-report-kpi-value--${kind}`;
+    default:
+      return '';
+  }
 }
 
 function formatCell(cell: string | number | null): string {
