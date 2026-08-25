@@ -53,6 +53,23 @@
   gap: var(--qiq-space-3);
 }
 
+/*
+ * Kind-based KPI value colors: currency, percent, and days values each carry a distinct token
+ * color so they read apart from each other and from neutral counts in the printed/PDF report
+ * (and in the on-screen preview, which must match what prints).
+ */
+.qiq-report-kpi-value--currency {
+  color: var(--qiq-accent-strong);
+}
+
+.qiq-report-kpi-value--percent {
+  color: var(--qiq-info);
+}
+
+.qiq-report-kpi-value--days {
+  color: var(--qiq-warning);
+}
+
 @media print {
   /* Force the light surfaces the print/PDF page expects, regardless of the on-screen theme. */
   html {
@@ -86,6 +103,12 @@
 
   .qiq-report-section {
     page-break-inside: avoid;
+  }
+
+  /* Keep the kind-based KPI value colors when the browser would otherwise flatten them to ink-saving black. */
+  .qiq-kpi-value {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* Page-break between sections so a report reads as discrete printed blocks. */
