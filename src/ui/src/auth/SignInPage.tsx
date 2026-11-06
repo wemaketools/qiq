@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { signInWithPassword, GENERIC_SIGN_IN_FAILURE, FORGOT_PASSWORD_ROUTE } from './supabase';
+
+// Dev builds only: Vite folds `import.meta.env.DEV` to false in production, which drops the import and its chunk.
+const DemoAccounts = import.meta.env.DEV ? lazy(() => import('./DemoAccounts')) : null;
 
 interface SignInLocationState {
   from?: string;
@@ -31,12 +34,16 @@ function SignInPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (email.trim() === '' || password === '' || submitting) {
+    await signIn(email, password);
+  }
+
+  async function signIn(address: string, secret: string): Promise<void> {
+    if (address.trim() === '' || secret === '' || submitting) {
       return;
     }
     setSubmitting(true);
     setError(null);
-    const result = await signInWithPassword(email.trim(), password);
+    const result = await signInWithPassword(address.trim(), secret);
     if (result.ok) {
       navigate(returnPath, { replace: true });
       return;
@@ -47,50 +54,73 @@ function SignInPage() {
 
   return (
     <main className="qiq-auth-page" data-testid="sign-in-page">
-      <div className="qiq-card qiq-auth-card">
-        <h1 className="qiq-card-title">Sign in to QuoteIQ</h1>
+      <div className="qiq-auth-stack">
+        <div className="qiq-card qiq-auth-card">
+          <h1 className="qiq-card-title">Sign in to QuoteIQ</h1>
 
-        <form onSubmit={(event) => void handleSubmit(event)} noValidate>
-          {error !== null && (
-            <div role="alert" className="qiq-banner qiq-banner--error" data-testid="sign-in-error">
-              {error}
+          <form onSubmit={(event) => void handleSubmit(event)} noValidate>
+            {error !== null && (
+              <div
+                role="alert"
+                className="qiq-banner qiq-banner--error"
+                data-testid="sign-in-error"
+              >
+                {error}
+              </div>
+            )}
+
+            <div className="qiq-field">
+              <label htmlFor="sign-in-email">Email address</label>
+              <input
+                id="sign-in-email"
+                name="email"
+                type="email"
+                autoComplete="username"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
             </div>
-          )}
 
-          <div className="qiq-field">
-            <label htmlFor="sign-in-email">Email address</label>
-            <input
-              id="sign-in-email"
-              name="email"
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
+            <div className="qiq-field">
+              <label htmlFor="sign-in-password">Password</label>
+              <input
+                id="sign-in-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="qiq-btn qiq-btn--primary"
+              disabled={submitting}
+              data-testid="sign-in-submit"
+            >
+              {submitting ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <p className="qiq-card-sub">
+            <Link to={FORGOT_PASSWORD_ROUTE} className="qiq-card-link">
+              Forgot your password?
+            </Link>
+          </p>
+        </div>
+        {DemoAccounts !== null && (
+          <Suspense fallback={null}>
+            <DemoAccounts
+              disabled={submitting}
+              onPick={(pickedEmail, pickedPassword) => {
+                setEmail(pickedEmail);
+                setPassword(pickedPassword);
+                void signIn(pickedEmail, pickedPassword);
+              }}
             />
-          </div>
-
-          <div className="qiq-field">
-            <label htmlFor="sign-in-password">Password</label>
-            <input
-              id="sign-in-password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </div>
-
-          <button type="submit" className="qiq-btn qiq-btn--primary" disabled={submitting} data-testid="sign-in-submit">
-            {submitting ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
-
-        <p className="qiq-card-sub">
-          <Link to={FORGOT_PASSWORD_ROUTE} className="qiq-card-link">
-            Forgot your password?
-          </Link>
-        </p>
+          </Suspense>
+        )}
       </div>
     </main>
   );

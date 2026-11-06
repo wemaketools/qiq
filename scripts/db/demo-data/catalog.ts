@@ -25,6 +25,9 @@
  * canonical key: a divergent key here would silently break every conversion metric.
  */
 
+import { DEMO_IDENTITIES, DEMO_PASSWORD } from '../../../src/ui/src/auth/demoAccountList.js';
+import type { DemoIdentity } from '../../../src/ui/src/auth/demoAccountList.js';
+
 export const DEMO_ID_BASE = 900_000_000;
 
 /** Bases for the two GLOBAL (non-partitioned) demo tables and their join tables. */
@@ -286,7 +289,7 @@ export const INTERNAL_ROLE: RoleDef = {
  * It is NOT a default for anywhere else. A hosted environment is reachable by anyone who learns its
  * URL, and this value is in the repository — see `resolveDemoPassword`.
  */
-export const LOCAL_DEMO_PASSWORD = 'test1234';
+export const LOCAL_DEMO_PASSWORD = DEMO_PASSWORD;
 
 export type DemoPasswordDecision =
   | { readonly ok: true; readonly password: string; readonly source: 'configured' | 'local-default' }
@@ -321,6 +324,13 @@ export function resolveDemoPassword(appEnv: string, configured: string | null): 
   };
 }
 
+/** Name and email of a persona come from the list the sign-in quick-pick shares. */
+function demoIdentity(key: string): Pick<DemoIdentity, 'email' | 'firstName' | 'lastName'> {
+  const identity = DEMO_IDENTITIES.find((candidate) => candidate.key === key);
+  if (identity === undefined) throw new Error(`No demo identity for persona "${key}"`);
+  return { email: identity.email, firstName: identity.firstName, lastName: identity.lastName };
+}
+
 export interface PersonaDef {
   readonly key: string;
   readonly email: string;
@@ -345,9 +355,7 @@ export interface PersonaDef {
 export const PERSONAS: readonly PersonaDef[] = [
   {
     key: 'internal_admin',
-    email: 'internal.admin@quoteiq.local',
-    firstName: 'Ava',
-    lastName: 'Molefe',
+    ...demoIdentity('internal_admin'),
     tenantIndexes: [1, 2],
     rolePerTenant: ['admin', 'admin'],
     internal: true,
@@ -355,118 +363,90 @@ export const PERSONAS: readonly PersonaDef[] = [
   },
   {
     key: 'pilot_admin',
-    email: 'pilot.admin@quoteiq.local',
-    firstName: 'Boitumelo',
-    lastName: 'Seretse',
+    ...demoIdentity('pilot_admin'),
     tenantIndexes: [1],
     rolePerTenant: ['admin'],
   },
   {
     key: 'multi_manager',
-    email: 'sales.manager@quoteiq.local',
-    firstName: 'Kagiso',
-    lastName: 'Dube',
+    ...demoIdentity('multi_manager'),
     tenantIndexes: [1, 2],
     rolePerTenant: ['sales_manager', 'sales_manager'],
     lastTenantIndex: 1,
   },
   {
     key: 'exec',
-    email: 'executive@quoteiq.local',
-    firstName: 'Naledi',
-    lastName: 'Khama',
+    ...demoIdentity('exec'),
     tenantIndexes: [1],
     rolePerTenant: ['executive'],
   },
   {
     key: 'rm1',
-    email: 'rm.tebogo@quoteiq.local',
-    firstName: 'Tebogo',
-    lastName: 'Moremi',
+    ...demoIdentity('rm1'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'rm2',
-    email: 'rm.lorato@quoteiq.local',
-    firstName: 'Lorato',
-    lastName: 'Pheto',
+    ...demoIdentity('rm2'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'rm3',
-    email: 'rm.mpho@quoteiq.local',
-    firstName: 'Mpho',
-    lastName: 'Sekgoma',
+    ...demoIdentity('rm3'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'uw1',
-    email: 'uw.thabo@quoteiq.local',
-    firstName: 'Thabo',
-    lastName: 'Ramotswe',
+    ...demoIdentity('uw1'),
     tenantIndexes: [1],
     rolePerTenant: ['underwriter'],
   },
   {
     key: 'uw2',
-    email: 'uw.gorata@quoteiq.local',
-    firstName: 'Gorata',
-    lastName: 'Nkwe',
+    ...demoIdentity('uw2'),
     tenantIndexes: [1],
     rolePerTenant: ['underwriter'],
   },
   {
     key: 'single_rm',
-    email: 'rm.single@quoteiq.local',
-    firstName: 'Onalenna',
-    lastName: 'Botha',
+    ...demoIdentity('single_rm'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'partner_admin',
-    email: 'partner.admin@quoteiq.local',
-    firstName: 'Refilwe',
-    lastName: 'Modise',
+    ...demoIdentity('partner_admin'),
     tenantIndexes: [2],
     rolePerTenant: ['admin'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_manager',
-    email: 'partner.manager@quoteiq.local',
-    firstName: 'Kabelo',
-    lastName: 'Tau',
+    ...demoIdentity('partner_manager'),
     tenantIndexes: [2],
     rolePerTenant: ['sales_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_rm1',
-    email: 'partner.rm1@quoteiq.local',
-    firstName: 'Sethunya',
-    lastName: 'Kgosi',
+    ...demoIdentity('partner_rm1'),
     tenantIndexes: [2],
     rolePerTenant: ['relationship_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_rm2',
-    email: 'partner.rm2@quoteiq.local',
-    firstName: 'Tumelo',
-    lastName: 'Segwabe',
+    ...demoIdentity('partner_rm2'),
     tenantIndexes: [2],
     rolePerTenant: ['relationship_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_uw',
-    email: 'partner.uw@quoteiq.local',
-    firstName: 'Bonolo',
-    lastName: 'Mogami',
+    ...demoIdentity('partner_uw'),
     tenantIndexes: [2],
     rolePerTenant: ['underwriter'],
     lastTenantIndex: 2,

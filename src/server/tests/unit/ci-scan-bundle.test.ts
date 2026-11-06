@@ -60,6 +60,11 @@ describe('scan-bundle detects leaks in built assets (V-003)', () => {
     expect(scanBundleDir(dist).map((f) => f.rule)).toContain('service-role-literal');
   });
 
+  it('flags the dev-only demo quick-pick marker so demo credentials cannot ship', () => {
+    writeAsset('index-abc.js', 'const m="qiq-demo-accounts-dev-only-quick-pick";');
+    expect(scanBundleDir(dist).map((f) => f.rule)).toContain('demo-accounts-quick-pick');
+  });
+
   it('flags a concrete secret VALUE supplied from the environment', () => {
     writeAsset('index-abc.js', `const k="${FAKE_SERVICE_ROLE_JWT}";`);
     const findings = scanBundleDir(dist, [FAKE_SERVICE_ROLE_JWT]);

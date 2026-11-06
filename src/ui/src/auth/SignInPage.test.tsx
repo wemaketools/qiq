@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 const { signInWithPassword, GENERIC_SIGN_IN_FAILURE } = vi.hoisted(() => ({
@@ -151,5 +151,31 @@ describe('SignInPage', () => {
 
     // Assert
     await waitFor(() => expect(signInWithPassword).not.toHaveBeenCalled());
+  });
+
+  it('demoAccounts_WhenRoleClicked_ShouldSignInWithThatPersonaAndTheLocalPassword', async () => {
+    // Arrange
+    renderSignIn();
+
+    // Act
+    fireEvent.click(await screen.findByRole('button', { name: /Boitumelo Seretse/ }));
+
+    // Assert
+    await waitFor(() =>
+      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'test1234'),
+    );
+    expect(await screen.findByTestId('landed-root')).toBeInTheDocument();
+    expect(screen.queryByTestId('demo-accounts')).not.toBeInTheDocument();
+  });
+
+  it('demoAccounts_WhenListed_ShouldOfferEverySeededActivePersonaAndNotTheDeactivatedOne', async () => {
+    // Arrange & Act
+    renderSignIn();
+    const card = await screen.findByTestId('demo-accounts');
+
+    // Assert
+    expect(card).toHaveTextContent('Demo accounts (local development only)');
+    expect(within(card).getAllByRole('button')).toHaveLength(15);
+    expect(card).not.toHaveTextContent('disabled.user');
   });
 });
