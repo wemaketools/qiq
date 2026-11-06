@@ -72,8 +72,12 @@ present them. See [`background-jobs.md`](./background-jobs.md).
 | `STORAGE_ADAPTER` | `supabase` | `supabase` \| `fake` | Non-sensitive |
 | `STORAGE_ATTACHMENTS_BUCKET` | `quote-attachments` | lower-case bucket name | Non-sensitive |
 
-`DEMO_SEED_PASSWORD` is the password `npm run db:seed:demo` gives its sixteen personas, read by
-that script alone and never by the application. Locally it may be omitted: the seed falls back to
+`DEMO_SEED_PASSWORD` is the password `npm run db:seed:demo` gives its sixteen personas. It is also
+read by the API's demo sign-in endpoint (`POST /api/v1/auth/demo-sign-in`), which signs the sign-in
+page's demo roles in on the server so the browser bundle never holds it. **Set it in the Vercel
+environment of every environment whose sign-in page should offer one-click demo roles (dev and
+Production), as a Sensitive variable, with the value the demo users' password has there**; where
+it is unset the endpoint answers 404 "not configured" and the page only fills in the email. Locally it may be omitted: the seed falls back to
 the value committed in `scripts/db/demo-data/catalog.ts`, which is what the e2e suite signs in
 with, and a local stack grants nothing beyond the machine it runs on. **Away from local it is
 required** — the seed re-asserts every persona's password on each run, so a fallback would undo a

@@ -46,6 +46,7 @@ export type RouteScope = 'tenant-scoped' | 'global';
  *   /global   — Internal global templates / default reference items
  *   /me       — the caller's own profile, incl. the tenant list the switcher renders
  *   /intake   — the Q-19 API-key intake route, which carries its tenant in its own credential
+ *   /auth     — demo sign-in, which runs before any session or tenant exists
  * `/health` is added here (it is `/api/v1/health` in this port, whereas the .NET health endpoint
  * lived outside `/api/v1` and was never reached by that middleware at all).
  */
@@ -55,6 +56,7 @@ export const GLOBAL_ROUTE_PREFIXES: readonly string[] = [
   '/api/v1/global',
   '/api/v1/me',
   '/api/v1/intake',
+  '/api/v1/auth',
 ];
 
 const API_PREFIX = '/api/v1';

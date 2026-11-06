@@ -1,26 +1,16 @@
-/**
- * DemoAccounts: the sign-in quick-pick of LOCAL DEVELOPMENT builds. Picking a persona signs in with the local
- * demo password. Loaded only behind `import.meta.env.DEV` (see SignInPage), so production builds do not contain
- * it; `scan-bundle` checks the marker.
- */
-import { DEMO_ACCOUNTS_MARKER, DEMO_IDENTITIES, DEMO_PASSWORD } from './demoAccountList';
+/** DemoAccounts: the sign-in quick-pick listing the seeded demo personas. */
+import { DEMO_IDENTITIES } from './demoAccountList';
 
 export interface DemoAccountsProps {
-  readonly onPick: (email: string, password: string) => void;
+  readonly onPick: (email: string) => void;
   readonly disabled?: boolean;
 }
 
 export default function DemoAccounts({ onPick, disabled = false }: DemoAccountsProps) {
   return (
-    <section
-      className="qiq-card qiq-demo-accounts"
-      data-marker={DEMO_ACCOUNTS_MARKER}
-      data-testid="demo-accounts"
-    >
-      <h2 className="qiq-card-title">Demo accounts (local development only)</h2>
-      <p className="qiq-card-sub">
-        Click a role to sign in. Local password: <code>{DEMO_PASSWORD}</code>
-      </p>
+    <section className="qiq-card qiq-demo-accounts" data-testid="demo-accounts">
+      <h2 className="qiq-card-title">Demo accounts</h2>
+      <p className="qiq-card-sub">Click a role to sign in.</p>
       <ul className="qiq-demo-list">
         {DEMO_IDENTITIES.map((account) => (
           <li key={account.key}>
@@ -28,7 +18,7 @@ export default function DemoAccounts({ onPick, disabled = false }: DemoAccountsP
               type="button"
               className="qiq-demo-account"
               disabled={disabled}
-              onClick={() => onPick(account.email, DEMO_PASSWORD)}
+              onClick={() => onPick(account.email)}
             >
               {account.firstName} {account.lastName}
               <span className="qiq-demo-account-role">{account.roleLabel}</span>

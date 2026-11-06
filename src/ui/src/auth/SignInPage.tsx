@@ -1,10 +1,16 @@
-import { lazy, Suspense, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { signInWithPassword, GENERIC_SIGN_IN_FAILURE, FORGOT_PASSWORD_ROUTE } from './supabase';
+import DemoAccounts from './DemoAccounts';
+import {
+  signInAsDemoPersona,
+  signInWithPassword,
+  GENERIC_SIGN_IN_FAILURE,
+  FORGOT_PASSWORD_ROUTE,
+} from './supabase';
 
-// Dev builds only: Vite folds `import.meta.env.DEV` to false in production, which drops the import and its chunk.
-const DemoAccounts = import.meta.env.DEV ? lazy(() => import('./DemoAccounts')) : null;
+const DEMO_SIGN_IN_UNAVAILABLE =
+  'One-click demo sign-in is not available here. The email is filled in; enter the demo password.';
 
 interface SignInLocationState {
   from?: string;
@@ -31,6 +37,7 @@ function SignInPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -50,6 +57,29 @@ function SignInPage() {
     }
     setSubmitting(false);
     setError(result.message || GENERIC_SIGN_IN_FAILURE);
+  }
+
+  /**
+   * The server signs the persona in, so the browser never holds the demo password. If it will not
+   * (not configured here, or the persona is not available), the email is filled in and the password
+   * field focused, with a notice, so the click never fails silently.
+   */
+  async function signInAsDemo(demoEmail: string): Promise<void> {
+    if (submitting) {
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setEmail(demoEmail);
+    setPassword('');
+    const result = await signInAsDemoPersona(demoEmail);
+    if (result.ok) {
+      navigate(returnPath, { replace: true });
+      return;
+    }
+    setSubmitting(false);
+    setError(DEMO_SIGN_IN_UNAVAILABLE);
+    passwordRef.current?.focus();
   }
 
   return (
@@ -85,6 +115,7 @@ function SignInPage() {
               <label htmlFor="sign-in-password">Password</label>
               <input
                 id="sign-in-password"
+                ref={passwordRef}
                 name="password"
                 type="password"
                 autoComplete="current-password"
@@ -109,18 +140,10 @@ function SignInPage() {
             </Link>
           </p>
         </div>
-        {DemoAccounts !== null && (
-          <Suspense fallback={null}>
-            <DemoAccounts
-              disabled={submitting}
-              onPick={(pickedEmail, pickedPassword) => {
-                setEmail(pickedEmail);
-                setPassword(pickedPassword);
-                void signIn(pickedEmail, pickedPassword);
-              }}
-            />
-          </Suspense>
-        )}
+        <DemoAccounts
+          disabled={submitting}
+          onPick={(pickedEmail) => void signInAsDemo(pickedEmail)}
+        />
       </div>
     </main>
   );

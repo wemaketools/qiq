@@ -96,6 +96,36 @@ export async function signInWithPassword(email: string, password: string): Promi
   }
 }
 
+/** The server-side demo sign-in endpoint (domains/demo-sign-in); it holds the demo password. */
+const DEMO_SIGN_IN_PATH = '/api/v1/auth/demo-sign-in';
+
+/**
+ * Signs a demo persona in through the API, which checks the email against the demo list and signs
+ * in with the environment's demo password. Only the email leaves the browser; the session that comes
+ * back is handed to supabase-js, so everything after is an ordinary signed-in session. Any refusal
+ * or failure resolves `ok: false` so the caller can fall back to the password form.
+ */
+export async function signInAsDemoPersona(email: string): Promise<AuthOutcome> {
+  try {
+    const response = await fetch(DEMO_SIGN_IN_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+      return { ok: false, message: GENERIC_SIGN_IN_FAILURE };
+    }
+    const session = (await response.json()) as { access_token: string; refresh_token: string };
+    const { error } = await getSupabaseClient().auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+    });
+    return error === null ? { ok: true } : { ok: false, message: GENERIC_SIGN_IN_FAILURE };
+  } catch {
+    return { ok: false, message: GENERIC_SIGN_IN_FAILURE };
+  }
+}
+
 /**
  * Requests a reset email. Resolves identically whether or not the address exists, and whether or
  * not GoTrue reported a problem — the caller has nothing to branch on, which is the point.

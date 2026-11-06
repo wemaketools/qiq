@@ -322,6 +322,14 @@ describe('composition roots', () => {
     expect(contents).toMatch(/buildApp\(\{[^}]*intake:\s*defaultIntakeDeps\(config\)/s);
   });
 
+  it.each(COMPOSITION_ROOTS)('%s passes demo sign-in deps to buildApp', (path) => {
+    // Omitting `demoSignIn` 404s the endpoint; the sign-in page then only fills the email, and no
+    // suite notices because the Vercel root is executed by no test.
+    const contents = read(path);
+
+    expect(contents).toMatch(/buildApp\(\{[^}]*demoSignIn:\s*defaultDemoSignInDeps\(config\)/s);
+  });
+
   it.each(COMPOSITION_ROOTS)(
     '%s passes the alert re-evaluation seam to BOTH the leads and quotes slots (T-034)',
     (path) => {
