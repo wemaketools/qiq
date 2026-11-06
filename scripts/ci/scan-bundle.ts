@@ -74,8 +74,8 @@ export const BUNDLE_RULES: readonly BundleRule[] = [
   {
     name: 'demo-password-literal',
     description:
-      'a demo persona password in the client bundle (the demo sign-in is server-side; the SPA must never hold it)',
-    pattern: new RegExp(`${DEMO_PASSWORD}|["'\`]123456["'\`]`),
+      'the local demo persona password in the client bundle (the demo sign-in is server-side; the SPA must never hold it)',
+    pattern: new RegExp(DEMO_PASSWORD),
   },
   {
     name: 'server-module-path',

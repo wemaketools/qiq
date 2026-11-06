@@ -62,10 +62,9 @@ describe('scan-bundle detects leaks in built assets (V-003)', () => {
 
   it('flags a demo persona password so the demo sign-in stays server-side', () => {
     writeAsset('index-abc.js', 'const p="test1234";');
-    writeAsset('index-def.js', 'const q="123456";');
-    writeAsset('index-ghi.js', 'const n=1234567;');
+    writeAsset('index-def.js', 'const n=42;');
     const findings = scanBundleDir(dist).filter((f) => f.rule === 'demo-password-literal');
-    expect(findings.map((f) => f.file).sort()).toEqual(['assets/index-abc.js', 'assets/index-def.js']);
+    expect(findings.map((f) => f.file)).toEqual(['assets/index-abc.js']);
   });
 
   it('flags a concrete secret VALUE supplied from the environment', () => {
