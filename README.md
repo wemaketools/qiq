@@ -30,9 +30,9 @@ npm run db:seed:demo     # layers on the full demo dataset (two tenants, persona
 npm run dev              # API on http://127.0.0.1:3001 + SPA on http://localhost:5173
 ```
 
-Open http://localhost:5173 and sign in with a seeded demo persona (password `test1234`). In `npm run dev`
-the sign-in page also lists the demo roles under the form: click one to sign in. That card exists in
-development builds only; production bundles drop it and `ci:security` fails if it appears.
+Open http://localhost:5173 and sign in with a seeded demo persona (password `test1234`). The sign-in page also lists the demo roles under the form. Locally a click signs in with `test1234`; on a
+deployed site set `VITE_DEMO_PASSWORD` in that environment's build to get one-click sign-in, otherwise a
+click only fills in the email.
 Reprint the local stack URLs and keys at any time with `npx supabase status`.
 
 The full clean-checkout runbook, including authentication details and troubleshooting, is

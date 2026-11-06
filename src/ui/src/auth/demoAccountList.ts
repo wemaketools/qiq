@@ -1,14 +1,12 @@
 /**
- * The demo personas of a LOCAL stack, shared by the demo seed (scripts/db/demo-data/catalog.ts) and the
- * sign-in quick-pick. Keep this file free of imports: the seed reads it from outside the SPA.
+ * The demo personas, shared by the demo seed (scripts/db/demo-data/catalog.ts) and the sign-in quick-pick.
+ * Keep this file free of imports: the seed reads it from outside the SPA.
  *
- * DEVELOPMENT BUILDS ONLY in the browser: the SPA reaches it solely through the dynamic import in SignInPage
- * behind `import.meta.env.DEV`, and `scan-bundle` fails if DEMO_ACCOUNTS_MARKER shows up in `src/ui/dist`.
+ * The SPA's quick-pick does not use DEMO_PASSWORD outside local development: deployed environments seed their
+ * personas with their own password, which the build supplies as VITE_DEMO_PASSWORD (see SignInPage).
  */
 
-export const DEMO_ACCOUNTS_MARKER = 'qiq-demo-accounts-dev-only-quick-pick';
-
-/** Local-only password of every demo persona; the seed refuses to use it away from local. */
+/** Password of the personas on a LOCAL stack; the seed refuses to use it anywhere else. */
 export const DEMO_PASSWORD = 'test1234';
 
 export interface DemoIdentity {

@@ -70,11 +70,6 @@ export const BUNDLE_RULES: readonly BundleRule[] = [
     pattern: /\bsb_secret_[A-Za-z0-9]{16,}/,
   },
   {
-    name: 'demo-accounts-quick-pick',
-    description: 'the dev-only demo sign-in quick-pick (credentials) shipped in a production bundle',
-    pattern: /qiq-demo-accounts-dev-only-quick-pick/,
-  },
-  {
     name: 'server-module-path',
     description: 'a src/server module path fragment (server code leaked into the bundle)',
     pattern: /src\/server\//,

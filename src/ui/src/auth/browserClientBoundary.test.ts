@@ -45,9 +45,9 @@ describe('SPA / server credential boundary', () => {
     );
   });
 
-  it('reads no environment variable outside the two browser-safe VITE_ values', () => {
+  it('reads no environment variable outside the browser-safe VITE_ values', () => {
     // Scans the *code*; the allow-list is the browser-safe half of the .env.example catalog.
-    const allowed = new Set(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']);
+    const allowed = new Set(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY', 'VITE_DEMO_PASSWORD']);
     const referenced = new Set<string>();
 
     for (const [, source] of scannable) {

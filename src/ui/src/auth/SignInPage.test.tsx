@@ -34,6 +34,7 @@ function fillCredentials(email: string, password: string): void {
 describe('SignInPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     signInWithPassword.mockResolvedValue({ ok: true });
   });
 
@@ -46,7 +47,10 @@ describe('SignInPage', () => {
     expect(screen.getByLabelText(/email/i)).toHaveAttribute('type', 'email');
     expect(screen.getByLabelText(/password/i)).toHaveAttribute('type', 'password');
     expect(screen.getByRole('button', { name: /sign in/i })).toBeEnabled();
-    expect(screen.getByRole('link', { name: /forgot your password/i })).toHaveAttribute('href', '/forgot-password');
+    expect(screen.getByRole('link', { name: /forgot your password/i })).toHaveAttribute(
+      'href',
+      '/forgot-password',
+    );
   });
 
   it('submit_WhenCredentialsEntered_ShouldCallSignInWithPasswordWithThoseCredentials', async () => {
@@ -58,7 +62,9 @@ describe('SignInPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }));
 
     // Assert
-    await waitFor(() => expect(signInWithPassword).toHaveBeenCalledWith('seeded@example.test', 'correct-horse'));
+    await waitFor(() =>
+      expect(signInWithPassword).toHaveBeenCalledWith('seeded@example.test', 'correct-horse'),
+    );
   });
 
   it('submit_WhileRequestInFlight_ShouldDisableTheSubmitButtonAndShowProgress', async () => {
@@ -153,29 +159,37 @@ describe('SignInPage', () => {
     await waitFor(() => expect(signInWithPassword).not.toHaveBeenCalled());
   });
 
-  it('demoAccounts_WhenRoleClicked_ShouldSignInWithThatPersonaAndTheLocalPassword', async () => {
+  it('demoAccounts_WithBuildPassword_ShouldListActivePersonasAndSignInInOneClick', async () => {
     // Arrange
+    vi.stubEnv('VITE_DEMO_PASSWORD', 'pilot-demo-pw');
+    renderSignIn();
+    const card = screen.getByTestId('demo-accounts');
+
+    // Act
+    fireEvent.click(within(card).getByRole('button', { name: /Boitumelo Seretse/ }));
+
+    // Assert
+    expect(within(card).getAllByRole('button')).toHaveLength(15);
+    expect(card).not.toHaveTextContent('disabled.user');
+    await waitFor(() =>
+      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'pilot-demo-pw'),
+    );
+    expect(await screen.findByTestId('landed-root')).toBeInTheDocument();
+  });
+
+  it('demoAccounts_WithoutAnyPassword_ShouldFillTheEmailAndFocusPasswordInsteadOfSigningIn', () => {
+    // Arrange: a production build with VITE_DEMO_PASSWORD unset
+    vi.stubEnv('VITE_DEMO_PASSWORD', '');
+    vi.stubEnv('DEV', false);
     renderSignIn();
 
     // Act
-    fireEvent.click(await screen.findByRole('button', { name: /Boitumelo Seretse/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Boitumelo Seretse/ }));
 
     // Assert
-    await waitFor(() =>
-      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'test1234'),
-    );
-    expect(await screen.findByTestId('landed-root')).toBeInTheDocument();
-    expect(screen.queryByTestId('demo-accounts')).not.toBeInTheDocument();
-  });
-
-  it('demoAccounts_WhenListed_ShouldOfferEverySeededActivePersonaAndNotTheDeactivatedOne', async () => {
-    // Arrange & Act
-    renderSignIn();
-    const card = await screen.findByTestId('demo-accounts');
-
-    // Assert
-    expect(card).toHaveTextContent('Demo accounts (local development only)');
-    expect(within(card).getAllByRole('button')).toHaveLength(15);
-    expect(card).not.toHaveTextContent('disabled.user');
+    expect(screen.getByLabelText(/email/i)).toHaveValue('pilot.admin@quoteiq.local');
+    expect(screen.getByLabelText(/password/i)).toHaveFocus();
+    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(screen.getByTestId('demo-accounts')).toHaveTextContent('enter the demo password');
   });
 });
