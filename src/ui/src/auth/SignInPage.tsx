@@ -1,19 +1,9 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DemoAccounts from './DemoAccounts';
 import { DEMO_PASSWORD } from './demoAccountList';
 import { signInWithPassword, GENERIC_SIGN_IN_FAILURE, FORGOT_PASSWORD_ROUTE } from './supabase';
-
-/**
- * The demo personas' password: VITE_DEMO_PASSWORD from the build (public by construction, pilot data only),
- * else the local-stack default in development. Blank means a role click can only fill in the email.
- */
-function demoPassword(): string {
-  const configured = String(import.meta.env.VITE_DEMO_PASSWORD ?? '').trim();
-  if (configured !== '') return configured;
-  return import.meta.env.DEV ? DEMO_PASSWORD : '';
-}
 
 interface SignInLocationState {
   from?: string;
@@ -40,8 +30,6 @@ function SignInPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const passwordRef = useRef<HTMLInputElement>(null);
-  const oneClick = demoPassword() !== '';
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -95,7 +83,6 @@ function SignInPage() {
             <div className="qiq-field">
               <label htmlFor="sign-in-password">Password</label>
               <input
-                ref={passwordRef}
                 id="sign-in-password"
                 name="password"
                 type="password"
@@ -122,19 +109,11 @@ function SignInPage() {
           </p>
         </div>
         <DemoAccounts
-          oneClick={oneClick}
           disabled={submitting}
           onPick={(pickedEmail) => {
-            const secret = demoPassword();
             setEmail(pickedEmail);
-            setError(null);
-            if (secret === '') {
-              setPassword('');
-              passwordRef.current?.focus();
-              return;
-            }
-            setPassword(secret);
-            void signIn(pickedEmail, secret);
+            setPassword(DEMO_PASSWORD);
+            void signIn(pickedEmail, DEMO_PASSWORD);
           }}
         />
       </div>

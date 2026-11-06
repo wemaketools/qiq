@@ -22,7 +22,6 @@ They are read by SPA code (`src/ui`), not by the server config module.
 | --- | --- | --- | --- |
 | `VITE_SUPABASE_URL` | Browser (SPA build) | Public | Vercel env (all envs) / `.env.local` locally |
 | `VITE_SUPABASE_ANON_KEY` | Browser (SPA build) | Public | Vercel env (all envs) / `.env.local` locally |
-| `VITE_DEMO_PASSWORD` (optional) | Browser (SPA build) | Public by construction; pilot demo data only | Vercel env per environment. Unset: the sign-in demo card fills the email only; local dev falls back to `test1234` |
 
 Why the anon key is safe to ship to the browser is explained under
 [Why `VITE_SUPABASE_ANON_KEY` is safe](#why-vite_supabase_anon_key-is-safe-to-ship-to-the-browser).

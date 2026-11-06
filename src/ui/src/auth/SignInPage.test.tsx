@@ -34,7 +34,6 @@ function fillCredentials(email: string, password: string): void {
 describe('SignInPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.unstubAllEnvs();
     signInWithPassword.mockResolvedValue({ ok: true });
   });
 
@@ -159,9 +158,8 @@ describe('SignInPage', () => {
     await waitFor(() => expect(signInWithPassword).not.toHaveBeenCalled());
   });
 
-  it('demoAccounts_WithBuildPassword_ShouldListActivePersonasAndSignInInOneClick', async () => {
+  it('demoAccounts_WhenRoleClicked_ShouldListActivePersonasAndSignInWithTheDemoPassword', async () => {
     // Arrange
-    vi.stubEnv('VITE_DEMO_PASSWORD', 'pilot-demo-pw');
     renderSignIn();
     const card = screen.getByTestId('demo-accounts');
 
@@ -172,24 +170,8 @@ describe('SignInPage', () => {
     expect(within(card).getAllByRole('button')).toHaveLength(15);
     expect(card).not.toHaveTextContent('disabled.user');
     await waitFor(() =>
-      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'pilot-demo-pw'),
+      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'test1234'),
     );
     expect(await screen.findByTestId('landed-root')).toBeInTheDocument();
-  });
-
-  it('demoAccounts_WithoutAnyPassword_ShouldFillTheEmailAndFocusPasswordInsteadOfSigningIn', () => {
-    // Arrange: a production build with VITE_DEMO_PASSWORD unset
-    vi.stubEnv('VITE_DEMO_PASSWORD', '');
-    vi.stubEnv('DEV', false);
-    renderSignIn();
-
-    // Act
-    fireEvent.click(screen.getByRole('button', { name: /Boitumelo Seretse/ }));
-
-    // Assert
-    expect(screen.getByLabelText(/email/i)).toHaveValue('pilot.admin@quoteiq.local');
-    expect(screen.getByLabelText(/password/i)).toHaveFocus();
-    expect(signInWithPassword).not.toHaveBeenCalled();
-    expect(screen.getByTestId('demo-accounts')).toHaveTextContent('enter the demo password');
   });
 });

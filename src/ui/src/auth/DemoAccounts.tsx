@@ -1,21 +1,17 @@
 /** DemoAccounts: the sign-in quick-pick listing the seeded demo personas. */
-import { DEMO_IDENTITIES } from './demoAccountList';
+import { DEMO_IDENTITIES, DEMO_PASSWORD } from './demoAccountList';
 
 export interface DemoAccountsProps {
   readonly onPick: (email: string) => void;
-  /** True when a pick signs in at once; false when it only fills the email. */
-  readonly oneClick: boolean;
   readonly disabled?: boolean;
 }
 
-export default function DemoAccounts({ onPick, oneClick, disabled = false }: DemoAccountsProps) {
+export default function DemoAccounts({ onPick, disabled = false }: DemoAccountsProps) {
   return (
     <section className="qiq-card qiq-demo-accounts" data-testid="demo-accounts">
       <h2 className="qiq-card-title">Demo accounts</h2>
       <p className="qiq-card-sub">
-        {oneClick
-          ? 'Click a role to sign in.'
-          : 'Click a role to fill in its email, then enter the demo password.'}
+        Click a role to sign in. Demo password: <code>{DEMO_PASSWORD}</code>
       </p>
       <ul className="qiq-demo-list">
         {DEMO_IDENTITIES.map((account) => (

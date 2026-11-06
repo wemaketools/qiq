@@ -2,11 +2,11 @@
  * The demo personas, shared by the demo seed (scripts/db/demo-data/catalog.ts) and the sign-in quick-pick.
  * Keep this file free of imports: the seed reads it from outside the SPA.
  *
- * The SPA's quick-pick does not use DEMO_PASSWORD outside local development: deployed environments seed their
- * personas with their own password, which the build supplies as VITE_DEMO_PASSWORD (see SignInPage).
+ * DEMO_PASSWORD is public: it ships in the SPA bundle and the quick-pick signs in with it in every environment.
+ * That is a pilot-phase decision; revisit it before real customer data.
  */
 
-/** Password of the personas on a LOCAL stack; the seed refuses to use it anywhere else. */
+/** Password of every demo persona wherever they are seeded. */
 export const DEMO_PASSWORD = 'test1234';
 
 export interface DemoIdentity {
