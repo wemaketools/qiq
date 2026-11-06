@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
-const { signInWithPassword, GENERIC_SIGN_IN_FAILURE } = vi.hoisted(() => ({
+const { signInWithPassword, signInAsDemoPersona, GENERIC_SIGN_IN_FAILURE } = vi.hoisted(() => ({
   signInWithPassword: vi.fn(),
+  signInAsDemoPersona: vi.fn(),
   GENERIC_SIGN_IN_FAILURE: 'Sign-in failed. Check your details and try again.',
 }));
 
 vi.mock('./supabase', () => ({
   signInWithPassword,
+  signInAsDemoPersona,
   GENERIC_SIGN_IN_FAILURE,
   FORGOT_PASSWORD_ROUTE: '/forgot-password',
 }));
@@ -35,6 +37,7 @@ describe('SignInPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     signInWithPassword.mockResolvedValue({ ok: true });
+    signInAsDemoPersona.mockResolvedValue({ ok: true });
   });
 
   it('render_WhenMounted_ShouldExposeAccessibleEmailPasswordAndSubmitControls', () => {
@@ -158,7 +161,7 @@ describe('SignInPage', () => {
     await waitFor(() => expect(signInWithPassword).not.toHaveBeenCalled());
   });
 
-  it('demoAccounts_WhenRoleClicked_ShouldListActivePersonasAndSignInWithTheDemoPassword', async () => {
+  it('demoAccounts_WhenRoleClicked_ShouldListActivePersonasAndSignInThroughTheServerWithOnlyTheEmail', async () => {
     // Arrange
     renderSignIn();
     const card = screen.getByTestId('demo-accounts');
@@ -169,9 +172,26 @@ describe('SignInPage', () => {
     // Assert
     expect(within(card).getAllByRole('button')).toHaveLength(15);
     expect(card).not.toHaveTextContent('disabled.user');
+    expect(card).not.toHaveTextContent('test1234');
     await waitFor(() =>
-      expect(signInWithPassword).toHaveBeenCalledWith('pilot.admin@quoteiq.local', 'test1234'),
+      expect(signInAsDemoPersona).toHaveBeenCalledWith('pilot.admin@quoteiq.local'),
     );
+    expect(signInWithPassword).not.toHaveBeenCalled();
     expect(await screen.findByTestId('landed-root')).toBeInTheDocument();
+  });
+
+  it('demoAccounts_WhenServerRefuses_ShouldFillTheEmailFocusPasswordAndSayWhy', async () => {
+    // Arrange
+    signInAsDemoPersona.mockResolvedValue({ ok: false, message: GENERIC_SIGN_IN_FAILURE });
+    renderSignIn();
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: /Boitumelo Seretse/ }));
+
+    // Assert
+    expect(await screen.findByTestId('sign-in-error')).toHaveTextContent(/not available here/i);
+    expect(screen.getByLabelText(/email/i)).toHaveValue('pilot.admin@quoteiq.local');
+    expect(screen.getByLabelText(/password/i)).toHaveFocus();
+    expect(screen.queryByTestId('landed-root')).not.toBeInTheDocument();
   });
 });

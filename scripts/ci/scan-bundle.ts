@@ -20,6 +20,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEMO_PASSWORD } from '../../src/ui/src/auth/demoAccountList.js';
+
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const DIST_DIR = resolve(repoRoot, 'src/ui/dist');
 
@@ -68,6 +70,12 @@ export const BUNDLE_RULES: readonly BundleRule[] = [
     name: 'supabase-secret-key',
     description: 'a Supabase secret API key value (sb_secret_…)',
     pattern: /\bsb_secret_[A-Za-z0-9]{16,}/,
+  },
+  {
+    name: 'demo-password-literal',
+    description:
+      'a demo persona password in the client bundle (the demo sign-in is server-side; the SPA must never hold it)',
+    pattern: new RegExp(`${DEMO_PASSWORD}|["'\`]123456["'\`]`),
   },
   {
     name: 'server-module-path',

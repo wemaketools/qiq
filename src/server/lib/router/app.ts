@@ -49,6 +49,8 @@ import { permissionRoutes } from '../../domains/rbac/permissions.routes.js';
 import { roleRoutes } from '../../domains/rbac/roles.routes.js';
 import { apiAccessRoutes } from '../../domains/api-access/routes.js';
 import type { ApiAccessDeps } from '../../domains/api-access/service.js';
+import { demoSignInRoutes } from '../../domains/demo-sign-in/routes.js';
+import type { DemoSignInDeps } from '../../domains/demo-sign-in/service.js';
 import { intakeRoutes } from '../../domains/intake/routes.js';
 import type { IntakeRouteDeps } from '../../domains/intake/routes.js';
 import { alertRoutes } from '../../domains/alerts/routes.js';
@@ -340,6 +342,14 @@ export interface AppDeps {
    * Takes `config` like `apiAccess` does, because verifying a presented key needs the pepper.
    */
   readonly intake?: IntakeRouteDeps;
+  /**
+   * Demo sign-in ports: `POST /auth/demo-sign-in`, which signs the sign-in page's demo roles in on
+   * the server so the SPA holds no demo password. Mounted OUTSIDE the session-auth group, like
+   * `intake`, because the caller has no session yet. Omitted only by test harnesses; when absent the
+   * endpoint answers 404 and the page falls back to filling the email. Pinned by
+   * `tests/integration/auth-wiring.test.ts`.
+   */
+  readonly demoSignIn?: DemoSignInDeps;
   /** Composition hook for domain routers (and for tests that need a route to exercise). */
   readonly registerRoutes?: (app: ApiApp) => void;
 }
@@ -429,6 +439,12 @@ export function buildApp(deps: AppDeps): ApiApp {
   //     would make it a public write endpoint into every tenant. `intake.test.ts` pins both ends.
   if (deps.intake) {
     app.route(API_BASE_PATH, intakeRoutes(deps.intake));
+  }
+
+  // 4c. DEMO SIGN-IN — answers before the auth slot for the same reason intake does: the caller is
+  //     about to get a session, not hold one. Its allow-list lives in the service, not here.
+  if (deps.demoSignIn) {
+    app.route(API_BASE_PATH, demoSignInRoutes(deps.demoSignIn));
   }
 
   // 5. AUTH SLOT — Supabase access-token verification (T-011).

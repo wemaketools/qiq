@@ -28,6 +28,7 @@
 import { handle } from 'hono/vercel';
 
 import { defaultApiAccessDeps } from '../../src/server/domains/api-access/index.js';
+import { defaultDemoSignInDeps } from '../../src/server/domains/demo-sign-in/index.js';
 import { defaultIntakeDeps } from '../../src/server/domains/intake/index.js';
 import { defaultAlertsDeps } from '../../src/server/domains/alerts/index.js';
 import { defaultAssignmentsDeps } from '../../src/server/domains/assignments/index.js';
@@ -97,6 +98,7 @@ function getHandler(): (request: Request) => Response | Promise<Response> {
       assignments: defaultAssignmentsDeps(),
       apiAccess: defaultApiAccessDeps(config),
       intake: defaultIntakeDeps(config),
+      demoSignIn: defaultDemoSignInDeps(config),
     }),
   );
   return cachedHandler;
