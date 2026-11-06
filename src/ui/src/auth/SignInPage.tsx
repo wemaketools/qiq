@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import DemoAccounts from './DemoAccounts';
-import { DEMO_PASSWORD } from './demoAccountList';
+import { CARD_PASSWORD } from './cardPassword';
 import { signInWithPassword, GENERIC_SIGN_IN_FAILURE, FORGOT_PASSWORD_ROUTE } from './supabase';
 
 interface SignInLocationState {
@@ -112,8 +112,8 @@ function SignInPage() {
           disabled={submitting}
           onPick={(pickedEmail) => {
             setEmail(pickedEmail);
-            setPassword(DEMO_PASSWORD);
-            void signIn(pickedEmail, DEMO_PASSWORD);
+            setPassword(CARD_PASSWORD);
+            void signIn(pickedEmail, CARD_PASSWORD);
           }}
         />
       </div>
