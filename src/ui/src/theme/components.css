@@ -1394,3 +1394,50 @@ th[aria-sort='descending'] .qiq-sort-arrow {
   margin-top: var(--qiq-space-4);
   text-align: center;
 }
+
+/* Dev-only sign-in quick-pick (DemoAccounts); never present in production bundles. */
+.qiq-auth-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--qiq-space-4);
+  width: 100%;
+}
+.qiq-demo-accounts {
+  width: 100%;
+  max-width: 760px;
+}
+.qiq-demo-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--qiq-space-2);
+  list-style: none;
+  margin: var(--qiq-space-3) 0 0;
+  padding: 0;
+}
+.qiq-demo-account {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--qiq-space-2) var(--qiq-space-3);
+  border-radius: var(--qiq-radius-chip);
+  border: 1px solid var(--qiq-border-subtle);
+  background: var(--qiq-surface-card);
+  color: var(--qiq-text-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.qiq-demo-account:hover:not(:disabled) {
+  border-color: var(--qiq-accent);
+}
+.qiq-demo-account:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.qiq-demo-account-role {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--qiq-text-secondary);
+}

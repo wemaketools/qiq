@@ -60,6 +60,13 @@ describe('scan-bundle detects leaks in built assets (V-003)', () => {
     expect(scanBundleDir(dist).map((f) => f.rule)).toContain('service-role-literal');
   });
 
+  it('flags a demo persona password so the demo sign-in stays server-side', () => {
+    writeAsset('index-abc.js', 'const p="test1234";');
+    writeAsset('index-def.js', 'const n=42;');
+    const findings = scanBundleDir(dist).filter((f) => f.rule === 'demo-password-literal');
+    expect(findings.map((f) => f.file)).toEqual(['assets/index-abc.js']);
+  });
+
   it('flags a concrete secret VALUE supplied from the environment', () => {
     writeAsset('index-abc.js', `const k="${FAKE_SERVICE_ROLE_JWT}";`);
     const findings = scanBundleDir(dist, [FAKE_SERVICE_ROLE_JWT]);

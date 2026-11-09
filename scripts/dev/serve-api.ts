@@ -17,6 +17,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { Readable } from 'node:stream';
 
 import { defaultApiAccessDeps } from '../../src/server/domains/api-access/index.js';
+import { defaultDemoSignInDeps } from '../../src/server/domains/demo-sign-in/index.js';
 import { defaultIntakeDeps } from '../../src/server/domains/intake/index.js';
 import { defaultAlertsDeps } from '../../src/server/domains/alerts/index.js';
 import { defaultAssignmentsDeps } from '../../src/server/domains/assignments/index.js';
@@ -110,6 +111,7 @@ function main(): void {
     assignments: defaultAssignmentsDeps(),
     apiAccess: defaultApiAccessDeps(config),
     intake: defaultIntakeDeps(config),
+    demoSignIn: defaultDemoSignInDeps(config),
   });
   // Fixed port: reading a PORT override would mean reading the process environment directly,
   // which only the typed config module is allowed to do (AC-010).

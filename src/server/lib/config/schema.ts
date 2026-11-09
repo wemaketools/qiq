@@ -152,10 +152,12 @@ export const configSchema = z.object({
       }),
   ),
 
-  // Password the demo seed gives its personas. Read ONLY by `npm run db:seed:demo`, never by the
-  // application. Optional because a local stack falls back to the committed default; away from
-  // local the seed refuses without it, rather than re-publishing a password that lives in this
-  // repository — see resolveDemoPassword() in scripts/db/demo-data/catalog.ts.
+  // Password the demo seed gives its personas. Read by `npm run db:seed:demo` AND by the API's demo
+  // sign-in endpoint (POST /auth/demo-sign-in), which signs the sign-in page's demo roles in with it
+  // so the browser never holds it. Optional because a local stack falls back to the committed
+  // default; away from local the seed refuses without it, rather than re-publishing a password that
+  // lives in this repository, and the endpoint answers 503 — see resolveDemoPassword() in
+  // lib/config/demo-password.ts.
   //
   // Minimum 6 to match `minimum_password_length` in supabase/config.toml; the Auth Admin API
   // rejects anything shorter and the seed would fail halfway through provisioning identities.
@@ -229,7 +231,10 @@ export interface AppConfig {
     readonly attachmentsBucket: string;
   };
   readonly seed: {
-    /** Demo persona password. `null` locally, where the committed default applies. */
+    /**
+     * Demo persona password (DEMO_SEED_PASSWORD): read by the demo seed and by the demo sign-in
+     * endpoint. `null` locally, where the committed default applies.
+     */
     readonly demoPassword: string | null;
   };
   readonly jobs: {

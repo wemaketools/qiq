@@ -25,6 +25,9 @@
  * canonical key: a divergent key here would silently break every conversion metric.
  */
 
+import { DEMO_IDENTITIES } from '../../../src/ui/src/auth/demoAccountList.js';
+import type { DemoIdentity } from '../../../src/ui/src/auth/demoAccountList.js';
+
 export const DEMO_ID_BASE = 900_000_000;
 
 /** Bases for the two GLOBAL (non-partitioned) demo tables and their join tables. */
@@ -277,48 +280,17 @@ export const INTERNAL_ROLE: RoleDef = {
 // Personas (demo users)
 // ---------------------------------------------------------------------------------------------
 
-/**
- * The shared demo password for a LOCAL stack. Committed on purpose: it is documented in the README
- * and driven by the e2e suite, and a local Supabase stack grants nothing beyond the machine it runs
- * on. It must be at least `minimum_password_length` (6, supabase/config.toml) or the Auth Admin API
- * rejects the create, and well under GoTrue's 72-byte bcrypt cap.
- *
- * It is NOT a default for anywhere else. A hosted environment is reachable by anyone who learns its
- * URL, and this value is in the repository — see `resolveDemoPassword`.
- */
-export const LOCAL_DEMO_PASSWORD = 'test1234';
+export {
+  LOCAL_DEMO_PASSWORD,
+  resolveDemoPassword,
+  type DemoPasswordDecision,
+} from '../../../src/server/lib/config/demo-password.js';
 
-export type DemoPasswordDecision =
-  | { readonly ok: true; readonly password: string; readonly source: 'configured' | 'local-default' }
-  | { readonly ok: false; readonly reason: string };
-
-/**
- * Decides which password the demo personas get, and REFUSES rather than falling back to the
- * committed one outside local.
- *
- * The seed re-asserts every persona's password on each run (auth-users.ts), which is what makes a
- * rotated demo credential "heal" locally — and what silently re-published a known password on a
- * hosted environment every time anyone re-seeded it. Requiring DEMO_SEED_PASSWORD away from local
- * is what stops a re-seed from undoing a rotation.
- *
- * Pure, so the branch that matters can be tested exhaustively without a database or a stack.
- */
-export function resolveDemoPassword(appEnv: string, configured: string | null): DemoPasswordDecision {
-  const trimmed = configured?.trim() ?? '';
-  if (trimmed !== '') return { ok: true, password: trimmed, source: 'configured' };
-
-  if (appEnv === 'local') {
-    return { ok: true, password: LOCAL_DEMO_PASSWORD, source: 'local-default' };
-  }
-
-  return {
-    ok: false,
-    reason:
-      `Refusing to seed demo personas into "${appEnv}" with the committed local password.\n` +
-      `That value (${LOCAL_DEMO_PASSWORD}) is in the repository, and this seed re-asserts it on ` +
-      'every run — so a rotated password would be undone and re-published each time.\n\n' +
-      'Set DEMO_SEED_PASSWORD for this environment and re-run.',
-  };
+/** Name and email of a persona come from the list the sign-in quick-pick shares. */
+function demoIdentity(key: string): Pick<DemoIdentity, 'email' | 'firstName' | 'lastName'> {
+  const identity = DEMO_IDENTITIES.find((candidate) => candidate.key === key);
+  if (identity === undefined) throw new Error(`No demo identity for persona "${key}"`);
+  return { email: identity.email, firstName: identity.firstName, lastName: identity.lastName };
 }
 
 export interface PersonaDef {
@@ -345,9 +317,7 @@ export interface PersonaDef {
 export const PERSONAS: readonly PersonaDef[] = [
   {
     key: 'internal_admin',
-    email: 'internal.admin@quoteiq.local',
-    firstName: 'Ava',
-    lastName: 'Molefe',
+    ...demoIdentity('internal_admin'),
     tenantIndexes: [1, 2],
     rolePerTenant: ['admin', 'admin'],
     internal: true,
@@ -355,118 +325,90 @@ export const PERSONAS: readonly PersonaDef[] = [
   },
   {
     key: 'pilot_admin',
-    email: 'pilot.admin@quoteiq.local',
-    firstName: 'Boitumelo',
-    lastName: 'Seretse',
+    ...demoIdentity('pilot_admin'),
     tenantIndexes: [1],
     rolePerTenant: ['admin'],
   },
   {
     key: 'multi_manager',
-    email: 'sales.manager@quoteiq.local',
-    firstName: 'Kagiso',
-    lastName: 'Dube',
+    ...demoIdentity('multi_manager'),
     tenantIndexes: [1, 2],
     rolePerTenant: ['sales_manager', 'sales_manager'],
     lastTenantIndex: 1,
   },
   {
     key: 'exec',
-    email: 'executive@quoteiq.local',
-    firstName: 'Naledi',
-    lastName: 'Khama',
+    ...demoIdentity('exec'),
     tenantIndexes: [1],
     rolePerTenant: ['executive'],
   },
   {
     key: 'rm1',
-    email: 'rm.tebogo@quoteiq.local',
-    firstName: 'Tebogo',
-    lastName: 'Moremi',
+    ...demoIdentity('rm1'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'rm2',
-    email: 'rm.lorato@quoteiq.local',
-    firstName: 'Lorato',
-    lastName: 'Pheto',
+    ...demoIdentity('rm2'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'rm3',
-    email: 'rm.mpho@quoteiq.local',
-    firstName: 'Mpho',
-    lastName: 'Sekgoma',
+    ...demoIdentity('rm3'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'uw1',
-    email: 'uw.thabo@quoteiq.local',
-    firstName: 'Thabo',
-    lastName: 'Ramotswe',
+    ...demoIdentity('uw1'),
     tenantIndexes: [1],
     rolePerTenant: ['underwriter'],
   },
   {
     key: 'uw2',
-    email: 'uw.gorata@quoteiq.local',
-    firstName: 'Gorata',
-    lastName: 'Nkwe',
+    ...demoIdentity('uw2'),
     tenantIndexes: [1],
     rolePerTenant: ['underwriter'],
   },
   {
     key: 'single_rm',
-    email: 'rm.single@quoteiq.local',
-    firstName: 'Onalenna',
-    lastName: 'Botha',
+    ...demoIdentity('single_rm'),
     tenantIndexes: [1],
     rolePerTenant: ['relationship_manager'],
   },
   {
     key: 'partner_admin',
-    email: 'partner.admin@quoteiq.local',
-    firstName: 'Refilwe',
-    lastName: 'Modise',
+    ...demoIdentity('partner_admin'),
     tenantIndexes: [2],
     rolePerTenant: ['admin'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_manager',
-    email: 'partner.manager@quoteiq.local',
-    firstName: 'Kabelo',
-    lastName: 'Tau',
+    ...demoIdentity('partner_manager'),
     tenantIndexes: [2],
     rolePerTenant: ['sales_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_rm1',
-    email: 'partner.rm1@quoteiq.local',
-    firstName: 'Sethunya',
-    lastName: 'Kgosi',
+    ...demoIdentity('partner_rm1'),
     tenantIndexes: [2],
     rolePerTenant: ['relationship_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_rm2',
-    email: 'partner.rm2@quoteiq.local',
-    firstName: 'Tumelo',
-    lastName: 'Segwabe',
+    ...demoIdentity('partner_rm2'),
     tenantIndexes: [2],
     rolePerTenant: ['relationship_manager'],
     lastTenantIndex: 2,
   },
   {
     key: 'partner_uw',
-    email: 'partner.uw@quoteiq.local',
-    firstName: 'Bonolo',
-    lastName: 'Mogami',
+    ...demoIdentity('partner_uw'),
     tenantIndexes: [2],
     rolePerTenant: ['underwriter'],
     lastTenantIndex: 2,

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const authMock = {
   getSession: vi.fn(),
   signInWithPassword: vi.fn(),
+  setSession: vi.fn(),
   resetPasswordForEmail: vi.fn(),
   updateUser: vi.fn(),
   signOut: vi.fn(),
@@ -259,5 +260,38 @@ describe('supabase browser auth module', () => {
 
     // Assert
     expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('signInAsDemoPersona_WhenServerReturnsASession_ShouldSendOnlyTheEmailAndAdoptTheSession', async () => {
+    // Arrange
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ access_token: 'a.jwt', refresh_token: 'r', expires_at: 1 }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    authMock.setSession.mockResolvedValue({ error: null });
+    const { signInAsDemoPersona } = await loadModule();
+
+    // Act
+    const result = await signInAsDemoPersona('pilot.admin@quoteiq.local');
+
+    // Assert
+    expect(result).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/v1/auth/demo-sign-in');
+    expect(JSON.parse(init.body as string)).toEqual({ email: 'pilot.admin@quoteiq.local' });
+    expect(authMock.setSession).toHaveBeenCalledWith({ access_token: 'a.jwt', refresh_token: 'r' });
+  });
+
+  it('signInAsDemoPersona_WhenServerRefuses_ShouldFailWithoutTouchingTheSession', async () => {
+    // Arrange
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 404 })));
+    const { signInAsDemoPersona } = await loadModule();
+
+    // Act
+    const result = await signInAsDemoPersona('pilot.admin@quoteiq.local');
+
+    // Assert
+    expect(result.ok).toBe(false);
+    expect(authMock.setSession).not.toHaveBeenCalled();
   });
 });

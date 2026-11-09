@@ -30,7 +30,10 @@ npm run db:seed:demo     # layers on the full demo dataset (two tenants, persona
 npm run dev              # API on http://127.0.0.1:3001 + SPA on http://localhost:5173
 ```
 
-Open http://localhost:5173 and sign in with a seeded demo persona (password `test1234`).
+Open http://localhost:5173 and sign in with a seeded demo persona (password `test1234`). The sign-in page also lists the demo roles under the form: click one to sign in. The API signs the
+persona in with `DEMO_SEED_PASSWORD` (the local default, `test1234`, when unset locally), so no demo
+password ships in the browser bundle. On a deployed site set `DEMO_SEED_PASSWORD` in the Vercel
+environment, or a click only fills in the email.
 Reprint the local stack URLs and keys at any time with `npx supabase status`.
 
 The full clean-checkout runbook, including authentication details and troubleshooting, is
@@ -147,7 +150,7 @@ Two environment values are needed per deployed environment beyond the applicatio
 - **`JOB_CRON_BASE_URL`** — the origin pg_cron calls back on. It must be **stable**: a Vercel
   preview URL changes per deployment, so use a branch alias or a custom domain. Unset, the step
   skips and the schedules stay no-ops.
-- **`DEMO_SEED_PASSWORD`** — only where demo data is hosted (see above).
+- **`DEMO_SEED_PASSWORD`** — only where demo data is hosted (see above); the API reads it too, for the sign-in page's one-click demo roles.
 
 The application itself deploys through Vercel's own Git integration, in parallel with this
 workflow. For additive migrations that ordering is safe; a breaking change wants a human
