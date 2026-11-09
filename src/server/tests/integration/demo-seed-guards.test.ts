@@ -12,9 +12,10 @@ import { repoRoot } from './helpers/repo.js';
  *
  * Two guards, both about damage that cannot be undone:
  *
- *   1. production is refused OUTRIGHT, before --env is even consulted. The dataset is two invented
- *      tenants, sixteen invented users and several hundred invented leads and quotes, and nothing
- *      removes them again. A flag that merely has to be typed is a weaker guarantee than a refusal.
+ *   1. production is refused before --env is even consulted, unless opted in with
+ *      --allow-production-demo (a production that is itself a demo site), and even then --env
+ *      must still name it. The dataset is two invented tenants, sixteen invented users and several
+ *      hundred invented leads and quotes, and nothing removes them again.
  *   2. any non-local target without DEMO_SEED_PASSWORD is refused, because the seed re-asserts
  *      every persona's password on each run — falling back to the committed one would undo a
  *      rotation and re-publish a password that lives in this repository.
@@ -93,6 +94,17 @@ describe('demo seed guards', () => {
     const result = runSeed({ APP_ENV: 'production', DEMO_SEED_PASSWORD: 'a-configured-demo-password' });
 
     expect(result.output).toContain('db:admin:create');
+  });
+
+  it('still requires --env=production when production is opted in with --allow-production-demo', () => {
+    const result = runSeed(
+      { APP_ENV: 'production', DEMO_SEED_PASSWORD: 'a-configured-demo-password' },
+      ['--allow-production-demo'],
+    );
+
+    expect(result.status, `expected a refusal, got:\n${result.output}`).not.toBe(0);
+    expect(result.output).toMatch(/re-run it naming that environment/i);
+    expect(result.output).not.toMatch(/will not run against production/i);
   });
 
   it('refuses a non-local target when DEMO_SEED_PASSWORD is unset', () => {

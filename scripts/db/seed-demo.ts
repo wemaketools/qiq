@@ -11,6 +11,8 @@
  * Usage:
  *   npm run db:seed:demo                    seed the configured (local) database
  *   npm run db:seed:demo -- --env=dev       required to seed anything that is not local
+ *   npm run db:seed:demo -- --env=production --allow-production-demo
+ *                                           a production that is itself a demo site
  *
  * SAFETY (A-1, M-11: "never run automatically in production"). Identical gate to the baseline seed:
  * the target comes from the loaded configuration, and a non-local target additionally requires the
@@ -29,7 +31,7 @@ import { applyDemoSeed } from './demo-data/apply.js';
 import { resolveDemoPassword } from './demo-data/catalog.js';
 import { provisionDemoAuthUsers } from './demo-data/auth-users.js';
 import { verifyDemoSeed } from './demo-data/verify.js';
-import { decideSeedTarget } from './seed-target.js';
+import { ALLOW_PRODUCTION_DEMO_FLAG, decideDemoSeedProduction, decideSeedTarget } from './seed-target.js';
 
 /**
  * `--env=staging` -> "staging"; `--env staging` -> "staging"; absent -> null. Copied from seed.ts
@@ -57,12 +59,13 @@ async function main(): Promise<void> {
   const unknown = argv.filter(
     (arg, index) =>
       arg !== '--demo' &&
+      arg !== ALLOW_PRODUCTION_DEMO_FLAG &&
       !arg.startsWith('--env=') &&
       arg !== '--env' &&
       argv[index - 1] !== '--env',
   );
   if (unknown.length > 0) {
-    fail(`Unknown argument(s): ${unknown.join(', ')}\nUsage: npm run db:seed:demo -- [--env=<environment>]`);
+    fail(`Unknown argument(s): ${unknown.join(', ')}\nUsage: npm run db:seed:demo -- [--env=<environment>] [${ALLOW_PRODUCTION_DEMO_FLAG}]`);
   }
 
   let config: AppConfig;
@@ -75,20 +78,12 @@ async function main(): Promise<void> {
     throw error;
   }
 
-  // PRODUCTION IS REFUSED OUTRIGHT, before the --env gate is even consulted.
-  //
-  // Every other target is a judgement call the operator can make by naming it; this one is not.
-  // The demo dataset is two invented tenants, sixteen invented users and several hundred invented
-  // leads and quotes, and there is no undo — M-11 requires it "never run automatically in
-  // production", and a flag that merely has to be typed is a weaker guarantee than a refusal.
-  if (config.appEnv === 'production') {
-    fail(
-      'The demo seed will not run against production.\n\n' +
-        'It creates fabricated tenants, users, leads and quotes, and nothing removes them again. ' +
-        'Production is bootstrapped with `npm run db:admin:create`, which creates one real account ' +
-        'and no data.',
-    );
-  }
+  // PRODUCTION IS REFUSED before the --env gate is even consulted, unless the operator opts a
+  // production demo site in with --allow-production-demo. The dataset is two invented tenants,
+  // sixteen invented users and several hundred invented leads and quotes, and there is no undo —
+  // M-11 requires it "never run automatically in production".
+  const production = decideDemoSeedProduction(config.appEnv, argv.includes(ALLOW_PRODUCTION_DEMO_FLAG));
+  if (!production.allowed) fail(production.reason);
 
   const decision = decideSeedTarget(config.appEnv, parseEnvFlag(argv));
   if (!decision.allowed) {

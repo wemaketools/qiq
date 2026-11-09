@@ -8,7 +8,12 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { decideSeedTarget, nonLocalRefusalHint } from '../../../../scripts/db/seed-target.js';
+import {
+  ALLOW_PRODUCTION_DEMO_FLAG,
+  decideDemoSeedProduction,
+  decideSeedTarget,
+  nonLocalRefusalHint,
+} from '../../../../scripts/db/seed-target.js';
 
 const nonLocalEnvs = ['dev', 'preview', 'staging', 'production'] as const;
 
@@ -64,4 +69,28 @@ describe('decideSeedTarget', () => {
   it('names the offending environment in the operator hint', () => {
     expect(nonLocalRefusalHint('production')).toContain('--env=production');
   });
+});
+
+describe('decideDemoSeedProduction', () => {
+  it('refusesProduction_WhenTheOptInFlagIsAbsent_AndNamesTheFlagAndDbAdminCreate', () => {
+    const decision = decideDemoSeedProduction('production', false);
+
+    expect(decision.allowed).toBe(false);
+    if (decision.allowed) throw new Error('unreachable');
+    expect(decision.reason).toMatch(/will not run against production/i);
+    expect(decision.reason).toContain('db:admin:create');
+    expect(decision.reason).toContain(ALLOW_PRODUCTION_DEMO_FLAG);
+  });
+
+  it('allowsProduction_WhenTheOptInFlagIsPresent', () => {
+    expect(decideDemoSeedProduction('production', true)).toEqual({ allowed: true, appEnv: 'production' });
+  });
+
+  it.each(['local', 'dev', 'preview', 'staging'] as const)(
+    'leaves a %s target to the --env gate, flag or not',
+    (appEnv) => {
+      expect(decideDemoSeedProduction(appEnv, false).allowed).toBe(true);
+      expect(decideDemoSeedProduction(appEnv, true).allowed).toBe(true);
+    },
+  );
 });

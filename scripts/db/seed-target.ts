@@ -52,3 +52,26 @@ export function decideSeedTarget(appEnv: AppEnv, confirmedEnv: string | null): S
 
   return { allowed: true, appEnv };
 }
+
+/** The flag that opts a production demo site into the demo seed. */
+export const ALLOW_PRODUCTION_DEMO_FLAG = '--allow-production-demo';
+
+/**
+ * The demo seed's production gate, checked BEFORE `decideSeedTarget`. Production is refused unless
+ * the operator passes `--allow-production-demo`, for a production that is itself a demo site (one
+ * whose sign-in page offers the demo roles). The flag only lifts this gate: `--env=production` is
+ * still required and must still match the loaded configuration.
+ */
+export function decideDemoSeedProduction(appEnv: AppEnv, allowProductionDemo: boolean): SeedTargetDecision {
+  if (appEnv !== 'production' || allowProductionDemo) return { allowed: true, appEnv };
+  return {
+    allowed: false,
+    reason:
+      'The demo seed will not run against production.\n\n' +
+      'It creates fabricated tenants, users, leads and quotes, and nothing removes them again. ' +
+      'Production is bootstrapped with `npm run db:admin:create`, which creates one real account ' +
+      'and no data.\n\n' +
+      `If this production IS a demo site, opt in deliberately with ${ALLOW_PRODUCTION_DEMO_FLAG} ` +
+      '(together with --env=production).',
+  };
+}

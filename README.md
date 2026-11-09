@@ -92,9 +92,11 @@ Two rules follow from that:
 
 - **Set `DEMO_SEED_PASSWORD` in the secret store** for any environment that hosts demo data. It is
   a secret: it grants sign-in to all sixteen personas, including `internal.admin`.
-- **The demo seed will not run against `production`, ever.** It is refused outright, before the
-  `--env` gate — the dataset is fabricated tenants, users, leads and quotes, and nothing removes
-  them again. Production is bootstrapped with `db:admin:create` instead (below).
+- **The demo seed refuses `production` by default.** It is refused before the `--env` gate — the
+  dataset is fabricated tenants, users, leads and quotes, and nothing removes them again. A real
+  production is bootstrapped with `db:admin:create` instead (below). A production that is itself a
+  demo site (its sign-in page offers the demo roles) opts in deliberately:
+  `doppler run -p qiq -c prd -- npm run db:seed:demo -- --env=production --allow-production-demo`.
 
 Anything hosting demo personas is reachable by whoever learns its URL. A non-public password makes
 that survivable; it does not make it private. If an environment needs to be private, put Vercel
